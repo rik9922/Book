@@ -44,3 +44,4 @@ The repository maintains an installed skill library under `.agents/skills/` (and
 - **Architecture & Backend**: `architecture-patterns`, `microservices-patterns`, `database-migrations`, `postgres-patterns`, `postgresql-table-design`, `docker-compose-patterns`, `nodejs-best-practices`
 - **3D Modeling & Asset Pipeline**: `threejs-fundamentals`, `threejs-geometry`, `threejs-materials`, `threejs-lighting`, `threejs-animation`, `threejs-loaders`, `threejs-textures`, `threejs-interaction`, `threejs-postprocessing`, `threejs-performance`, `threejs-react-three-fiber`, `threejs-shaders`, `threejs-asset-pipeline`, `blender-web-pipeline`, `realitykit`, `swiftui-pro`
 - **Design & UI/UX**: `design-system`, `emil-design-eng`, `frontend-design`, `impeccable`, `shadcn`, `ui-ux-pro-max`, `web-design-guidelines`
+
