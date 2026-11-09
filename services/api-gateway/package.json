@@ -1,0 +1,26 @@
+{
+  "name": "@memory-capsule/api-gateway",
+  "version": "1.0.0",
+  "private": true,
+  "main": "./src/server.ts",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc --noEmit",
+    "start": "node --import tsx src/server.ts",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@fastify/cors": "^10.0.2",
+    "@fastify/helmet": "^13.0.1",
+    "@fastify/http-proxy": "^10.0.1",
+    "@fastify/rate-limit": "^10.2.2",
+    "@memory-capsule/contracts": "workspace:*",
+    "@memory-capsule/logger": "workspace:*",
+    "fastify": "^5.2.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "tsx": "^4.19.3",
+    "typescript": "^7.0.2"
+  }
+}

@@ -1,41 +1,19 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "lib": [
-      "dom",
-      "dom.iterable",
-      "esnext"
-    ],
-    "allowJs": true,
-    "skipLibCheck": true,
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
     "strict": true,
-    "noEmit": true,
     "esModuleInterop": true,
-    "module": "esnext",
-    "moduleResolution": "bundler",
-    "resolveJsonModule": true,
-    "isolatedModules": true,
-    "jsx": "react-jsx",
-    "incremental": true,
-    "plugins": [
-      {
-        "name": "next"
-      }
-    ],
+    "skipLibCheck": true,
     "paths": {
-      "@/*": [
-        "./src/*"
-      ]
+      "@memory-capsule/contracts": ["./packages/contracts/src/index.ts"],
+      "@memory-capsule/logger": ["./packages/logger/src/index.ts"],
+      "@memory-capsule/events": ["./packages/events/src/index.ts"],
+      "@memory-capsule/jobs": ["./packages/jobs/src/index.ts"],
+      "@memory-capsule/storage": ["./packages/storage/src/index.ts"],
+      "@memory-capsule/database": ["./packages/database/src/index.ts"]
     }
   },
-  "include": [
-    "next-env.d.ts",
-    "**/*.ts",
-    "**/*.tsx",
-    ".next/types/**/*.ts",
-    ".next/dev/types/**/*.ts"
-  ],
-  "exclude": [
-    "node_modules"
-  ]
+  "include": ["packages/**/*", "services/**/*", "tests/**/*"]
 }
