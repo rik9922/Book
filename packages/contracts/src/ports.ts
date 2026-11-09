@@ -346,3 +346,4 @@ export function resolveServicePort(serviceId: string, env: NodeJS.ProcessEnv = p
 export function getAllRegisteredPorts(): PortDefinition[] {
   return Object.values(PORT_REGISTRY);
 }
+

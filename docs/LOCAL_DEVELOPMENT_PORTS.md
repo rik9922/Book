@@ -94,3 +94,4 @@ graph TD
 1. **Explicit Binding Failure**: Every Fastify and gRPC server explicitly traps `EADDRINUSE`. The server will never silently crash or bind to an unpredictable random port.
 2. **Mutual Exclusion Lock**: Orchestration scripts use `.memoria/memoria.lock` to prevent racing startup commands.
 3. **PID Tracking**: Service PIDs are recorded in `.memoria/pids/<serviceId>.json` for deterministic, safe teardown. Unrelated host processes are never killed.
+

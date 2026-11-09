@@ -128,3 +128,4 @@ tail -n 50 .memoria/logs/memory-service.log
 tail -n 50 .memoria/logs/media-service.log
 tail -n 50 .memoria/logs/api-gateway.log
 ```
+

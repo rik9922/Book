@@ -107,3 +107,4 @@ pnpm run dev:down
 ```
 
 This sends `SIGTERM` to each tracked Memoria PID, waits up to 5 seconds for in-flight requests and database connections to close gracefully, removes PID tracking metadata, and ensures clean release of the process lock.
+
