@@ -68,3 +68,4 @@ All clients communicate using schemas defined in [`@memory-capsule/contracts`](.
 - `Memory`: Canonical memory entity (`id`, `spaceId`, `authorId`, `title`, `content`, `format`, `capturedAt`, `location`, `tags`, `mediaIds`, `isFavorite`).
 - `BookDocument`: Canonical photobook specification (`id`, `title`, `coverMaterial`, `coverColor`, `dimensions`, `pages`, `spreads`, `editionHash`).
 - `ApiResponse<T>`: Centralized success/error response envelope with correlation ID tracking.
+

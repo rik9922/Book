@@ -98,3 +98,4 @@ The following implementation phases will now be executed in dependency order:
 5. **Phase 5: Local Tesseract OCR Media Processing** (OCR worker, image preprocessing, PDF page extraction, PostgreSQL GIN full-text index).
 6. **Phase 6 & 7: Core Application Workflows** (Archive, Bookshelf, 3D Book Studio, Admin security boundary).
 7. **Phase 8: Automated Verification & Acceptance Evidence** (Integration test suites, simulator verification, performance benchmarks).
+

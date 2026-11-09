@@ -54,3 +54,4 @@ Memoria uses optimistic concurrency based on timestamped versioning (`updatedAt`
 3. **Preservation Policy**: A client NEVER silently overwrites a newer server version. In cases where automatic merge is unsafe (e.g. conflicting story text edits), Memoria preserves both versions:
    - Server version remains active.
    - Client version is saved as a distinct draft snapshot titled `"[Conflicted Copy] <Title>"`, ensuring zero data loss.
+

@@ -60,3 +60,4 @@ python3 scripts/generate_book_model.py
 Outputs:
 - `apps/web/public/models/heirloom_book.glb`
 - `apps/web/public/models/memoria_heirloom_book.glb`
+

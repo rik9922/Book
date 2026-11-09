@@ -126,3 +126,4 @@ The underlying GIN index `idx_ocr_transcripts_fts` guarantees sub-millisecond ke
 - **Timeout Boundaries**: Child process executions are wrapped in promise timeouts.
 - **Cleanup Guarantee**: Sandboxed temporary directories are guaranteed deletion even on uncaught errors.
 - **Idempotency**: Multiple invocations on the same media asset replace or augment transcript records cleanly without duplicating storage quotas.
+

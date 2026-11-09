@@ -149,3 +149,4 @@ Run the automated OCR pipeline test suite:
 ```bash
 NODE_ENV=test pnpm tsx --test tests/ocr-pipeline.test.ts
 ```
+

@@ -39,3 +39,4 @@ export interface BookPrintSpec {
 ```
 
 This guarantees 100% visual fidelity between the on-screen 3D interactive preview and the physically bound volume.
+

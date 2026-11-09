@@ -49,3 +49,4 @@ Execution of `tests/ocr-pipeline.test.ts`:
 - **Image Preprocessing Duration**: ~7 ms via Sharp V8 libvips bindings.
 - **Tesseract Text Extraction (single image)**: ~125 ms for full TSV + text extraction.
 - **PostgreSQL Full-Text Search**: <1 ms execution time over indexed GIN vector.
+

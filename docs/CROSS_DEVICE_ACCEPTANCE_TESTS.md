@@ -26,3 +26,4 @@ pnpm run test:ios:e2e
 # Execute backend communication & REST/gRPC translation tests
 pnpm test
 ```
+

@@ -75,3 +75,4 @@ This produces a natural, tactile flutter under interactive inspection.
 | PBR Model | Metallic-Roughness (Disney principled) | Physically Based Shader Graph |
 | Shadowing | `ContactShadows` depth projection | Real-time scene directional shadows |
 | Animation | Frame-rate independent lerp | CoreAnimation / RealityKit Timelines |
+

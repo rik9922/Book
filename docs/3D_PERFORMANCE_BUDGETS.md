@@ -29,3 +29,4 @@
    Instead of expensive real-time cascading shadow maps with PCF filtering across the entire canvas, a single planar contact shadow pass (`@react-three/drei` `ContactShadows`) renders smooth soft ambient occlusion underneath the book.
 4. **Frame-Rate Independent Interpolation**:
    All animations (floating bob, cover opening lerp, page flutter) are parameterized by delta time ($\Delta t$), preventing jank on high-refresh (120 Hz ProMotion) displays.
+
