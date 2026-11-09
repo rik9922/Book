@@ -1,0 +1,84 @@
+{
+  "Servers": {
+    "1": {
+      "Name": "Memoria - Primary Database (Local Cluster)",
+      "Group": "Memoria Ecosystem",
+      "Host": "localhost",
+      "Port": 5432,
+      "MaintenanceDB": "postgres",
+      "Username": "ritik",
+      "SSLMode": "prefer",
+      "Comment": "Master PostgreSQL 17 cluster hosting all Memoria microservice databases"
+    },
+    "2": {
+      "Name": "Memoria - Identity Service (identity_db)",
+      "Group": "Memoria Ecosystem",
+      "Host": "localhost",
+      "Port": 5432,
+      "MaintenanceDB": "identity_db",
+      "Username": "ritik",
+      "SSLMode": "prefer",
+      "Comment": "Stores user accounts, passwords, sessions, and authentication credentials"
+    },
+    "3": {
+      "Name": "Memoria - Memory Service (memory_db)",
+      "Group": "Memoria Ecosystem",
+      "Host": "localhost",
+      "Port": 5432,
+      "MaintenanceDB": "memory_db",
+      "Username": "ritik",
+      "SSLMode": "prefer",
+      "Comment": "Stores memory spaces, memory stories, tags, metadata, and profile links"
+    },
+    "4": {
+      "Name": "Memoria - Media Service (media_db)",
+      "Group": "Memoria Ecosystem",
+      "Host": "localhost",
+      "Port": 5432,
+      "MaintenanceDB": "media_db",
+      "Username": "ritik",
+      "SSLMode": "prefer",
+      "Comment": "Stores media assets, upload sessions, checksums, and image/video derivative paths"
+    },
+    "5": {
+      "Name": "Memoria - Collaboration Service (collab_db)",
+      "Group": "Memoria Ecosystem",
+      "Host": "localhost",
+      "Port": 5432,
+      "MaintenanceDB": "collab_db",
+      "Username": "ritik",
+      "SSLMode": "prefer",
+      "Comment": "Stores family space memberships, invitations, permission roles, and comments"
+    },
+    "6": {
+      "Name": "Memoria - Book Studio Service (book_db)",
+      "Group": "Memoria Ecosystem",
+      "Host": "localhost",
+      "Port": 5432,
+      "MaintenanceDB": "book_db",
+      "Username": "ritik",
+      "SSLMode": "prefer",
+      "Comment": "Stores book drafts, page spreads, chapters, covers, and frozen digital editions"
+    },
+    "7": {
+      "Name": "Memoria - Commerce & Print Service (commerce_db)",
+      "Group": "Memoria Ecosystem",
+      "Host": "localhost",
+      "Port": 5432,
+      "MaintenanceDB": "commerce_db",
+      "Username": "ritik",
+      "SSLMode": "prefer",
+      "Comment": "Stores physical book orders, fulfillment states, and shipping addresses"
+    },
+    "8": {
+      "Name": "Memoria - Notification Service (notification_db)",
+      "Group": "Memoria Ecosystem",
+      "Host": "localhost",
+      "Port": 5432,
+      "MaintenanceDB": "notification_db",
+      "Username": "ritik",
+      "SSLMode": "prefer",
+      "Comment": "Stores real-time in-app notifications, invites, and background job alerts"
+    }
+  }
+}

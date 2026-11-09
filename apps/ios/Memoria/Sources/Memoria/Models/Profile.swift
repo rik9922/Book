@@ -29,3 +29,4 @@ public struct FamilyMemberProfile: Identifiable, Codable, Sendable {
         self.avatarUrl = avatarUrl
     }
 }
+

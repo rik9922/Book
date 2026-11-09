@@ -93,3 +93,4 @@ pnpm run test:ios:swift
 - **Permissions**: `photos: granted`, `camera: granted`, `microphone: granted`
 - **Database Records Verified**: 6 memories persisted in PostgreSQL `memory_db`
 - **Visual Screenshot**: `testing/reports/evidence/ios_simulator_e2e_verified_*.png`
+

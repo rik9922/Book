@@ -35,3 +35,4 @@ export class PermissionManager {
     await this.setPermission(udid, "grant", "microphone", bundleId);
   }
 }
+

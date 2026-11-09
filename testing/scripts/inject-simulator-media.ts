@@ -57,3 +57,4 @@ if (process.argv[1] && process.argv[1].endsWith("inject-simulator-media.ts")) {
       process.exit(1);
     });
 }
+

@@ -84,3 +84,4 @@ public struct MemorySpace: Identifiable, Codable, Sendable {
         self.role = role
     }
 }
+

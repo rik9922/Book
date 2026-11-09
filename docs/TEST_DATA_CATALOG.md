@@ -70,3 +70,4 @@
    - *Location*: Arashiyama, Kyoto, Japan (35.0166° N, 135.6713° E)
    - *Media*: `kyoto_bamboo_walk.jpg`
    - *Tags*: `kyoto`, `japan`, `travel`, `solitude`, `nature`
+

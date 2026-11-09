@@ -84,3 +84,4 @@ export async function generateSyntheticVideos(outputDir: string): Promise<Array<
 
   return results;
 }
+

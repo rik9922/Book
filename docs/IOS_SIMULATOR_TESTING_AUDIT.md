@@ -79,3 +79,4 @@ This audit assesses the repository's native iOS application readiness, simulator
 - Execute end-to-end scenarios on the active iOS Simulator.
 - Capture terminal logs, database records, and simulator screenshots.
 - Record evidence in `docs/IOS_SIMULATOR_TESTING.md` and `docs/TEST_DATA_CATALOG.md`.
+

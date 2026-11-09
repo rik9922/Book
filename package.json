@@ -14,7 +14,8 @@
     "test:ios:inject": "node --import tsx testing/scripts/inject-simulator-media.ts",
     "test:ios:e2e": "node --env-file=.env --import tsx testing/scripts/run-ios-e2e-tests.ts",
     "test:ios:reset": "node --env-file=.env --import tsx testing/scripts/reset-test-data.ts",
-    "test:ios:swift": "cd apps/ios/Memoria && swift test"
+    "test:ios:swift": "cd apps/ios/Memoria && swift test",
+    "setup:pgadmin": "node --import tsx scripts/setup-pgadmin.ts"
   },
   "devDependencies": {
     "@types/jsonwebtoken": "^9.0.10",
