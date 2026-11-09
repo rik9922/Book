@@ -44,3 +44,4 @@ This project operates under a strict **$0 absolute financial boundary**. The dev
 4. **Transparent Warning Thresholds**:
    - At 80% quota: Warning banner appears in UI.
    - At 100% quota: Further uploads paused with friendly prompt to export or delete unused assets. Existing memories are permanently preserved.
+
