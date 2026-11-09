@@ -14,3 +14,4 @@
 - **DragGesture**: Real-time page drag tracking in screen space projected onto the 3D book plane.
 - **Spatial Audio**: Tactile paper rustle sound effect triggered during page turns using AVFoundation.
 - **Haptic Feedback**: `UIImpactFeedbackGenerator(style: .light)` fires as page passes the 90° halfway threshold.
+

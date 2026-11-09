@@ -22,3 +22,4 @@
 | **ADMIN-01** | Admin Overview | Admin Operations | `GET /api/v1/admin/overview` | Platform storage, active users, queue throughput | Real-time metrics streaming |
 | **ADMIN-11** | Queue Monitor | Admin Operations | `GET /api/v1/admin/queues` | BullMQ worker concurrency, active/waiting jobs | Refreshing, Worker paused, Retried |
 | **ADMIN-18** | Order Queue | Commerce Service | `GET /api/v1/commerce/orders` | Physical book orders, print supplier status | Filter by status, Details view |
+

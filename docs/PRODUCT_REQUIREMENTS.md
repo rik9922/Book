@@ -32,3 +32,4 @@ Memory Capsule is a premier, privacy-first cross-platform ecosystem designed for
 1. **The Family Archivist (Elena, 42)**: Curates 3 generations of family photographs, audio interviews of grandparents, and milestones for her two children. Needs robust organization by person/pet profile, collaborative invites for siblings, and high-quality printed keepsakes.
 2. **The Milestone Celebrator (Marcus & Sophia, 29)**: Preparing a wedding and travel book. Wants interactive 3D digital sharing with guests followed by a luxurious hardcover edition with gold foil debossing.
 3. **The Heritage Contributor (David, 68)**: Records voice notes and oral stories using native iOS quick capture, easily attaching reflections to old scanned black-and-white family photographs.
+

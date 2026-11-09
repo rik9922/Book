@@ -52,3 +52,4 @@
 - `GET /api/v1/media/spaces/:id/quota` (-> 200 `{ usedBytes, maxBytes, usedPercentage }`)
 - `POST /api/v1/books` (body: `{ spaceId, title, format, coverColor, foilStamping }` -> 201 `{ book }`)
 - `POST /api/v1/books/:id/freeze` (-> 200 `{ frozenBook, frozenEditionHash }`)
+

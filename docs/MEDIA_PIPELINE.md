@@ -24,3 +24,4 @@ To satisfy the **Zero-Budget / No-Payment-Method Policy**, the media subsystem o
 - Operational queue: BullMQ on Redis (or in-memory queue when Redis is offline in test).
 - Retries: 3 attempts with exponential backoff (1s, 5s, 30s).
 - Unrecoverable jobs land in Dead-Letter Queue (DLQ) visible in `ADMIN-12`.
+

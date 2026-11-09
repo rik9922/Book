@@ -15,3 +15,4 @@ Pages curl along a moving conical deformation axis using custom GLSL shaders:
 - Target: Under 120 MB total VRAM consumption across desktop and mobile browsers.
 - Only $N-1, N, N+1$ spreads maintain high-resolution (2048px) WebGL textures.
 - Automated cleanup via `useEffect` dispose triggers when unmounting 3D views.
+

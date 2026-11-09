@@ -13,3 +13,4 @@
 ## 3. Administrative Protection & Auditing
 - Administrative roles (`ADMIN-01` to `ADMIN-26`) do **not** have blanket visibility into private family albums.
 - Accessing user media for technical support requires a formal, multi-party authorized access request (`ADMIN-05`), logged immutably in `admin_db` audit tables.
+

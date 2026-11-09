@@ -52,3 +52,4 @@ export interface PageElement {
   style: Record<string, any>;         // Typography, font-size, crop offsets
 }
 ```
+

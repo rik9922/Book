@@ -10,3 +10,4 @@
 - 50 MB maximum per single file upload.
 - Automated WebP/AVIF derivative compression to minimize disk utilization.
 - Transparent quota indicators across PWA and iOS settings.
+

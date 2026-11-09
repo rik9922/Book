@@ -44,3 +44,4 @@
 - **Zero-Coupling**: Services never perform cross-database queries or shared memory reads.
 - **Fail-Safe Operation**: If NATS or Redis is temporarily unavailable, services gracefully degrade to local in-memory event and job queues without fatal termination.
 - **Direct-to-Storage Ingestion**: Binary streams go directly to storage endpoints, keeping the API Gateway lean and responsive under heavy loads.
+

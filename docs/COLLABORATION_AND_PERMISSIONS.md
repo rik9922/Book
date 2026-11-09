@@ -24,3 +24,4 @@
   - `authorId`
   - `timestamp`
   - `previousState` (for rollback/recovery in PWA-54).
+

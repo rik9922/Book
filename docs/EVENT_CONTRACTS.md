@@ -50,3 +50,4 @@ export interface DomainEvent<T = unknown> {
 - Subject: `book.edition_frozen`
 - Payload: `{ bookId: string, editionHash: string, pageCount: number, format: string }`
 - Consumers: `commerce-service` (print prep), `notification-service`
+

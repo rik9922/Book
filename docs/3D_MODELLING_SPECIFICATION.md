@@ -64,3 +64,4 @@ The vertex shader evaluates:
 1. **Longitudinal Bend**: Curvature along the page width from the spine gutter to the outer edge.
 2. **Diagonal Lift**: Conical curl lifting the top or bottom corner depending on the drag origin.
 3. **Backside Occlusion**: Accurate front-page vs back-page texture coordinate mapping preventing mirror-image text artifacts.
+

@@ -229,3 +229,4 @@ if __name__ == "__main__":
     else:
         out = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "apps/web/public/models/heirloom_book.glb")
         export_standalone_glb(out)
+

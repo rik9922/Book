@@ -72,3 +72,4 @@ erDiagram
 - `memories(space_id, is_favorite)`: Filtered index for favorites.
 - `profiles(space_id)`: Foreign key index.
 - `media_assets(space_id, status)`: Index for upload session confirmation and cleanup.
+

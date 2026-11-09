@@ -20,3 +20,4 @@ Prior to freezing a book edition for physical manufacturing, the preflight engin
 ## 3. Supplier Integration Sandboxing
 - Integrations with physical printers (e.g., Peecho, Gelato, Prodigi) are accessed via modular supplier adapters.
 - In zero-budget development mode, orders run against verified sandbox mock endpoints generating certified PDF proofs without charging real payment methods.
+

@@ -52,3 +52,4 @@ To prevent out-of-memory crashes on mobile browsers when rendering a 100-page bo
 - Only the **Current Spread ($N$)**, **Previous Spread ($N-1$)**, and **Next Spread ($N+1$)** reside in active GPU VRAM as high-resolution textures (2048x2048).
 - Distant spreads use low-resolution 256x256 mipmap placeholders until the user approaches those pages.
 - When navigating away, WebGL textures are explicitly disposed via `texture.dispose()`.
+

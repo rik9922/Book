@@ -13,3 +13,4 @@
 | `notification-service`| `4008` | `notification_db` | Push/in-app/email alerts triggered by domain events | `notification.dispatched` |
 | `search-service` | `4009` | `search_db` | Full-text memory search, tag indexing, facet queries | — |
 | `admin-service` | `4010` | `admin_db` | Storage audits, queue monitoring, authorized support access | `admin.audit_logged` |
+

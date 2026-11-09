@@ -19,3 +19,4 @@
 - **Service Integration Tests**: Uses Fastify's native `.inject()` to execute end-to-end HTTP lifecycles without spinning up physical network ports.
 - **3D Visual & Performance Tests**: Benchmarks WebGL frame rates, memory disposal, and draw-call counts to ensure 60 FPS on standard devices.
 - **Zero-Budget Compliance Tests**: Verifies quota rejection and file-size threshold enforcement.
+

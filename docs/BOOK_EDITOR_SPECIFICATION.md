@@ -25,3 +25,4 @@ The Book Studio (PWA-64) operates as a high-performance publishing application r
 ## 2. Real-Time Bidirectional Synchronization
 - Edits made on the 2D canvas (resizing an image, cropping a milestone photo, editing a story) update the active Zustand book state.
 - When the user toggles to the **3D Interactive Reader (PWA-68)**, the dynamic WebGL page-curl shader renders the exact modified canvas spread texture without delay.
+

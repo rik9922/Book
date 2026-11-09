@@ -94,3 +94,4 @@ sequenceDiagram
 2. **Edition Freeze**: Backend generates cryptographic SHA-256 hash of the complete book document snapshot and sets `isFrozenForPrint = true`. Subsequent digital edits spawn a new draft version without affecting the print order.
 3. **Checkout & Shipping**: User enters shipping destination (PWA-72) and completes order (PWA-73).
 4. **Order Tracking**: Order transitions from `preflight_passed` → `sent_to_press` → `bound` → `shipped` (PWA-75).
+
