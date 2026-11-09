@@ -228,49 +228,122 @@ export class PostgresSpaceRepository implements SpaceRepository {
 // ----------------------------------------------------------------------------
 // 3. Memory Repository
 // ----------------------------------------------------------------------------
+export interface KeysetPaginationOptions {
+  cursorTime?: string;
+  cursorId?: string;
+  limit?: number;
+  profileId?: string;
+  isFavorite?: boolean;
+}
+
+export interface KeysetPaginationResult<T> {
+  items: T[];
+  nextCursor: { cursorTime: string; cursorId: string } | null;
+  hasMore: boolean;
+}
+
 export interface MemoryRepository {
   createMemory(memory: Memory): Promise<Memory>;
-  findMemoryById(id: string): Promise<Memory | null>;
+  findMemoryById(id: string, includeDeleted?: boolean): Promise<Memory | null>;
   listMemories(spaceId: string, options?: { profileId?: string; isFavorite?: boolean }): Promise<Memory[]>;
+  listMemoriesKeyset(spaceId: string, options?: KeysetPaginationOptions): Promise<KeysetPaginationResult<Memory>>;
+  searchMemories(spaceId: string, queryText: string, limit?: number): Promise<Memory[]>;
   updateMemory(id: string, updates: Partial<Memory>): Promise<Memory | null>;
+  softDeleteMemory(id: string): Promise<boolean>;
 }
 
 export class PostgresMemoryRepository implements MemoryRepository {
   constructor(private db: DatabaseClient) {}
 
   async createMemory(memory: Memory): Promise<Memory> {
-    await this.db.query(
-      `INSERT INTO memories (id, space_id, author_id, title, content, format, captured_at, location, is_favorite, associated_profile_ids, media_ids, tags, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
-      [
-        memory.id,
-        memory.spaceId,
-        memory.authorId,
-        memory.title,
-        memory.content || null,
-        memory.format,
-        memory.capturedAt,
-        memory.location || null,
-        memory.isFavorite ?? false,
-        memory.associatedProfileIds || [],
-        memory.mediaIds || [],
-        memory.tags || [],
-        memory.createdAt,
-        memory.updatedAt,
-      ]
-    );
+    await this.db.transaction(async (client) => {
+      await client.query(
+        `INSERT INTO memories (id, space_id, author_id, title, content, format, captured_at, location, is_favorite, associated_profile_ids, media_ids, tags, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+        [
+          memory.id,
+          memory.spaceId,
+          memory.authorId,
+          memory.title,
+          memory.content || null,
+          memory.format,
+          memory.capturedAt,
+          memory.location || null,
+          memory.isFavorite ?? false,
+          memory.associatedProfileIds || [],
+          memory.mediaIds || [],
+          memory.tags || [],
+          memory.createdAt,
+          memory.updatedAt,
+        ]
+      );
+
+      // Populate normalized relational junction tables
+      if (memory.mediaIds && memory.mediaIds.length > 0) {
+        for (let i = 0; i < memory.mediaIds.length; i++) {
+          await client.query(
+            `INSERT INTO memory_media (memory_id, media_id, sort_order)
+             VALUES ($1, $2, $3)
+             ON CONFLICT (memory_id, media_id) DO NOTHING`,
+            [memory.id, memory.mediaIds[i], i]
+          );
+        }
+      }
+
+      if (memory.associatedProfileIds && memory.associatedProfileIds.length > 0) {
+        for (const profileId of memory.associatedProfileIds) {
+          await client.query(
+            `INSERT INTO memory_profiles (memory_id, profile_id)
+             VALUES ($1, $2)
+             ON CONFLICT (memory_id, profile_id) DO NOTHING`,
+            [memory.id, profileId]
+          );
+        }
+      }
+
+      if (memory.tags && memory.tags.length > 0) {
+        for (const tagName of memory.tags) {
+          const tagId = crypto.randomUUID();
+          await client.query(
+            `INSERT INTO tags (id, space_id, name)
+             VALUES ($1, $2, $3)
+             ON CONFLICT (space_id, name) DO NOTHING`,
+            [tagId, memory.spaceId, tagName.trim().toLowerCase()]
+          );
+
+          const tagRes = await client.query(
+            `SELECT id FROM tags WHERE space_id = $1 AND name = $2 LIMIT 1`,
+            [memory.spaceId, tagName.trim().toLowerCase()]
+          );
+          if (tagRes.rows[0]) {
+            await client.query(
+              `INSERT INTO memory_tags (memory_id, tag_id)
+               VALUES ($1, $2)
+               ON CONFLICT (memory_id, tag_id) DO NOTHING`,
+              [memory.id, tagRes.rows[0].id]
+            );
+          }
+        }
+      }
+    });
+
     return memory;
   }
 
-  async findMemoryById(id: string): Promise<Memory | null> {
-    const res = await this.db.query(
-      `SELECT id, space_id as "spaceId", author_id as "authorId", title, content, format,
-              captured_at::text as "capturedAt", location, is_favorite as "isFavorite",
-              associated_profile_ids as "associatedProfileIds", media_ids as "mediaIds", tags,
-              created_at::text as "createdAt", updated_at::text as "updatedAt"
-       FROM memories WHERE id = $1 LIMIT 1`,
-      [id]
-    );
+  async findMemoryById(id: string, includeDeleted = false): Promise<Memory | null> {
+    const query = includeDeleted
+      ? `SELECT id, space_id as "spaceId", author_id as "authorId", title, content, format,
+                captured_at::text as "capturedAt", location, is_favorite as "isFavorite",
+                associated_profile_ids as "associatedProfileIds", media_ids as "mediaIds", tags,
+                created_at::text as "createdAt", updated_at::text as "updatedAt"
+         FROM memories WHERE id = $1 LIMIT 1`
+      : `SELECT id, space_id as "spaceId", author_id as "authorId", title, content, format,
+                captured_at::text as "capturedAt", location, is_favorite as "isFavorite",
+                associated_profile_ids as "associatedProfileIds", media_ids as "mediaIds", tags,
+                created_at::text as "createdAt", updated_at::text as "updatedAt"
+         FROM memories WHERE id = $1 AND deleted_at IS NULL LIMIT 1`;
+
+    const res = await this.db.query(query, [id]);
     return res.rows[0] || null;
   }
 
@@ -280,7 +353,7 @@ export class PostgresMemoryRepository implements MemoryRepository {
              captured_at::text as "capturedAt", location, is_favorite as "isFavorite",
              associated_profile_ids as "associatedProfileIds", media_ids as "mediaIds", tags,
              created_at::text as "createdAt", updated_at::text as "updatedAt"
-      FROM memories WHERE space_id = $1`;
+      FROM memories WHERE space_id = $1 AND deleted_at IS NULL`;
     const params: any[] = [spaceId];
 
     if (options?.profileId) {
@@ -295,6 +368,76 @@ export class PostgresMemoryRepository implements MemoryRepository {
     query += ` ORDER BY captured_at DESC`;
 
     const res = await this.db.query(query, params);
+    return res.rows;
+  }
+
+  async listMemoriesKeyset(spaceId: string, options?: KeysetPaginationOptions): Promise<KeysetPaginationResult<Memory>> {
+    const limit = Math.min(Math.max(options?.limit || 20, 1), 100);
+    const params: any[] = [spaceId];
+
+    let query = `
+      SELECT id, space_id as "spaceId", author_id as "authorId", title, content, format,
+             captured_at::text as "capturedAt", location, is_favorite as "isFavorite",
+             associated_profile_ids as "associatedProfileIds", media_ids as "mediaIds", tags,
+             created_at::text as "createdAt", updated_at::text as "updatedAt"
+      FROM memories
+      WHERE space_id = $1 AND deleted_at IS NULL`;
+
+    if (options?.cursorTime && options?.cursorId) {
+      params.push(options.cursorTime, options.cursorId);
+      query += ` AND (captured_at < $${params.length - 1} OR (captured_at = $${params.length - 1} AND id < $${params.length}))`;
+    }
+
+    if (options?.isFavorite !== undefined) {
+      params.push(options.isFavorite);
+      query += ` AND is_favorite = $${params.length}`;
+    }
+
+    if (options?.profileId) {
+      params.push(options.profileId);
+      query += ` AND $${params.length} = ANY(associated_profile_ids)`;
+    }
+
+    query += ` ORDER BY captured_at DESC, id DESC LIMIT $${params.length + 1}`;
+    params.push(limit + 1);
+
+    const res = await this.db.query(query, params);
+    const rows = res.rows as Memory[];
+    const hasMore = rows.length > limit;
+    const items = hasMore ? rows.slice(0, limit) : rows;
+
+    let nextCursor: { cursorTime: string; cursorId: string } | null = null;
+    if (hasMore && items.length > 0) {
+      const lastItem = items[items.length - 1];
+      nextCursor = {
+        cursorTime: lastItem.capturedAt,
+        cursorId: lastItem.id,
+      };
+    }
+
+    return {
+      items,
+      nextCursor,
+      hasMore,
+    };
+  }
+
+  async searchMemories(spaceId: string, queryText: string, limit = 20): Promise<Memory[]> {
+    const trimmed = queryText.trim();
+    if (!trimmed) return [];
+
+    const res = await this.db.query(
+      `SELECT id, space_id as "spaceId", author_id as "authorId", title, content, format,
+              captured_at::text as "capturedAt", location, is_favorite as "isFavorite",
+              associated_profile_ids as "associatedProfileIds", media_ids as "mediaIds", tags,
+              created_at::text as "createdAt", updated_at::text as "updatedAt"
+       FROM memories
+       WHERE space_id = $1 AND deleted_at IS NULL
+         AND to_tsvector('english', coalesce(title, '') || ' ' || coalesce(content, '')) @@ plainto_tsquery('english', $2)
+       ORDER BY ts_rank_cd(to_tsvector('english', coalesce(title, '') || ' ' || coalesce(content, '')), plainto_tsquery('english', $2)) DESC
+       LIMIT $3`,
+      [spaceId, trimmed, limit]
+    );
     return res.rows;
   }
 
@@ -323,6 +466,14 @@ export class PostgresMemoryRepository implements MemoryRepository {
       ]
     );
     return merged;
+  }
+
+  async softDeleteMemory(id: string): Promise<boolean> {
+    const res = await this.db.query(
+      `UPDATE memories SET deleted_at = NOW() WHERE id = $1 AND deleted_at IS NULL`,
+      [id]
+    );
+    return (res.rowCount || 0) > 0;
   }
 }
 
@@ -574,6 +725,298 @@ export class PostgresBookRepository implements BookRepository {
        SET is_frozen_for_print = TRUE, frozen_edition_hash = $1, updated_at = NOW()
        WHERE id = $2`,
       [editionHash, bookId]
+    );
+  }
+}
+
+// ----------------------------------------------------------------------------
+// 6. Transactional Outbox Repository
+// ----------------------------------------------------------------------------
+export interface OutboxRecord {
+  id: string;
+  eventType: string;
+  aggregateType: string;
+  aggregateId: string;
+  payload: Record<string, any>;
+  status: "pending" | "published" | "failed";
+  retryCount: number;
+  errorMessage?: string | null;
+  createdAt: string;
+  processedAt?: string | null;
+}
+
+export interface OutboxRepository {
+  stageEvent(
+    event: { id?: string; eventType: string; aggregateType: string; aggregateId: string; payload: Record<string, any> },
+    client?: any
+  ): Promise<OutboxRecord>;
+  fetchPending(limit?: number): Promise<OutboxRecord[]>;
+  markPublished(id: string): Promise<void>;
+  markFailed(id: string, error: string): Promise<void>;
+}
+
+export class PostgresOutboxRepository implements OutboxRepository {
+  constructor(private db: DatabaseClient) {}
+
+  async stageEvent(
+    event: { id?: string; eventType: string; aggregateType: string; aggregateId: string; payload: Record<string, any> },
+    client?: any
+  ): Promise<OutboxRecord> {
+    const id = event.id || crypto.randomUUID();
+    const executor = client || this.db;
+
+    await executor.query(
+      `INSERT INTO outbox_events (id, event_type, aggregate_type, aggregate_id, payload, status, retry_count, created_at)
+       VALUES ($1, $2, $3, $4, $5, 'pending', 0, NOW())`,
+      [id, event.eventType, event.aggregateType, event.aggregateId, JSON.stringify(event.payload)]
+    );
+
+    return {
+      id,
+      eventType: event.eventType,
+      aggregateType: event.aggregateType,
+      aggregateId: event.aggregateId,
+      payload: event.payload,
+      status: "pending",
+      retryCount: 0,
+      createdAt: new Date().toISOString(),
+    };
+  }
+
+  async fetchPending(limit = 50): Promise<OutboxRecord[]> {
+    const res = await this.db.query(
+      `SELECT id, event_type as "eventType", aggregate_type as "aggregateType",
+              aggregate_id as "aggregateId", payload, status, retry_count as "retryCount",
+              error_message as "errorMessage", created_at::text as "createdAt",
+              processed_at::text as "processedAt"
+       FROM outbox_events
+       WHERE status = 'pending'
+       ORDER BY created_at ASC
+       LIMIT $1`,
+      [limit]
+    );
+    return res.rows;
+  }
+
+  async markPublished(id: string): Promise<void> {
+    await this.db.query(
+      `UPDATE outbox_events
+       SET status = 'published', processed_at = NOW()
+       WHERE id = $1`,
+      [id]
+    );
+  }
+
+  async markFailed(id: string, error: string): Promise<void> {
+    await this.db.query(
+      `UPDATE outbox_events
+       SET status = 'failed', retry_count = retry_count + 1, error_message = $1
+       WHERE id = $2`,
+      [error, id]
+    );
+  }
+}
+
+// ----------------------------------------------------------------------------
+// 7. Collaboration Repository
+// ----------------------------------------------------------------------------
+export interface SpaceMemberRecord {
+  id: string;
+  spaceId: string;
+  userId: string;
+  role: "owner" | "admin" | "contributor" | "viewer";
+  permissions: Record<string, boolean>;
+  joinedAt: string;
+  updatedAt: string;
+}
+
+export interface SpaceInvitationRecord {
+  id: string;
+  spaceId: string;
+  inviterId: string;
+  inviteeEmail: string;
+  role: string;
+  tokenHash: string;
+  status: "pending" | "accepted" | "revoked" | "expired";
+  expiresAt: string;
+  createdAt: string;
+}
+
+export interface CollaborationRepository {
+  addMember(member: Omit<SpaceMemberRecord, "joinedAt" | "updatedAt">): Promise<SpaceMemberRecord>;
+  getMembers(spaceId: string): Promise<SpaceMemberRecord[]>;
+  getMember(spaceId: string, userId: string): Promise<SpaceMemberRecord | null>;
+  removeMember(spaceId: string, userId: string): Promise<boolean>;
+  createInvitation(invitation: Omit<SpaceInvitationRecord, "createdAt">): Promise<SpaceInvitationRecord>;
+  getInvitationByTokenHash(tokenHash: string): Promise<SpaceInvitationRecord | null>;
+  acceptInvitation(id: string): Promise<void>;
+}
+
+export class PostgresCollaborationRepository implements CollaborationRepository {
+  constructor(private db: DatabaseClient) {}
+
+  async addMember(member: Omit<SpaceMemberRecord, "joinedAt" | "updatedAt">): Promise<SpaceMemberRecord> {
+    await this.db.query(
+      `INSERT INTO space_members (id, space_id, user_id, role, permissions, joined_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+       ON CONFLICT (space_id, user_id)
+       DO UPDATE SET role = $4, permissions = $5, updated_at = NOW()`,
+      [member.id, member.spaceId, member.userId, member.role, JSON.stringify(member.permissions)]
+    );
+
+    return {
+      ...member,
+      joinedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  async getMembers(spaceId: string): Promise<SpaceMemberRecord[]> {
+    const res = await this.db.query(
+      `SELECT id, space_id as "spaceId", user_id as "userId", role, permissions,
+              joined_at::text as "joinedAt", updated_at::text as "updatedAt"
+       FROM space_members WHERE space_id = $1 ORDER BY joined_at ASC`,
+      [spaceId]
+    );
+    return res.rows;
+  }
+
+  async getMember(spaceId: string, userId: string): Promise<SpaceMemberRecord | null> {
+    const res = await this.db.query(
+      `SELECT id, space_id as "spaceId", user_id as "userId", role, permissions,
+              joined_at::text as "joinedAt", updated_at::text as "updatedAt"
+       FROM space_members WHERE space_id = $1 AND user_id = $2 LIMIT 1`,
+      [spaceId, userId]
+    );
+    return res.rows[0] || null;
+  }
+
+  async removeMember(spaceId: string, userId: string): Promise<boolean> {
+    const res = await this.db.query(
+      `DELETE FROM space_members WHERE space_id = $1 AND user_id = $2`,
+      [spaceId, userId]
+    );
+    return (res.rowCount || 0) > 0;
+  }
+
+  async createInvitation(invitation: Omit<SpaceInvitationRecord, "createdAt">): Promise<SpaceInvitationRecord> {
+    await this.db.query(
+      `INSERT INTO space_invitations (id, space_id, inviter_id, invitee_email, role, token_hash, status, expires_at, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())`,
+      [
+        invitation.id,
+        invitation.spaceId,
+        invitation.inviterId,
+        invitation.inviteeEmail.toLowerCase().trim(),
+        invitation.role,
+        invitation.tokenHash,
+        invitation.status,
+        invitation.expiresAt,
+      ]
+    );
+
+    return {
+      ...invitation,
+      createdAt: new Date().toISOString(),
+    };
+  }
+
+  async getInvitationByTokenHash(tokenHash: string): Promise<SpaceInvitationRecord | null> {
+    const res = await this.db.query(
+      `SELECT id, space_id as "spaceId", inviter_id as "inviterId",
+              invitee_email as "inviteeEmail", role, token_hash as "tokenHash",
+              status, expires_at::text as "expiresAt", created_at::text as "createdAt"
+       FROM space_invitations WHERE token_hash = $1 LIMIT 1`,
+      [tokenHash]
+    );
+    return res.rows[0] || null;
+  }
+
+  async acceptInvitation(id: string): Promise<void> {
+    await this.db.query(
+      `UPDATE space_invitations SET status = 'accepted' WHERE id = $1`,
+      [id]
+    );
+  }
+}
+
+// ----------------------------------------------------------------------------
+// 8. Commerce Repository
+// ----------------------------------------------------------------------------
+export interface PrintOrderRecord {
+  id: string;
+  spaceId: string;
+  userId: string;
+  bookId: string;
+  status: string;
+  totalCents: number;
+  currency: string;
+  shippingAddress: Record<string, any>;
+  printSpec: Record<string, any>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CommerceRepository {
+  createOrder(order: Omit<PrintOrderRecord, "createdAt" | "updatedAt">): Promise<PrintOrderRecord>;
+  getOrderById(id: string): Promise<PrintOrderRecord | null>;
+  listOrders(spaceId: string): Promise<PrintOrderRecord[]>;
+  updateOrderStatus(id: string, status: string): Promise<void>;
+}
+
+export class PostgresCommerceRepository implements CommerceRepository {
+  constructor(private db: DatabaseClient) {}
+
+  async createOrder(order: Omit<PrintOrderRecord, "createdAt" | "updatedAt">): Promise<PrintOrderRecord> {
+    await this.db.query(
+      `INSERT INTO print_orders (id, space_id, user_id, book_id, status, total_cents, currency, shipping_address, print_spec, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())`,
+      [
+        order.id,
+        order.spaceId,
+        order.userId,
+        order.bookId,
+        order.status,
+        order.totalCents,
+        order.currency,
+        JSON.stringify(order.shippingAddress),
+        JSON.stringify(order.printSpec),
+      ]
+    );
+
+    return {
+      ...order,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  async getOrderById(id: string): Promise<PrintOrderRecord | null> {
+    const res = await this.db.query(
+      `SELECT id, space_id as "spaceId", user_id as "userId", book_id as "bookId",
+              status, total_cents as "totalCents", currency, shipping_address as "shippingAddress",
+              print_spec as "printSpec", created_at::text as "createdAt", updated_at::text as "updatedAt"
+       FROM print_orders WHERE id = $1 LIMIT 1`,
+      [id]
+    );
+    return res.rows[0] || null;
+  }
+
+  async listOrders(spaceId: string): Promise<PrintOrderRecord[]> {
+    const res = await this.db.query(
+      `SELECT id, space_id as "spaceId", user_id as "userId", book_id as "bookId",
+              status, total_cents as "totalCents", currency, shipping_address as "shippingAddress",
+              print_spec as "printSpec", created_at::text as "createdAt", updated_at::text as "updatedAt"
+       FROM print_orders WHERE space_id = $1 ORDER BY created_at DESC`,
+      [spaceId]
+    );
+    return res.rows;
+  }
+
+  async updateOrderStatus(id: string, status: string): Promise<void> {
+    await this.db.query(
+      `UPDATE print_orders SET status = $1, updated_at = NOW() WHERE id = $2`,
+      [status, id]
     );
   }
 }

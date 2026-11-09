@@ -75,12 +75,29 @@ class InMemoryMemoryTestRepo implements MemoryRepository {
     }
     return list;
   }
+  async listMemoriesKeyset(spaceId: string, options?: any): Promise<any> {
+    const list = await this.listMemories(spaceId, options);
+    return {
+      items: list.slice(0, options?.limit || 20),
+      nextCursor: null,
+      hasMore: false,
+    };
+  }
+  async searchMemories(spaceId: string, queryText: string, limit = 20): Promise<Memory[]> {
+    const q = queryText.toLowerCase();
+    return Array.from(this.memories.values())
+      .filter((m) => m.spaceId === spaceId && (m.title.toLowerCase().includes(q) || (m.content && m.content.toLowerCase().includes(q))))
+      .slice(0, limit);
+  }
   async updateMemory(id: string, updates: Partial<Memory>): Promise<Memory | null> {
     const existing = this.memories.get(id);
     if (!existing) return null;
     const merged = { ...existing, ...updates, updatedAt: new Date().toISOString() };
     this.memories.set(id, merged);
     return merged;
+  }
+  async softDeleteMemory(id: string): Promise<boolean> {
+    return this.memories.delete(id);
   }
 }
 

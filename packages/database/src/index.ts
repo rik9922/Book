@@ -1,24 +1,35 @@
-import { Pool, PoolConfig, QueryResult, QueryResultRow } from "pg";
+import { Pool, PoolClient, PoolConfig, QueryResult, QueryResultRow } from "pg";
 import { createServiceLogger, Logger } from "@memory-capsule/logger";
+
+export { PoolClient, QueryResult, QueryResultRow };
 
 const logger: Logger = createServiceLogger("database-client");
 
 export interface DatabaseClient {
   query<R extends QueryResultRow = any>(text: string, params?: any[]): Promise<QueryResult<R>>;
+  transaction<T>(fn: (client: PoolClient) => Promise<T>): Promise<T>;
   healthCheck(): Promise<boolean>;
   close(): Promise<void>;
+}
+
+export interface DatabasePoolOptions extends Partial<PoolConfig> {
+  statementTimeoutMs?: number;
 }
 
 class RealDatabaseClient implements DatabaseClient {
   private pool: Pool;
 
-  constructor(connectionString: string, config?: Partial<PoolConfig>) {
+  constructor(connectionString: string, options?: DatabasePoolOptions) {
+    const maxConnections = options?.max || (process.env.DB_POOL_MAX ? parseInt(process.env.DB_POOL_MAX, 10) : 10);
+    const statementTimeout = options?.statementTimeoutMs || (process.env.DB_STATEMENT_TIMEOUT_MS ? parseInt(process.env.DB_STATEMENT_TIMEOUT_MS, 10) : 5000);
+
     this.pool = new Pool({
       connectionString,
-      max: config?.max || 10,
-      idleTimeoutMillis: 30000,
+      max: maxConnections,
+      idleTimeoutMillis: 10000,
       connectionTimeoutMillis: 2000,
-      ...config,
+      statement_timeout: statementTimeout,
+      ...options,
     });
 
     this.pool.on("error", (err) => {
@@ -36,6 +47,25 @@ class RealDatabaseClient implements DatabaseClient {
     } catch (err) {
       logger.error({ err, text }, "[Postgres Query] Error executing query");
       throw err;
+    }
+  }
+
+  async transaction<T>(fn: (client: PoolClient) => Promise<T>): Promise<T> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const result = await fn(client);
+      await client.query("COMMIT");
+      return result;
+    } catch (error) {
+      try {
+        await client.query("ROLLBACK");
+      } catch (rollbackErr) {
+        logger.error({ rollbackErr }, "[Postgres Transaction] Rollback failed");
+      }
+      throw error;
+    } finally {
+      client.release();
     }
   }
 
@@ -67,6 +97,12 @@ class InMemoryDatabaseClient implements DatabaseClient {
     };
   }
 
+  async transaction<T>(fn: (client: any) => Promise<T>): Promise<T> {
+    return fn({
+      query: this.query.bind(this)
+    });
+  }
+
   async healthCheck(): Promise<boolean> {
     return true;
   }
@@ -76,7 +112,7 @@ class InMemoryDatabaseClient implements DatabaseClient {
   }
 }
 
-export function createDatabaseClient(connectionString?: string): DatabaseClient {
+export function createDatabaseClient(connectionString?: string, options?: DatabasePoolOptions): DatabaseClient {
   const url = connectionString || process.env.DATABASE_URL;
   if (!url) {
     logger.warn("[DatabaseClient] No connection string provided — using in-memory mock client");
@@ -84,7 +120,7 @@ export function createDatabaseClient(connectionString?: string): DatabaseClient 
   }
 
   try {
-    return new RealDatabaseClient(url);
+    return new RealDatabaseClient(url, options);
   } catch (err) {
     logger.warn({ err }, "[DatabaseClient] Connection error — using in-memory mock client");
     return new InMemoryDatabaseClient();
