@@ -2,10 +2,11 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const viewport: Viewport = {
-  themeColor: "#123F35",
+  themeColor: "#F7F4EE",
   width: "device-width",
   initialScale: 1,
   maximumScale: 5,
+  colorScheme: "light",
 };
 
 export const metadata: Metadata = {
@@ -52,11 +53,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className="dark">
-      <body className="antialiased bg-[#121A18] text-[#F7F4ED] min-h-screen selection:bg-[#C49A4A]/30 selection:text-[#F7F4ED]">
+    <html lang="en" className="light" style={{ colorScheme: "light" }}>
+      <body className="antialiased bg-[#F7F4EE] text-[#28272A] min-h-screen selection:bg-[#76556F]/20 selection:text-[#20242C]">
         {children}
       </body>
     </html>
   );
 }
-

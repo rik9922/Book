@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		3BA1D813E76F21E5A29B419D /* MemoriaApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42A9EEEF173309FE9F4A450B /* MemoriaApp.swift */; };
 		3E3958A9DB28AB4A116BF8D4 /* LocalStorageService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5B4C378C6DE635DF76551A1 /* LocalStorageService.swift */; };
+		43256B66A2A710731475468D /* MemoriaTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48B083AB7A7AA58A884BA05A /* MemoriaTheme.swift */; };
 		4A1938B5DA08A9292C900403 /* MediaImportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1BE195B60330E260358A724 /* MediaImportService.swift */; };
 		53A7B6685FC028F141D6E5EE /* MemoriaAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0186D1525C9D289547C6651 /* MemoriaAPIClient.swift */; };
 		55DDA151445CB6A779D4B2F2 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 287E5FC36F9B6EE91B84AEAB /* SettingsView.swift */; };
@@ -38,6 +39,7 @@
 		222AE1FC9ECF455120C38236 /* MemoriaTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = MemoriaTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		287E5FC36F9B6EE91B84AEAB /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		42A9EEEF173309FE9F4A450B /* MemoriaApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoriaApp.swift; sourceTree = "<group>"; };
+		48B083AB7A7AA58A884BA05A /* MemoriaTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoriaTheme.swift; sourceTree = "<group>"; };
 		6E436BE18620ABA8C140912D /* Memoria.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Memoria.swift; sourceTree = "<group>"; };
 		6E7377236A89B881FC64F4D6 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		7603410260A1C4B0495EBED4 /* Memory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Memory.swift; sourceTree = "<group>"; };
@@ -118,6 +120,14 @@
 			path = Sources;
 			sourceTree = "<group>";
 		};
+		587FF64944240BB8E0EFBEA6 /* Theme */ = {
+			isa = PBXGroup;
+			children = (
+				48B083AB7A7AA58A884BA05A /* MemoriaTheme.swift */,
+			);
+			path = Theme;
+			sourceTree = "<group>";
+		};
 		59D80074995BA207BAB3F832 /* Products */ = {
 			isa = PBXGroup;
 			children = (
@@ -160,6 +170,7 @@
 				6E436BE18620ABA8C140912D /* Memoria.swift */,
 				3993F774171BF6AE36C0DCBC /* Models */,
 				08585B924642631C846C387C /* Services */,
+				587FF64944240BB8E0EFBEA6 /* Theme */,
 				10E67A55477E074F053F5B65 /* Views */,
 			);
 			path = Memoria;
@@ -272,6 +283,7 @@
 				DD00052E208EB983E5EBB2F9 /* Memoria.swift in Sources */,
 				53A7B6685FC028F141D6E5EE /* MemoriaAPIClient.swift in Sources */,
 				3BA1D813E76F21E5A29B419D /* MemoriaApp.swift in Sources */,
+				43256B66A2A710731475468D /* MemoriaTheme.swift in Sources */,
 				EA533C93896FA1399A99FB98 /* Memory.swift in Sources */,
 				58DECFC14C13F65DDC2EA40D /* MemoryCreateView.swift in Sources */,
 				B0AB60FD7E8324BD955A4310 /* Profile.swift in Sources */,

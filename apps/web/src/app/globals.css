@@ -2,29 +2,95 @@
 
 @layer base {
   :root {
-    --background: #09090b;
-    --foreground: #fafafa;
-    --primary: #3b82f6;
-    --primary-foreground: #ffffff;
-    --muted: #27272a;
-    --muted-foreground: #a1a1aa;
-    --border: #27272a;
+    color-scheme: light;
+
+    /* 1. Primary Brand Foundation */
+    --color-ink: #20242C;
+    --color-ivory: #F7F4EE;
+    --color-plum: #76556F;
+    --color-plum-hover: #63445C;
+    --color-plum-light: #F4EEF3;
+    --color-sage-soft: #849483;
+    --color-sage-func: #5F735E;
+    --color-sage-light: #EEF2ED;
+
+    /* 2. Surfaces (Strictly Light Mode) */
+    --color-canvas: #F7F4EE;
+    --color-surface-primary: #FFFFFF;
+    --color-surface-secondary: #F0ECE1;
+    --color-surface-elevated: #FFFFFF;
+    --color-media-canvas: #1A1A1E;
+
+    /* 3. Text Hierarchy */
+    --color-text-primary: #28272A;
+    --color-text-secondary: #5C5955;
+    --color-text-tertiary: #78736E;
+    --color-text-on-action: #FFFFFF;
+
+    /* 4. Borders & Focus */
+    --color-border-subtle: #E7E2DA;
+    --color-border-strong: #8D857A;
+    --color-focus-ring: #76556F;
+
+    /* 5. Semantic Operational Colors */
+    --color-status-success: #22593E;
+    --color-status-success-bg: #E8F3ED;
+    --color-status-success-border: #B6DBC7;
+
+    --color-status-warning: #85530E;
+    --color-status-warning-bg: #FDF5E6;
+    --color-status-warning-border: #F2D8A7;
+
+    --color-status-error: #992828;
+    --color-status-error-bg: #FDE8E8;
+    --color-status-error-border: #F5B8B8;
+
+    --color-status-info: #234E70;
+    --color-status-info-bg: #EBF2F7;
+    --color-status-info-border: #B3D1E6;
+
+    --color-status-pending: #6B533E;
+    --color-status-pending-bg: #F7EFE6;
+    --color-status-pending-border: #DFD0C0;
+
+    --color-status-disabled: #9E9A95;
+    --color-status-disabled-bg: #EAE5DE;
+
+    /* Shadows */
+    --shadow-subtle: 0 1px 3px 0 rgba(32, 36, 44, 0.05), 0 1px 2px 0 rgba(32, 36, 44, 0.03);
+    --shadow-card: 0 4px 12px -2px rgba(32, 36, 44, 0.06), 0 2px 4px -1px rgba(32, 36, 44, 0.03);
+    --shadow-elevated: 0 12px 28px -4px rgba(32, 36, 44, 0.08), 0 4px 10px -2px rgba(32, 36, 44, 0.04);
+  }
+
+  /* Prevent browser or OS automatic dark mode inversions */
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: light;
+    }
   }
 
   * {
     box-sizing: border-box;
   }
 
-  html,
+  html {
+    color-scheme: light;
+  }
+
   body {
     margin: 0;
     padding: 0;
     width: 100%;
-    height: 100%;
-    overflow-x: hidden;
-    background-color: var(--background);
-    color: var(--foreground);
-    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    min-height: 100vh;
+    background-color: var(--color-canvas);
+    color: var(--color-text-primary);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 }
 
+/* Custom editorial serif utility */
+.font-editorial {
+  font-family: "Playfair Display", Georgia, serif;
+}

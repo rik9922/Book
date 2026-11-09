@@ -13,78 +13,91 @@ public struct SettingsView: View {
                 Section("Permissions & Device Status") {
                     HStack {
                         Label("Photo Library", systemImage: "photo.on.rectangle.angled")
+                            .foregroundStyle(MemoriaTheme.textPrimary)
                         Spacer()
                         Text(photoStatus)
-                            .foregroundStyle(photoStatus == "Authorized" ? .green : .orange)
+                            .foregroundStyle(photoStatus == "Authorized" ? MemoriaTheme.success : MemoriaTheme.warning)
                     }
 
                     HStack {
                         Label("Camera", systemImage: "camera")
+                            .foregroundStyle(MemoriaTheme.textPrimary)
                         Spacer()
                         Text("Configured")
-                            .foregroundStyle(.green)
+                            .foregroundStyle(MemoriaTheme.success)
                     }
 
                     HStack {
                         Label("Microphone", systemImage: "mic")
+                            .foregroundStyle(MemoriaTheme.textPrimary)
                         Spacer()
                         Text("Configured")
-                            .foregroundStyle(.green)
+                            .foregroundStyle(MemoriaTheme.success)
                     }
                 }
 
                 Section("Offline Storage & Cache") {
-                    Button("Clear Local Cache") {
+                    Button("Clear Local Archive Cache") {
                         LocalStorageService.shared.clearCache()
                         cacheCleared = true
                     }
-                    .foregroundStyle(.red)
+                    .foregroundStyle(MemoriaTheme.error)
 
                     if cacheCleared {
                         Text("Cache cleared successfully.")
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(MemoriaTheme.textSecondary)
                     }
                 }
 
                 Section("Application Identity") {
                     HStack {
                         Text("Product Name")
+                            .foregroundStyle(MemoriaTheme.textPrimary)
                         Spacer()
                         Text("Memoria")
                             .bold()
+                            .foregroundStyle(MemoriaTheme.ink)
                     }
                     HStack {
                         Text("Tagline")
+                            .foregroundStyle(MemoriaTheme.textPrimary)
                         Spacer()
                         Text("Your memories, made timeless.")
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(MemoriaTheme.textSecondary)
                     }
                     HStack {
-                        Text("Bundle Identifier")
+                        Text("Design Theme")
+                            .foregroundStyle(MemoriaTheme.textPrimary)
                         Spacer()
-                        Text("com.memoria.app")
-                            .font(.caption.monospaced())
-                    }
-                    HStack {
-                        Text("Build")
-                        Spacer()
-                        Text("1.0.0 (Simulator Test QA)")
-                            .font(.caption)
+                        Text("Living Archive (Light)")
+                            .font(.caption.weight(.medium))
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(MemoriaTheme.sageLight)
+                            .foregroundStyle(MemoriaTheme.sageFunc)
+                            .clipShape(Capsule())
                     }
                 }
             }
             .navigationTitle("Settings")
             .task {
-                let status = MediaImportService.shared.checkPhotoAuthorizationStatus()
-                switch status {
-                case .authorized: photoStatus = "Authorized"
-                case .limited: photoStatus = "Limited"
-                case .denied: photoStatus = "Denied"
-                case .notDetermined: photoStatus = "Not Determined"
-                }
+                checkPermissions()
             }
         }
     }
-}
 
+    private func checkPermissions() {
+        let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+        switch status {
+        case .authorized, .limited:
+            photoStatus = "Authorized"
+        case .denied, .restricted:
+            photoStatus = "Denied"
+        case .notDetermined:
+            photoStatus = "Not Determined"
+        @unknown default:
+            photoStatus = "Unknown"
+        }
+    }
+}

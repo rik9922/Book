@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "name": "Memoria Design Tokens",
+  "identity": "MEMORIA — Living Archive",
+  "themeMode": "light_only",
+  "color": {
+    "brand": {
+      "ink": { "value": "#20242C", "type": "color" },
+      "ivory": { "value": "#F7F4EE", "type": "color" },
+      "plum": { "value": "#76556F", "type": "color" },
+      "plumHover": { "value": "#63445C", "type": "color" },
+      "plumLight": { "value": "#F4EEF3", "type": "color" },
+      "sageSoft": { "value": "#849483", "type": "color" },
+      "sageFunc": { "value": "#5F735E", "type": "color" },
+      "sageLight": { "value": "#EEF2ED", "type": "color" }
+    },
+    "surface": {
+      "canvas": { "value": "#F7F4EE", "type": "color" },
+      "primary": { "value": "#FFFFFF", "type": "color" },
+      "secondary": { "value": "#F0ECE1", "type": "color" },
+      "elevated": { "value": "#FFFFFF", "type": "color" }
+    },
+    "text": {
+      "primary": { "value": "#28272A", "type": "color" },
+      "secondary": { "value": "#5C5955", "type": "color" },
+      "tertiary": { "value": "#78736E", "type": "color" },
+      "onAction": { "value": "#FFFFFF", "type": "color" }
+    },
+    "border": {
+      "subtle": { "value": "#E7E2DA", "type": "color" },
+      "strong": { "value": "#8D857A", "type": "color" },
+      "focusRing": { "value": "#76556F", "type": "color" }
+    },
+    "status": {
+      "success": { "value": "#22593E", "type": "color" },
+      "successBg": { "value": "#E8F3ED", "type": "color" },
+      "warning": { "value": "#85530E", "type": "color" },
+      "warningBg": { "value": "#FDF5E6", "type": "color" },
+      "error": { "value": "#992828", "type": "color" },
+      "errorBg": { "value": "#FDE8E8", "type": "color" },
+      "info": { "value": "#234E70", "type": "color" },
+      "infoBg": { "value": "#EBF2F7", "type": "color" },
+      "pending": { "value": "#6B533E", "type": "color" },
+      "pendingBg": { "value": "#F7EFE6", "type": "color" },
+      "disabled": { "value": "#9E9A95", "type": "color" },
+      "disabledBg": { "value": "#EAE5DE", "type": "color" }
+    }
+  },
+  "spacing": {
+    "0": "0px",
+    "1": "4px",
+    "2": "8px",
+    "3": "12px",
+    "4": "16px",
+    "5": "20px",
+    "6": "24px",
+    "8": "32px",
+    "10": "40px",
+    "12": "48px",
+    "16": "64px"
+  },
+  "radius": {
+    "sm": "6px",
+    "md": "8px",
+    "lg": "12px",
+    "xl": "16px",
+    "2xl": "20px",
+    "full": "9999px"
+  }
+}

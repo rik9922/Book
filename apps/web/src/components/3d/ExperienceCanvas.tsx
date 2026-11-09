@@ -215,25 +215,25 @@ export default function ExperienceCanvas() {
   const [subtitle, setSubtitle] = useState("1948 — 2026 • Memoria Volume I");
 
   return (
-    <div className="relative w-full rounded-2xl overflow-hidden border border-[#304C43]/40 bg-[#090D0B] shadow-2xl flex flex-col md:flex-row">
+    <div className="relative w-full rounded-2xl overflow-hidden border border-[#E7E2DA] bg-[#F7F4EE] shadow-md flex flex-col md:flex-row">
       {/* 3D Canvas Viewport */}
-      <div className="relative flex-1 h-[480px] md:h-[640px] w-full">
+      <div className="relative flex-1 h-[480px] md:h-[640px] w-full bg-gradient-to-b from-[#F2EFE8] to-[#EBE6DC]">
         {/* Interactive Badge & Open/Close Toggle */}
         <div className="absolute top-4 left-4 z-10 flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#0F1E19]/80 border border-[#304C43]/60 text-xs font-medium text-emerald-300 backdrop-blur-md">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/90 border border-[#E7E2DA] text-xs font-medium text-[#5F735E] shadow-sm backdrop-blur-md">
+            <span className="w-2 h-2 rounded-full bg-[#5F735E] animate-pulse" />
             Photorealistic 3D Engine • Three.js R3F
           </div>
           <button
             onClick={() => setIsOpen(!isOpen)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#C49A4A]/20 hover:bg-[#C49A4A]/30 border border-[#C49A4A]/60 text-xs font-semibold text-[#D4AF37] transition-all backdrop-blur-md cursor-pointer"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#76556F] hover:bg-[#63445C] text-xs font-semibold text-white transition-all shadow-sm cursor-pointer"
           >
             <BookOpen className="w-3.5 h-3.5" />
             {isOpen ? "Close Cover" : "Open Book"}
           </button>
         </div>
 
-        <div className="absolute bottom-4 left-4 z-10 text-[11px] text-zinc-400/80 bg-black/40 px-3 py-1 rounded-md backdrop-blur-sm pointer-events-none">
+        <div className="absolute bottom-4 left-4 z-10 text-[11px] text-[#5C5955] bg-white/80 border border-[#E7E2DA] px-3 py-1 rounded-md backdrop-blur-sm pointer-events-none">
           Click book or drag to orbit • Scroll to zoom
         </div>
 
@@ -260,11 +260,11 @@ export default function ExperienceCanvas() {
 
           <ContactShadows
             position={[0, -0.09, 0]}
-            opacity={0.7}
+            opacity={0.35}
             scale={1.3}
             blur={1.8}
             far={0.5}
-            color="#05100B"
+            color="#20242C"
           />
           <OrbitControls
             enableZoom={true}
@@ -277,23 +277,23 @@ export default function ExperienceCanvas() {
       </div>
 
       {/* Interactive Customization Studio Controls */}
-      <div className="w-full md:w-80 p-6 border-t md:border-t-0 md:border-l border-[#304C43]/40 bg-[#0B1512]/90 backdrop-blur-xl flex flex-col justify-between">
+      <div className="w-full md:w-80 p-6 border-t md:border-t-0 md:border-l border-[#E7E2DA] bg-[#FFFFFF] flex flex-col justify-between">
         <div className="space-y-6">
           <div>
-            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-[#C49A4A]">
-              <Sparkles className="w-3.5 h-3.5" />
+            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-[#76556F]">
+              <Sparkles className="w-3.5 h-3.5 text-[#76556F]" />
               Heirloom 3D Studio
             </div>
-            <h3 className="text-lg font-serif font-bold text-white mt-1">Material Customizer</h3>
-            <p className="text-xs text-zinc-400 mt-1">
+            <h3 className="text-lg font-serif font-bold text-[#20242C] mt-1">Material Customizer</h3>
+            <p className="text-xs text-[#5C5955] mt-1">
               Select archival binding textures and stamped gold finishes in real-time.
             </p>
           </div>
 
           {/* Leather Colors */}
           <div className="space-y-2">
-            <label className="text-xs font-medium text-zinc-300 flex items-center gap-1.5">
-              <Palette className="w-3.5 h-3.5 text-[#C49A4A]" />
+            <label className="text-xs font-medium text-[#28272A] flex items-center gap-1.5">
+              <Palette className="w-3.5 h-3.5 text-[#76556F]" />
               Archival Leather Binding
             </label>
             <div className="grid grid-cols-2 gap-2">
@@ -303,15 +303,15 @@ export default function ExperienceCanvas() {
                   onClick={() => setSelectedLeather(swatch)}
                   className={`flex items-center gap-2.5 p-2 rounded-lg border text-left text-xs transition-all cursor-pointer ${
                     selectedLeather.id === swatch.id
-                      ? "border-[#D4AF37] bg-[#122A23] text-white shadow-sm"
-                      : "border-zinc-800 bg-zinc-900/60 text-zinc-400 hover:border-zinc-700 hover:text-zinc-200"
+                      ? "border-[#76556F] bg-[#F4EEF3] text-[#20242C] font-semibold shadow-sm"
+                      : "border-[#E7E2DA] bg-[#F7F4EE] text-[#5C5955] hover:border-[#8D857A] hover:text-[#28272A]"
                   }`}
                 >
                   <span
-                    className="w-4 h-4 rounded-full border border-white/20 shrink-0"
+                    className="w-4 h-4 rounded-full border border-black/10 shrink-0"
                     style={{ backgroundColor: swatch.hex }}
                   />
-                  <span className="truncate font-medium">{swatch.name}</span>
+                  <span className="truncate">{swatch.name}</span>
                 </button>
               ))}
             </div>
@@ -319,8 +319,8 @@ export default function ExperienceCanvas() {
 
           {/* Foil Stamping */}
           <div className="space-y-2">
-            <label className="text-xs font-medium text-zinc-300 flex items-center gap-1.5">
-              <Layers className="w-3.5 h-3.5 text-[#C49A4A]" />
+            <label className="text-xs font-medium text-[#28272A] flex items-center gap-1.5">
+              <Layers className="w-3.5 h-3.5 text-[#76556F]" />
               Hot Foil Stamping
             </label>
             <div className="grid grid-cols-3 gap-2">
@@ -330,12 +330,12 @@ export default function ExperienceCanvas() {
                   onClick={() => setSelectedFoil(swatch)}
                   className={`flex flex-col items-center gap-1.5 p-2 rounded-lg border text-xs transition-all cursor-pointer ${
                     selectedFoil.id === swatch.id
-                      ? "border-[#D4AF37] bg-[#122A23] text-white"
-                      : "border-zinc-800 bg-zinc-900/60 text-zinc-400 hover:border-zinc-700"
+                      ? "border-[#76556F] bg-[#F4EEF3] text-[#20242C] font-semibold"
+                      : "border-[#E7E2DA] bg-[#F7F4EE] text-[#5C5955] hover:border-[#8D857A]"
                   }`}
                 >
                   <span
-                    className="w-4 h-4 rounded-full border border-white/20"
+                    className="w-4 h-4 rounded-full border border-black/10"
                     style={{ backgroundColor: swatch.hex }}
                   />
                   <span className="text-[10px] text-center">{swatch.name.split(" ")[0]}</span>
@@ -346,22 +346,22 @@ export default function ExperienceCanvas() {
 
           {/* Title Customizer */}
           <div className="space-y-2">
-            <label className="text-xs font-medium text-zinc-300">Embossed Cover Title</label>
+            <label className="text-xs font-medium text-[#28272A]">Embossed Cover Title</label>
             <input
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               maxLength={28}
-              className="w-full px-3 py-1.5 text-xs rounded-lg border border-zinc-800 bg-zinc-900/80 text-white focus:outline-none focus:border-[#C49A4A]"
+              className="w-full px-3 py-1.5 text-xs rounded-lg border border-[#8D857A] bg-white text-[#28272A] focus:outline-none focus:border-[#76556F] focus:ring-1 focus:ring-[#76556F]"
             />
           </div>
         </div>
 
         {/* Action Button */}
-        <div className="pt-6 border-t border-zinc-800/80">
+        <div className="pt-6 border-t border-[#E7E2DA]">
           <button
             onClick={() => setIsOpen(!isOpen)}
-            className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-[#C49A4A] to-[#E5C378] text-[#090D0B] font-semibold text-xs tracking-wide shadow-lg hover:brightness-110 active:scale-[0.99] transition-all cursor-pointer flex items-center justify-center gap-2"
+            className="w-full py-2.5 px-4 rounded-xl bg-[#76556F] hover:bg-[#63445C] text-white font-semibold text-xs tracking-wide shadow-md transition-all cursor-pointer flex items-center justify-center gap-2"
           >
             <BookOpen className="w-4 h-4" />
             {isOpen ? "Close Heirloom Edition" : "Explore Open Volume"}

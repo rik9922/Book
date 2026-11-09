@@ -25,7 +25,7 @@ public struct RootView: View {
                 }
                 .tag(2)
         }
-        .tint(Color(red: 0.89, green: 0.72, blue: 0.33))
+        .tint(MemoriaTheme.plum)
     }
 }
 

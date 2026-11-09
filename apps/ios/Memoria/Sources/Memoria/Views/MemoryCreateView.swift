@@ -34,16 +34,16 @@ public struct MemoryCreateView: View {
                 Section("Media Asset") {
                     PhotosPicker(selection: $selectedItem, matching: .images) {
                         Label("Select Photo from Library", systemImage: "photo.badge.plus")
-                            .foregroundStyle(Color(red: 0.89, green: 0.72, blue: 0.33))
+                            .foregroundStyle(MemoriaTheme.plum)
                     }
 
                     if selectedItem != nil {
                         HStack {
                             Image(systemName: "checkmark.circle.fill")
-                                .foregroundStyle(.green)
+                                .foregroundStyle(MemoriaTheme.success)
                             Text("Photo asset attached")
                                 .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(MemoriaTheme.textSecondary)
                         }
                     }
                 }
@@ -51,7 +51,7 @@ public struct MemoryCreateView: View {
                 if let errorMessage {
                     Section {
                         Text(errorMessage)
-                            .foregroundStyle(.red)
+                            .foregroundStyle(MemoriaTheme.error)
                     }
                 }
             }
@@ -64,14 +64,16 @@ public struct MemoryCreateView: View {
                     Button("Cancel") {
                         dismiss()
                     }
+                    .foregroundStyle(MemoriaTheme.textSecondary)
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
+                    Button("Save Memory") {
                         Task {
                             await saveMemory()
                         }
                     }
-                    .disabled(title.isEmpty || isSaving)
+                    .disabled(title.trimmingCharacters(in: .whitespaces).isEmpty || isSaving)
+                    .foregroundStyle(MemoriaTheme.plum)
                 }
             }
         }
@@ -87,19 +89,21 @@ public struct MemoryCreateView: View {
             .filter { !$0.isEmpty }
 
         do {
-            let created = try await MemoriaAPIClient.shared.createMemory(
+            let memory = try await MemoriaAPIClient.shared.createMemory(
                 spaceId: spaceId,
                 title: title,
-                content: content,
+                content: content.isEmpty ? nil : content,
                 format: "image",
                 location: location.isEmpty ? nil : location,
-                tags: tags
+                tags: tags,
+                mediaIds: []
             )
-            onCreated?(created)
+            onCreated?(memory)
             dismiss()
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = "Failed to save: \(error.localizedDescription)"
         }
+
         isSaving = false
     }
 }

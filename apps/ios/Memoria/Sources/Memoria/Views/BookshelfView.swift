@@ -6,70 +6,56 @@ public struct BookshelfView: View {
     public var body: some View {
         NavigationStack {
             ZStack {
-                Color(red: 0.05, green: 0.07, blue: 0.06).ignoresSafeArea()
+                MemoriaTheme.canvas.ignoresSafeArea()
 
                 ScrollView {
                     VStack(alignment: .leading, spacing: 24) {
                         VStack(alignment: .leading, spacing: 6) {
                             Text("Heirloom Library")
                                 .font(.largeTitle.bold())
-                                .foregroundStyle(.white)
+                                .foregroundStyle(MemoriaTheme.ink)
                             Text("Published digital editions and interactive 3D books")
                                 .font(.subheadline)
-                                .foregroundStyle(Color(red: 0.89, green: 0.72, blue: 0.33))
+                                .foregroundStyle(MemoriaTheme.textSecondary)
                         }
                         .padding(.horizontal)
 
-                        // 3D Miniature Book Representation
+                        // 3D Miniature Book Representation in Light Mode
                         VStack(spacing: 16) {
-                            ZStack {
-                                RoundedRectangle(cornerRadius: 12)
-                                    .fill(
-                                        LinearGradient(
-                                            colors: [Color(red: 0.07, green: 0.22, blue: 0.16), Color(red: 0.02, green: 0.10, blue: 0.07)],
-                                            startPoint: .topLeading,
-                                            endPoint: .bottomTrailing
-                                        )
-                                    )
-                                    .frame(height: 280)
-                                    .shadow(color: .black.opacity(0.6), radius: 15, x: 0, y: 10)
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 12)
-                                            .stroke(Color(red: 0.89, green: 0.72, blue: 0.33), lineWidth: 1.5)
-                                    )
+                            VStack(spacing: 20) {
+                                Image(systemName: "book.pages")
+                                    .font(.system(size: 64))
+                                    .foregroundStyle(MemoriaTheme.plum)
 
-                                VStack(spacing: 16) {
-                                    Image(systemName: "book.pages")
-                                        .font(.system(size: 64))
-                                        .foregroundStyle(Color(red: 0.89, green: 0.72, blue: 0.33))
+                                VStack(spacing: 4) {
+                                    Text("THE BENNETT FAMILY")
+                                        .font(.headline)
+                                        .tracking(2)
+                                        .foregroundStyle(MemoriaTheme.ink)
+                                    Text("Volume I • 1974–2026")
+                                        .font(.caption)
+                                        .foregroundStyle(MemoriaTheme.sageFunc)
+                                }
 
-                                    VStack(spacing: 4) {
-                                        Text("THE BENNETT FAMILY")
-                                            .font(.headline)
-                                            .tracking(2)
-                                            .foregroundStyle(.white)
-                                        Text("Volume I • 1974–2026")
-                                            .font(.caption)
-                                            .foregroundStyle(Color(red: 0.89, green: 0.72, blue: 0.33))
-                                    }
+                                Text("6 Chapters • 84 Pages • Digital Edition Frozen")
+                                    .font(.caption2)
+                                    .foregroundStyle(MemoriaTheme.textSecondary)
 
-                                    Text("6 Chapters • 84 Pages • Digital Edition Frozen")
-                                        .font(.caption2)
-                                        .foregroundStyle(.white.opacity(0.7))
+                                HStack(spacing: 12) {
+                                    Button("Open 3D Reader") {}
+                                        .buttonStyle(.borderedProminent)
+                                        .tint(MemoriaTheme.plum)
+
+                                    Button("Order Print Proof") {}
+                                        .buttonStyle(.bordered)
+                                        .tint(MemoriaTheme.ink)
                                 }
                             }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 36)
+                            .padding(.horizontal, 24)
+                            .memoriaCard()
                             .padding(.horizontal)
-
-                            HStack {
-                                Button("Open 3D Reader") {}
-                                    .buttonStyle(.borderedProminent)
-                                    .tint(Color(red: 0.89, green: 0.72, blue: 0.33))
-
-                                Button("Order Print Proof") {}
-                                    .buttonStyle(.bordered)
-                                    .tint(.white)
-                            }
-                            .padding(.top, 8)
                         }
                     }
                     .padding(.vertical)
@@ -79,4 +65,3 @@ public struct BookshelfView: View {
         }
     }
 }
-
