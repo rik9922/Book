@@ -6,8 +6,9 @@
     "dev:web": "pnpm --filter @memory-capsule/web dev",
     "build:web": "pnpm --filter @memory-capsule/web build",
     "build": "pnpm -r build",
-    "test": "node --import tsx --test tests/*.test.ts",
-    "lint": "pnpm -r lint"
+    "check:quality": "node --import tsx scripts/check-code-quality.ts",
+    "test": "node --import tsx --test tests/*.ts",
+    "lint": "pnpm run check:quality"
   },
   "devDependencies": {
     "@types/jsonwebtoken": "^9.0.10",
