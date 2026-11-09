@@ -11,7 +11,9 @@ import {
   createErrorResponse,
   createDomainEvent,
   UserProfile,
+  startServiceServer,
 } from "@memory-capsule/contracts";
+import { startIdentityGrpcServer } from "./grpc-server.js";
 import { createEventBus, EventBus } from "@memory-capsule/events";
 import {
   createDatabaseClient,
@@ -280,4 +282,22 @@ export async function buildIdentityService(): Promise<FastifyInstance> {
 }
 
 export * from "./grpc-server.js";
+
+if (process.env.NODE_ENV !== "test") {
+  (async () => {
+    try {
+      const app = await buildIdentityService();
+      const { server: grpcServer } = await startIdentityGrpcServer();
+      await startServiceServer({
+        serviceId: "identity-service",
+        app,
+        logger,
+        grpcServer,
+      });
+    } catch (err) {
+      logger.error({ err }, "[Identity] Unexpected startup failure");
+      process.exit(1);
+    }
+  })();
+}
 

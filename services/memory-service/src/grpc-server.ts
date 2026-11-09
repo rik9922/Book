@@ -13,7 +13,7 @@ import {
   SearchMemoriesResponse,
   MemoryMessage,
 } from "@memory-capsule/proto";
-import { MemoryRepository } from "@memory-capsule/database";
+import { MemoryRepository, PostgresMemoryRepository, createDatabaseClient } from "@memory-capsule/database";
 import { Memory } from "@memory-capsule/contracts";
 import { createServiceLogger, Logger } from "@memory-capsule/logger";
 
@@ -21,7 +21,7 @@ const logger: Logger = createServiceLogger("memory-grpc-server");
 
 export interface MemoryGrpcServerOptions {
   port?: number;
-  memoryRepo: MemoryRepository;
+  memoryRepo?: MemoryRepository;
   expectedServiceKey?: string;
 }
 
@@ -44,8 +44,9 @@ function mapDomainMemoryToProto(m: Memory): MemoryMessage {
   };
 }
 
-export function createMemoryGrpcServer(options: MemoryGrpcServerOptions): grpc.Server {
-  const { memoryRepo, expectedServiceKey } = options;
+export function createMemoryGrpcServer(options: MemoryGrpcServerOptions = {}): grpc.Server {
+  const memoryRepo = options.memoryRepo || new PostgresMemoryRepository(createDatabaseClient(process.env.MEMORY_DATABASE_URL || "postgres://ritik@localhost:5432/memory_db"));
+  const { expectedServiceKey } = options;
   const memoryProto = getMemoryProto();
   const server = new grpc.Server();
 
@@ -208,7 +209,7 @@ export function createMemoryGrpcServer(options: MemoryGrpcServerOptions): grpc.S
   return server;
 }
 
-export function startMemoryGrpcServer(options: MemoryGrpcServerOptions): Promise<{ server: grpc.Server; port: number }> {
+export function startMemoryGrpcServer(options: MemoryGrpcServerOptions = {}): Promise<{ server: grpc.Server; port: number }> {
   return new Promise((resolve, reject) => {
     const server = createMemoryGrpcServer(options);
     const targetPort = options.port || (process.env.MEMORY_GRPC_PORT ? parseInt(process.env.MEMORY_GRPC_PORT, 10) : 50052);

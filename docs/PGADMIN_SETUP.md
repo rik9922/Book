@@ -67,3 +67,4 @@ pnpm run setup:pgadmin
    infra/postgres/pgadmin-servers.json
    ```
 4. Click **Next** and **Finish**.
+

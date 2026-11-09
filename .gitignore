@@ -36,6 +36,7 @@ pnpm-debug.log*
 dump.rdb
 storage/
 storage_data/
+.memoria/
 
 
 # Swift & Xcode build outputs

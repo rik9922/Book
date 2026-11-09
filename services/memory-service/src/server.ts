@@ -14,7 +14,9 @@ import {
   createSuccessResponse,
   createErrorResponse,
   createDomainEvent,
+  startServiceServer,
 } from "@memory-capsule/contracts";
+import { startMemoryGrpcServer } from "./grpc-server.js";
 import { createEventBus, EventBus } from "@memory-capsule/events";
 import {
   createDatabaseClient,
@@ -440,4 +442,22 @@ export async function buildMemoryService(): Promise<FastifyInstance> {
 }
 
 export * from "./grpc-server.js";
+
+if (process.env.NODE_ENV !== "test") {
+  (async () => {
+    try {
+      const app = await buildMemoryService();
+      const { server: grpcServer } = await startMemoryGrpcServer();
+      await startServiceServer({
+        serviceId: "memory-service",
+        app,
+        logger,
+        grpcServer,
+      });
+    } catch (err) {
+      logger.error({ err }, "[Memory] Unexpected startup failure");
+      process.exit(1);
+    }
+  })();
+}
 

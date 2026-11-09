@@ -10,6 +10,7 @@ import {
   createSuccessResponse,
   createErrorResponse,
   createDomainEvent,
+  startServiceServer,
 } from "@memory-capsule/contracts";
 import { createEventBus, EventBus } from "@memory-capsule/events";
 import { createJobManager, JobManager } from "@memory-capsule/jobs";
@@ -365,3 +366,20 @@ export async function buildMediaService(): Promise<FastifyInstance> {
 
   return app;
 }
+
+if (process.env.NODE_ENV !== "test") {
+  (async () => {
+    try {
+      const app = await buildMediaService();
+      await startServiceServer({
+        serviceId: "media-service",
+        app,
+        logger,
+      });
+    } catch (err) {
+      logger.error({ err }, "[Media] Unexpected startup failure");
+      process.exit(1);
+    }
+  })();
+}
+

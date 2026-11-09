@@ -10,20 +10,21 @@ import {
   CheckMembershipRequest,
   CheckMembershipResponse,
 } from "@memory-capsule/proto";
-import { UserRepository } from "@memory-capsule/database";
+import { UserRepository, PostgresUserRepository, createDatabaseClient } from "@memory-capsule/database";
 import { createServiceLogger, Logger } from "@memory-capsule/logger";
 
 const logger: Logger = createServiceLogger("identity-grpc-server");
 
 export interface IdentityGrpcServerOptions {
   port?: number;
-  userRepo: UserRepository;
+  userRepo?: UserRepository;
   jwtSecret?: string;
   expectedServiceKey?: string;
 }
 
-export function createIdentityGrpcServer(options: IdentityGrpcServerOptions): grpc.Server {
-  const { userRepo, jwtSecret = process.env.JWT_SECRET || "dev-jwt-secret-memory-capsule-2026", expectedServiceKey } = options;
+export function createIdentityGrpcServer(options: IdentityGrpcServerOptions = {}): grpc.Server {
+  const userRepo = options.userRepo || new PostgresUserRepository(createDatabaseClient(process.env.IDENTITY_DATABASE_URL || "postgres://ritik@localhost:5432/identity_db"));
+  const { jwtSecret = process.env.JWT_SECRET || "dev-jwt-secret-memory-capsule-2026", expectedServiceKey } = options;
   const identityProto = getIdentityProto();
   const server = new grpc.Server();
 
@@ -135,7 +136,7 @@ export function createIdentityGrpcServer(options: IdentityGrpcServerOptions): gr
   return server;
 }
 
-export function startIdentityGrpcServer(options: IdentityGrpcServerOptions): Promise<{ server: grpc.Server; port: number }> {
+export function startIdentityGrpcServer(options: IdentityGrpcServerOptions = {}): Promise<{ server: grpc.Server; port: number }> {
   return new Promise((resolve, reject) => {
     const server = createIdentityGrpcServer(options);
     const targetPort = options.port || (process.env.IDENTITY_GRPC_PORT ? parseInt(process.env.IDENTITY_GRPC_PORT, 10) : 50051);

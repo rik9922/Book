@@ -10,6 +10,7 @@ export class AppError extends Error {
     public readonly details?: unknown[]
   ) {
     super(message);
+    this.name = this.constructor.name;
     Object.setPrototypeOf(this, new.target.prototype);
     if ("captureStackTrace" in Error) {
       (Error as any).captureStackTrace(this, this.constructor);
@@ -58,6 +59,20 @@ export class BadGatewayError extends AppError {
     super(message, 502, "BAD_GATEWAY");
   }
 }
+
+export class ConfigurationError extends AppError {
+  constructor(message = "Service configuration error", details?: unknown) {
+    super(message, 500, "CONFIGURATION_ERROR", details ? [details] : undefined);
+  }
+}
+
+export class PortConflictError extends AppError {
+  constructor(public readonly port: number, message = `Port ${port} is already occupied`, details?: unknown) {
+    super(message, 500, "PORT_CONFLICT_ERROR", details ? [details] : undefined);
+    this.name = "PortConflictError";
+  }
+}
+
 
 export function toHttpStatus(error: unknown): number {
   if (error instanceof AppError) return error.statusCode;

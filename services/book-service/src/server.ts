@@ -12,6 +12,7 @@ import {
   createSuccessResponse,
   createErrorResponse,
   createDomainEvent,
+  startServiceServer,
 } from "@memory-capsule/contracts";
 import { createEventBus, EventBus } from "@memory-capsule/events";
 import {
@@ -224,3 +225,20 @@ export async function buildBookService(): Promise<FastifyInstance> {
 
   return app;
 }
+
+if (process.env.NODE_ENV !== "test") {
+  (async () => {
+    try {
+      const app = await buildBookService();
+      await startServiceServer({
+        serviceId: "book-service",
+        app,
+        logger,
+      });
+    } catch (err) {
+      logger.error({ err }, "[Book] Unexpected startup failure");
+      process.exit(1);
+    }
+  })();
+}
+

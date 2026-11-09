@@ -4,7 +4,7 @@ import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
 import httpProxy from "@fastify/http-proxy";
 import { createServiceLogger, Logger } from "@memory-capsule/logger";
-import { createSuccessResponse, createErrorResponse } from "@memory-capsule/contracts";
+import { createSuccessResponse, createErrorResponse, startServiceServer } from "@memory-capsule/contracts";
 import {
   createIdentityClient,
   createMemoryClient,
@@ -300,16 +300,14 @@ export function buildGateway(options?: GatewayOptions): FastifyInstance {
 }
 
 if (process.env.NODE_ENV !== "test") {
-  const port = Number(process.env.PORT_GATEWAY || 4000);
-  const host = "0.0.0.0";
   const server = buildGateway();
-
-  server.listen({ port, host }, (err, address) => {
-    if (err) {
-      logger.error({ err }, "[Gateway] Failed to start");
-      process.exit(1);
-    }
-    logger.info({ address, port }, `[Gateway] Listening at ${address}`);
+  startServiceServer({
+    serviceId: "api-gateway",
+    app: server,
+    logger,
+  }).catch((err) => {
+    logger.error({ err }, "[Gateway] Unexpected startup failure");
+    process.exit(1);
   });
 }
 
