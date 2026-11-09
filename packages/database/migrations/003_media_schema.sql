@@ -24,3 +24,4 @@ CREATE TABLE IF NOT EXISTS space_storage_quotas (
 );
 
 CREATE INDEX IF NOT EXISTS idx_media_space_status ON media_assets(space_id, status);
+

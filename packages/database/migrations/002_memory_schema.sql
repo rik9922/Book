@@ -44,3 +44,4 @@ CREATE TABLE IF NOT EXISTS memories (
 CREATE INDEX IF NOT EXISTS idx_memories_space_captured ON memories(space_id, captured_at DESC);
 CREATE INDEX IF NOT EXISTS idx_memories_favorite ON memories(space_id) WHERE is_favorite = TRUE;
 CREATE INDEX IF NOT EXISTS idx_profiles_space ON space_profiles(space_id);
+

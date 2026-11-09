@@ -30,3 +30,4 @@ CREATE TABLE IF NOT EXISTS book_spreads (
 
 CREATE INDEX IF NOT EXISTS idx_books_space ON books(space_id);
 CREATE INDEX IF NOT EXISTS idx_spreads_book_index ON book_spreads(book_id, spread_index ASC);
+

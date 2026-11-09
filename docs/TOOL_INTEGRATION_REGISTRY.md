@@ -46,3 +46,4 @@ The AI Agent acts as autonomous database administrator via `packages/database`:
 | **Tier 1 (Autonomous)** | Read repo files, inspect Git diffs, install approved non-paid npm packages, run migrations in dev, start/stop local services, run test suites, generate 3D assets via Python, inspect logs. | None (runs autonomously). |
 | **Tier 2 (Conditional)** | Creating new database tables, updating Docker Compose configurations, adding new Fastify service endpoints, updating design tokens. | Notified via summary report. |
 | **Tier 3 (Strict Approval)** | Adding paid services, entering credit cards, dropping production tables, force-pushing Git branches, exposing private family media. | **Strictly Forbidden** under $0 budget policy. |
+
