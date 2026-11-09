@@ -33,8 +33,18 @@ public struct MemoryCreateView: View {
 
                 Section("Media Asset") {
                     PhotosPicker(selection: $selectedItem, matching: .images) {
-                        Label(selectedItem == nil ? "Select Photo from Library" : "Photo Selected", systemImage: "photo.badge.plus")
+                        Label("Select Photo from Library", systemImage: "photo.badge.plus")
                             .foregroundStyle(Color(red: 0.89, green: 0.72, blue: 0.33))
+                    }
+
+                    if selectedItem != nil {
+                        HStack {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(.green)
+                            Text("Photo asset attached")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
 

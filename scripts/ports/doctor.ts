@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import fs from "node:fs/promises";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { validatePortRegistry, PORT_REGISTRY } from "@memory-capsule/contracts";
 import { createDatabaseClient } from "@memory-capsule/database";
@@ -133,6 +134,24 @@ export async function runDoctor(): Promise<boolean> {
       name: "Apple xcrun simctl",
       passed: false,
       message: "Xcode Command Line Tools not detected",
+    });
+  }
+
+  // 8. Xcode Project & Native App Target
+  const xcodeProjExists = existsSync(path.resolve(process.cwd(), "apps/ios/Memoria.xcodeproj"));
+  if (xcodeProjExists) {
+    checks.push({
+      category: "Mobile iOS",
+      name: "Xcode Project (Memoria.xcodeproj)",
+      passed: true,
+      message: "Configured with native SwiftUI App target & assets",
+    });
+  } else {
+    checks.push({
+      category: "Mobile iOS",
+      name: "Xcode Project (Memoria.xcodeproj)",
+      passed: false,
+      message: "Run 'pnpm run ios:generate' to create Memoria.xcodeproj",
     });
   }
 

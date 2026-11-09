@@ -1,6 +1,6 @@
 {
-  "executedAt": "2026-11-09T15:29:46.258Z",
-  "totalDurationMs": 1385,
+  "executedAt": "2026-11-09T16:15:13.737Z",
+  "totalDurationMs": 1528,
   "device": {
     "name": "iPhone 17 Pro",
     "udid": "172114EF-2251-4A64-97E1-DBC8EA3ABBE2"
@@ -17,38 +17,38 @@
       "step": "1. Load & Validate Synthetic Manifest",
       "status": "PASSED",
       "details": "12 synthetic assets ready for injection",
-      "durationMs": 0
+      "durationMs": 1
     },
     {
       "step": "2. Simulator Discovery & Boot",
       "status": "PASSED",
       "details": "Device iPhone 17 Pro booted, status bar overridden (9:41, 100% battery)",
-      "durationMs": 319
+      "durationMs": 318
     },
     {
       "step": "3. Media Injection (xcrun simctl addmedia)",
       "status": "PASSED",
       "details": "Successfully injected 8 assets into simulator Photos library",
-      "durationMs": 326
+      "durationMs": 409
     },
     {
       "step": "4. Privacy Permissions Provisioning",
       "status": "PASSED",
       "details": "Granted Photos, Camera, and Microphone permissions for com.memoria.app",
-      "durationMs": 241
+      "durationMs": 265
     },
     {
       "step": "5. Database Seeding & Schema Verification",
       "status": "PASSED",
       "details": "6 memories verified in database for space e8cf4fc3-137e-4397-883d-21cd6a7cb61f",
-      "durationMs": 23
+      "durationMs": 27
     },
     {
       "step": "6. Simulator Evidence Capture",
       "status": "PASSED",
-      "details": "Evidence captured at /Users/ritik/Documents/yearbook/testing/reports/evidence/ios_simulator_e2e_verified_1794238185783.png",
-      "durationMs": 475
+      "details": "Evidence captured at /Users/ritik/Documents/yearbook/testing/reports/evidence/ios_simulator_e2e_verified_1794240913230.png",
+      "durationMs": 507
     }
   ],
-  "screenshotPath": "/Users/ritik/Documents/yearbook/testing/reports/evidence/ios_simulator_e2e_verified_1794238185783.png"
+  "screenshotPath": "/Users/ritik/Documents/yearbook/testing/reports/evidence/ios_simulator_e2e_verified_1794240913230.png"
 }

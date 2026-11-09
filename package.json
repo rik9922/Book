@@ -23,6 +23,11 @@
     "test:ios:e2e": "node --env-file=.env --import tsx testing/scripts/run-ios-e2e-tests.ts",
     "test:ios:reset": "node --env-file=.env --import tsx testing/scripts/reset-test-data.ts",
     "test:ios:swift": "cd apps/ios/Memoria && swift test",
+    "ios:generate": "cd apps/ios && xcodegen generate",
+    "ios:build": "xcodebuild -project apps/ios/Memoria.xcodeproj -scheme Memoria -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build",
+    "ios:test": "xcodebuild -project apps/ios/Memoria.xcodeproj -scheme MemoriaTests -destination 'platform=iOS Simulator,name=iPhone 17 Pro' CODE_SIGNING_ALLOWED=NO test",
+    "ios:open": "open apps/ios/Memoria.xcodeproj",
+    "ios:sim": "open -a Simulator",
     "setup:pgadmin": "node --import tsx scripts/setup-pgadmin.ts"
   },
   "devDependencies": {
