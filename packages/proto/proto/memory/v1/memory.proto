@@ -1,0 +1,87 @@
+syntax = "proto3";
+
+package memorycapsule.memory.v1;
+
+import "common/v1/common.proto";
+
+service MemoryService {
+  rpc GetMemory (GetMemoryRequest) returns (GetMemoryResponse);
+  rpc ListMemoriesKeyset (ListMemoriesKeysetRequest) returns (ListMemoriesKeysetResponse);
+  rpc CreateMemory (CreateMemoryRequest) returns (CreateMemoryResponse);
+  rpc SearchMemories (SearchMemoriesRequest) returns (SearchMemoriesResponse);
+}
+
+message MemoryMessage {
+  string id = 1;
+  string space_id = 2;
+  string author_id = 3;
+  string title = 4;
+  optional string content = 5;
+  string format = 6;
+  string captured_at = 7;
+  optional string location = 8;
+  bool is_favorite = 9;
+  repeated string associated_profile_ids = 10;
+  repeated string media_ids = 11;
+  repeated string tags = 12;
+  string created_at = 13;
+  string updated_at = 14;
+}
+
+message GetMemoryRequest {
+  string memory_id = 1;
+  string space_id = 2;
+}
+
+message GetMemoryResponse {
+  bool found = 1;
+  optional MemoryMessage memory = 2;
+}
+
+message ListMemoriesKeysetRequest {
+  string space_id = 1;
+  int32 limit = 2;
+  optional string cursor_time = 3;
+  optional string cursor_id = 4;
+  optional string profile_id = 5;
+  optional bool is_favorite = 6;
+}
+
+message ListMemoriesKeysetResponse {
+  repeated MemoryMessage items = 1;
+  bool has_more = 2;
+  optional string next_cursor_time = 3;
+  optional string next_cursor_id = 4;
+}
+
+message CreateMemoryRequest {
+  string id = 1;
+  string space_id = 2;
+  string author_id = 3;
+  string title = 4;
+  optional string content = 5;
+  string format = 6;
+  string captured_at = 7;
+  optional string location = 8;
+  bool is_favorite = 9;
+  repeated string associated_profile_ids = 10;
+  repeated string media_ids = 11;
+  repeated string tags = 12;
+}
+
+message CreateMemoryResponse {
+  bool success = 1;
+  optional MemoryMessage memory = 2;
+  optional string error = 3;
+}
+
+message SearchMemoriesRequest {
+  string space_id = 1;
+  string query = 2;
+  int32 limit = 3;
+}
+
+message SearchMemoriesResponse {
+  repeated MemoryMessage items = 1;
+  int32 match_count = 2;
+}

@@ -1,0 +1,54 @@
+syntax = "proto3";
+
+package memorycapsule.identity.v1;
+
+service IdentityService {
+  rpc ValidateSession (ValidateSessionRequest) returns (ValidateSessionResponse);
+  rpc GetUser (GetUserRequest) returns (GetUserResponse);
+  rpc CheckMembership (CheckMembershipRequest) returns (CheckMembershipResponse);
+}
+
+message ValidateSessionRequest {
+  string token = 1;
+}
+
+message ValidateSessionResponse {
+  bool is_valid = 1;
+  optional string user_id = 2;
+  optional string email = 3;
+  optional string full_name = 4;
+  optional bool is_verified = 5;
+  optional string error = 6;
+}
+
+message GetUserRequest {
+  optional string user_id = 1;
+  optional string email = 2;
+}
+
+message UserProfileMessage {
+  string id = 1;
+  string email = 2;
+  string full_name = 3;
+  optional string avatar_url = 4;
+  bool is_verified = 5;
+  string created_at = 6;
+  string updated_at = 7;
+}
+
+message GetUserResponse {
+  bool found = 1;
+  optional UserProfileMessage user = 2;
+}
+
+message CheckMembershipRequest {
+  string user_id = 1;
+  string space_id = 2;
+  optional string required_role = 3;
+}
+
+message CheckMembershipResponse {
+  bool is_member = 1;
+  string role = 2;
+  map<string, bool> permissions = 3;
+}

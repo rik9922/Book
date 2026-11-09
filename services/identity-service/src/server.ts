@@ -278,3 +278,6 @@ export async function buildIdentityService(): Promise<FastifyInstance> {
 
   return app;
 }
+
+export * from "./grpc-server.js";
+

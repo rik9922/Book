@@ -1,0 +1,44 @@
+syntax = "proto3";
+
+package memorycapsule.book.v1;
+
+service BookService {
+  rpc GetBookSummary (GetBookSummaryRequest) returns (GetBookSummaryResponse);
+  rpc ValidateEditionReadiness (ValidateEditionReadinessRequest) returns (ValidateEditionReadinessResponse);
+}
+
+message BookSummaryMessage {
+  string id = 1;
+  string space_id = 2;
+  string title = 3;
+  optional string subtitle = 4;
+  string format = 5;
+  string cover_color = 6;
+  int32 version = 7;
+  bool is_frozen_for_print = 8;
+  optional string frozen_edition_hash = 9;
+  int32 total_spreads = 10;
+  string created_at = 11;
+  string updated_at = 12;
+}
+
+message GetBookSummaryRequest {
+  string book_id = 1;
+  string space_id = 2;
+}
+
+message GetBookSummaryResponse {
+  bool found = 1;
+  optional BookSummaryMessage book = 2;
+}
+
+message ValidateEditionReadinessRequest {
+  string book_id = 1;
+}
+
+message ValidateEditionReadinessResponse {
+  bool is_ready = 1;
+  int32 total_spreads = 2;
+  repeated string validation_errors = 3;
+  optional string calculated_edition_hash = 4;
+}

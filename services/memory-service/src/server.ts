@@ -438,3 +438,6 @@ export async function buildMemoryService(): Promise<FastifyInstance> {
 
   return app;
 }
+
+export * from "./grpc-server.js";
+

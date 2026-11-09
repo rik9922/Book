@@ -5,4 +5,5 @@ packages:
 allowBuilds:
   esbuild: true
   msgpackr-extract: true
+  protobufjs: true
   sharp: true

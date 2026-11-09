@@ -12,7 +12,8 @@
       "@memory-capsule/events": ["./packages/events/src/index.ts"],
       "@memory-capsule/jobs": ["./packages/jobs/src/index.ts"],
       "@memory-capsule/storage": ["./packages/storage/src/index.ts"],
-      "@memory-capsule/database": ["./packages/database/src/index.ts"]
+      "@memory-capsule/database": ["./packages/database/src/index.ts"],
+      "@memory-capsule/proto": ["./packages/proto/src/index.ts"]
     }
   },
   "include": ["packages/**/*", "services/**/*", "tests/**/*"]
