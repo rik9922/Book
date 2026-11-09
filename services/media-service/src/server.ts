@@ -17,14 +17,23 @@ import { createDatabaseClient, DatabaseClient } from "@memory-capsule/database";
 
 const logger: Logger = createServiceLogger("media-service");
 
+// Zero-Budget Hard Quotas (no auto-scaling into paid services)
+const MAX_SPACE_STORAGE_BYTES = 500 * 1024 * 1024; // 500 MB per free space
+const MAX_SINGLE_FILE_BYTES = 50 * 1024 * 1024;    // 50 MB max per single file
+
 export async function buildMediaService(): Promise<FastifyInstance> {
-  const app = Fastify({ logger: false });
+  const app = Fastify({
+    logger: false,
+    bodyLimit: 60 * 1024 * 1024, // 60MB to allow direct local streaming upload
+  });
+
   const db: DatabaseClient = createDatabaseClient(process.env.MEDIA_DATABASE_URL);
   const eventBus: EventBus = await createEventBus();
   const jobManager: JobManager = createJobManager();
   const storage = new ObjectStorage();
 
   const mediaStore = new Map<string, MediaAsset>();
+  const spaceStorageUsage = new Map<string, number>();
 
   await app.register(cors, { origin: true, credentials: true });
   await app.register(fastifyJwt, {
@@ -38,7 +47,25 @@ export async function buildMediaService(): Promise<FastifyInstance> {
       createSuccessResponse({
         service: "media-service",
         status: isDbHealthy ? "healthy" : "degraded",
+        storagePolicy: "zero-budget-cardless",
         timestamp: new Date().toISOString(),
+      })
+    );
+  });
+
+  // Query space storage usage & quota
+  app.get("/api/v1/media/spaces/:spaceId/quota", async (req: FastifyRequest<{ Params: { spaceId: string } }>, reply) => {
+    const currentBytes = spaceStorageUsage.get(req.params.spaceId) || 0;
+    const percentage = Math.round((currentBytes / MAX_SPACE_STORAGE_BYTES) * 100);
+
+    return reply.status(200).send(
+      createSuccessResponse({
+        spaceId: req.params.spaceId,
+        usedBytes: currentBytes,
+        maxBytes: MAX_SPACE_STORAGE_BYTES,
+        usedPercentage: percentage,
+        isWarningThreshold: percentage >= 80,
+        isQuotaExceeded: currentBytes >= MAX_SPACE_STORAGE_BYTES,
       })
     );
   });
@@ -47,10 +74,34 @@ export async function buildMediaService(): Promise<FastifyInstance> {
   app.post("/api/v1/media/upload-session", async (req: FastifyRequest, reply: FastifyReply) => {
     const parseResult = CreateUploadSessionRequestSchema.safeParse(req.body);
     if (!parseResult.success) {
-      return reply.status(400).send(createErrorResponse("VALIDATION_ERROR", "Invalid upload session request", "corr", parseResult.error.issues));
+      return reply.status(400).send(
+        createErrorResponse("VALIDATION_ERROR", "Invalid upload session request", "corr", parseResult.error.issues)
+      );
     }
 
     const { spaceId, fileName, mimeType, fileSizeBytes } = parseResult.data;
+
+    // Strict Zero-Budget File Size Limits
+    if (fileSizeBytes > MAX_SINGLE_FILE_BYTES) {
+      return reply.status(413).send(
+        createErrorResponse(
+          "FILE_TOO_LARGE",
+          `File size exceeds zero-cost limit of ${MAX_SINGLE_FILE_BYTES / (1024 * 1024)} MB.`
+        )
+      );
+    }
+
+    // Space Quota Check
+    const currentBytes = spaceStorageUsage.get(spaceId) || 0;
+    if (currentBytes + fileSizeBytes > MAX_SPACE_STORAGE_BYTES) {
+      return reply.status(507).send(
+        createErrorResponse(
+          "QUOTA_EXCEEDED",
+          "Space storage limit of 500 MB reached. Please export or remove unneeded media to preserve space."
+        )
+      );
+    }
+
     const mediaId = crypto.randomUUID();
     const sanitizedFileName = fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
     const storageKey = `originals/${spaceId}/${mediaId}/${sanitizedFileName}`;
@@ -59,8 +110,7 @@ export async function buildMediaService(): Promise<FastifyInstance> {
     try {
       uploadUrl = await storage.generateUploadUrl(storageKey, mimeType, 3600);
     } catch {
-      // Offline/Local mock url
-      uploadUrl = `http://localhost:9000/memory-capsule-assets/${storageKey}?mock-presigned=true`;
+      uploadUrl = `http://localhost:4003/api/v1/media/local-upload?key=${encodeURIComponent(storageKey)}`;
     }
 
     const now = new Date().toISOString();
@@ -93,6 +143,22 @@ export async function buildMediaService(): Promise<FastifyInstance> {
     );
   });
 
+  // Local storage upload target (100% free local development without S3)
+  app.put("/api/v1/media/local-upload", async (req: FastifyRequest<{ Querystring: { key: string; contentType?: string } }>, reply) => {
+    const key = req.query.key;
+    if (!key) {
+      return reply.status(400).send(createErrorResponse("MISSING_KEY", "Storage key is required"));
+    }
+
+    const rawBuffer = req.body as Buffer;
+    if (!rawBuffer || rawBuffer.length === 0) {
+      return reply.status(400).send(createErrorResponse("EMPTY_BODY", "No binary data received"));
+    }
+
+    await storage.saveObject(key, rawBuffer, req.query.contentType);
+    return reply.status(200).send(createSuccessResponse({ saved: true, key, bytes: rawBuffer.length }));
+  });
+
   // 2. Client confirms upload completed
   app.post("/api/v1/media/:id/complete", async (req: FastifyRequest<{ Params: { id: string } }>, reply) => {
     const asset = mediaStore.get(req.params.id);
@@ -103,6 +169,10 @@ export async function buildMediaService(): Promise<FastifyInstance> {
     asset.status = "processing";
     asset.updatedAt = new Date().toISOString();
     mediaStore.set(asset.id, asset);
+
+    // Update space usage
+    const curUsage = spaceStorageUsage.get(asset.spaceId) || 0;
+    spaceStorageUsage.set(asset.spaceId, curUsage + asset.sizeBytes);
 
     // Publish media.uploaded domain event
     await eventBus.publish(
@@ -143,8 +213,8 @@ export async function buildMediaService(): Promise<FastifyInstance> {
     if (asset) {
       asset.status = "ready";
       asset.derivatives = {
-        thumb_sm: `https://cdn.memorycapsule.internal/derivatives/${mediaId}/thumb_sm.webp`,
-        thumb_lg: `https://cdn.memorycapsule.internal/derivatives/${mediaId}/thumb_lg.webp`,
+        thumb_sm: `http://localhost:4003/api/v1/media/files/derivatives/${mediaId}/thumb_sm.webp`,
+        thumb_lg: `http://localhost:4003/api/v1/media/files/derivatives/${mediaId}/thumb_lg.webp`,
       };
       asset.metadata = {
         width: 1920,

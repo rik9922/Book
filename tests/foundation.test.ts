@@ -197,6 +197,29 @@ describe("Stage 1 — Engineering Foundation Verification Suite", () => {
     const completedAsset = JSON.parse(completeRes.body).data;
     assert.equal(completedAsset.status, "processing");
 
+    // Zero-Budget Quota verification
+    const quotaRes = await app.inject({
+      method: "GET",
+      url: "/api/v1/media/spaces/12345678-1234-4234-8234-123456789012/quota",
+    });
+    assert.equal(quotaRes.statusCode, 200);
+    const quotaData = JSON.parse(quotaRes.body).data;
+    assert.equal(quotaData.usedBytes, 4500000);
+    assert.equal(quotaData.isQuotaExceeded, false);
+
+    // Over-limit file rejection (exceeding 50MB zero-cost threshold)
+    const overLimitRes = await app.inject({
+      method: "POST",
+      url: "/api/v1/media/upload-session",
+      payload: {
+        spaceId: "12345678-1234-4234-8234-123456789012",
+        fileName: "giant-video.raw",
+        mimeType: "video/raw",
+        fileSizeBytes: 60 * 1024 * 1024,
+      },
+    });
+    assert.equal(overLimitRes.statusCode, 413);
+
     await app.close();
   });
 
