@@ -1,0 +1,32 @@
+{
+  "profile": "standard",
+  "description": "Comprehensive multi-generational family archive for full E2E testing",
+  "assetIds": [
+    "660c53ec-3cf7-4b5f-8dc9-b5e309eb35f7",
+    "6077c1b8-3efe-49f8-bc22-0e1303718f33",
+    "e676b792-8207-4fe7-9491-9eb50f38bc63",
+    "935d5dec-8931-455f-b9da-f3114fdbf3d2",
+    "2da16255-dd8a-48f0-85bf-e40eea6d795f",
+    "4b2d58fa-b76d-4604-b634-383446405399",
+    "fddeeaff-5027-4599-bc01-8877c4b755f8",
+    "9131a13e-9d91-4fab-9be5-efc81c339aba",
+    "40bb8186-71b0-49fc-a431-03ea77d2cb16",
+    "f22a9169-5948-4922-8cc7-17ae7ea5fd04",
+    "53772a82-79c1-4152-a04a-0095ddbe35f1",
+    "965638f5-983f-4ef6-a525-307bbb189644"
+  ],
+  "filenames": [
+    "family_anniversary_portrait.jpg",
+    "lake_tahoe_sunrise.jpg",
+    "maya_graduation_portrait.jpg",
+    "autumn_veranda_baking.jpg",
+    "lucas_birthday_cake.jpg",
+    "kyoto_bamboo_walk.jpg",
+    "anniversary_toast.mp4",
+    "tahoe_water_glide.mp4",
+    "eleanor_story_voice_note.m4a",
+    "garden_ambiance.m4a",
+    "bennett_heritage_notes.txt",
+    "bennett_heritage_notes.pdf"
+  ]
+}

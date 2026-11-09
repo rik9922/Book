@@ -37,3 +37,9 @@ dump.rdb
 storage/
 storage_data/
 
+
+# Swift & Xcode build outputs
+.build/
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+DerivedData/

@@ -90,3 +90,4 @@ if (violations.length > 0) {
   console.log("✅ [Memoria Quality Gate] All production services clean! Zero console.* calls or empty catch blocks.");
   process.exit(0);
 }
+

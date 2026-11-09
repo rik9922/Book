@@ -1,0 +1,180 @@
+[
+  {
+    "id": "b1000000-0000-4000-8000-000000000001",
+    "spaceId": "e8cf4fc3-137e-4397-883d-21cd6a7cb61f",
+    "authorId": "a1111111-1111-4111-8111-111111111111",
+    "authorName": "Arthur Bennett",
+    "title": "Arthur & Eleanor Golden Anniversary Celebration",
+    "content": "Fifty years of devotion, laughter, and building our family hearth. All generations sat around the walnut dining table with candlelight and vintage albums.",
+    "format": "photo",
+    "capturedAt": "2024-06-15T18:30:00.000Z",
+    "location": "Oakridge Estate, Mill Valley, California",
+    "latitude": 37.906,
+    "longitude": -122.545,
+    "isFavorite": true,
+    "associatedPeople": [
+      "Arthur Bennett",
+      "Eleanor Bennett",
+      "David Bennett",
+      "Sarah Bennett-Hayes",
+      "Maya Bennett",
+      "Lucas Bennett"
+    ],
+    "tags": [
+      "anniversary",
+      "family",
+      "golden-milestone",
+      "heirloom"
+    ],
+    "scenario": "family_gathering",
+    "mediaFilenames": [
+      "family_anniversary_portrait.jpg",
+      "anniversary_toast.mp4"
+    ]
+  },
+  {
+    "id": "b1000000-0000-4000-8000-000000000002",
+    "spaceId": "e8cf4fc3-137e-4397-883d-21cd6a7cb61f",
+    "authorId": "a3333333-3333-4333-8333-333333333333",
+    "authorName": "David Bennett",
+    "title": "Emerald Bay Sunrise Canoe Expedition",
+    "content": "The lake was glassy and quiet at dawn. The morning mist rose between the granite peaks while Lucas dipped his paddle into the crystal-clear water.",
+    "format": "photo",
+    "capturedAt": "2025-07-22T06:15:00.000Z",
+    "location": "Lake Tahoe, Emerald Bay, California",
+    "latitude": 38.954,
+    "longitude": -120.098,
+    "isFavorite": true,
+    "associatedPeople": [
+      "David Bennett",
+      "Lucas Bennett"
+    ],
+    "tags": [
+      "travel",
+      "lake-tahoe",
+      "nature",
+      "summer-vacation"
+    ],
+    "scenario": "travel_expedition",
+    "mediaFilenames": [
+      "lake_tahoe_sunrise.jpg",
+      "tahoe_water_glide.mp4"
+    ]
+  },
+  {
+    "id": "b1000000-0000-4000-8000-000000000003",
+    "spaceId": "e8cf4fc3-137e-4397-883d-21cd6a7cb61f",
+    "authorId": "a4444444-4444-4444-8444-444444444444",
+    "authorName": "Sarah Bennett-Hayes",
+    "title": "Maya's University Commencement with Honors",
+    "content": "Tears of pride seeing Maya cross the historic stone quadrangle in her black and crimson gown. Our first granddaughter to graduate summa cum laude.",
+    "format": "photo",
+    "capturedAt": "2024-05-18T14:00:00.000Z",
+    "location": "Stanford Memorial Church Quad, California",
+    "latitude": 37.4275,
+    "longitude": -122.1697,
+    "isFavorite": true,
+    "associatedPeople": [
+      "Maya Bennett",
+      "Sarah Bennett-Hayes",
+      "Arthur Bennett"
+    ],
+    "tags": [
+      "graduation",
+      "commencement",
+      "pride",
+      "education"
+    ],
+    "scenario": "personal_milestone",
+    "mediaFilenames": [
+      "maya_graduation_portrait.jpg"
+    ]
+  },
+  {
+    "id": "b1000000-0000-4000-8000-000000000004",
+    "spaceId": "e8cf4fc3-137e-4397-883d-21cd6a7cb61f",
+    "authorId": "a2222222-2222-4222-8222-222222222222",
+    "authorName": "Eleanor Bennett",
+    "title": "Grandmother Eleanor's Autumn Veranda Baking",
+    "content": "The kitchen was filled with the scents of cinnamon, roasted apples, and slow-leavened sourdough bread. Oliver was lying by the kitchen mat waiting for crumbs.",
+    "format": "photo",
+    "capturedAt": "2024-10-12T11:45:00.000Z",
+    "location": "Bennett Family Homestead, Petaluma, California",
+    "latitude": 38.2324,
+    "longitude": -122.6367,
+    "isFavorite": false,
+    "associatedPeople": [
+      "Eleanor Bennett",
+      "Lucas Bennett"
+    ],
+    "tags": [
+      "autumn",
+      "baking",
+      "sourdough",
+      "cozy-home"
+    ],
+    "scenario": "daily_lifestyle",
+    "mediaFilenames": [
+      "autumn_veranda_baking.jpg",
+      "eleanor_story_voice_note.m4a",
+      "bennett_heritage_notes.pdf"
+    ]
+  },
+  {
+    "id": "b1000000-0000-4000-8000-000000000005",
+    "spaceId": "e8cf4fc3-137e-4397-883d-21cd6a7cb61f",
+    "authorId": "a3333333-3333-4333-8333-333333333333",
+    "authorName": "David Bennett",
+    "title": "Lucas 7th Solar System Birthday Party",
+    "content": "Lucas blew out all seven candles on his handmade rocket cake in one breath. The backyard telescope showed the rings of Saturn to all the neighborhood kids.",
+    "format": "photo",
+    "capturedAt": "2024-09-04T16:20:00.000Z",
+    "location": "Bennett Backyard, Mill Valley, California",
+    "latitude": 37.906,
+    "longitude": -122.545,
+    "isFavorite": true,
+    "associatedPeople": [
+      "Lucas Bennett",
+      "David Bennett",
+      "Sarah Bennett-Hayes"
+    ],
+    "tags": [
+      "birthday",
+      "childhood",
+      "astronomy",
+      "celebration"
+    ],
+    "scenario": "family_gathering",
+    "mediaFilenames": [
+      "lucas_birthday_cake.jpg"
+    ]
+  },
+  {
+    "id": "b1000000-0000-4000-8000-000000000006",
+    "spaceId": "e8cf4fc3-137e-4397-883d-21cd6a7cb61f",
+    "authorId": "a5555555-5555-4555-8555-555555555555",
+    "authorName": "Maya Bennett",
+    "title": "Morning Silence in Arashiyama Bamboo Grove",
+    "content": "Walking at 6:30 AM before anyone else arrived. The green light filtering through tall stalks created an almost sacred stillness.",
+    "format": "photo",
+    "capturedAt": "2023-11-05T06:30:00.000Z",
+    "location": "Arashiyama, Kyoto, Japan",
+    "latitude": 35.0166,
+    "longitude": 135.6713,
+    "isFavorite": false,
+    "associatedPeople": [
+      "Maya Bennett"
+    ],
+    "tags": [
+      "kyoto",
+      "japan",
+      "travel",
+      "solitude",
+      "nature"
+    ],
+    "scenario": "travel_expedition",
+    "mediaFilenames": [
+      "kyoto_bamboo_walk.jpg"
+    ]
+  }
+]

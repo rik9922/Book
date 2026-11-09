@@ -93,3 +93,4 @@ test("Memoria Engineering Standards & Quality Verification Suite", async (t) => 
     assert.ok(testLogger, "Service logger must be instantiated cleanly");
   });
 });
+

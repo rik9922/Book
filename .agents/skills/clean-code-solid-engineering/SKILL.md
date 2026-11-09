@@ -42,3 +42,4 @@ description: Enforces Clean Code standards, SOLID architectural principles, modu
    - Remove unused imports, dead variables, unreachable switch cases, and commented-out legacy code immediately.
 5. **No Primitive Obsession**:
    - Use strongly typed identifiers, domain enums, and Zod schemas rather than unvalidated primitive strings and arbitrary maps.
+

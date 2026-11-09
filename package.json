@@ -8,7 +8,13 @@
     "build": "pnpm -r build",
     "check:quality": "node --import tsx scripts/check-code-quality.ts",
     "test": "node --import tsx --test tests/*.ts",
-    "lint": "pnpm run check:quality"
+    "lint": "pnpm run check:quality",
+    "test:fixtures:generate": "node --import tsx testing/scripts/generate-test-data.ts",
+    "test:fixtures:validate": "node --import tsx testing/scripts/validate-test-data.ts",
+    "test:ios:inject": "node --import tsx testing/scripts/inject-simulator-media.ts",
+    "test:ios:e2e": "node --env-file=.env --import tsx testing/scripts/run-ios-e2e-tests.ts",
+    "test:ios:reset": "node --env-file=.env --import tsx testing/scripts/reset-test-data.ts",
+    "test:ios:swift": "cd apps/ios/Memoria && swift test"
   },
   "devDependencies": {
     "@types/jsonwebtoken": "^9.0.10",
@@ -18,7 +24,8 @@
     "pg": "^8.13.3",
     "sharp": "^0.33.5",
     "tsx": "^4.23.15",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "zod": "^4.6.7"
   },
   "dependencies": {
     "@grpc/grpc-js": "^1.14.7",

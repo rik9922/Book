@@ -47,3 +47,4 @@ Never throw raw strings or generic untyped `new Error("failed")`. Use structured
 - Any business operation that alters multiple database rows or staging tables must execute inside `db.transaction(async (client) => { ... })`.
 - If an unhandled exception occurs inside the transaction block, an automatic `ROLLBACK` must execute before rethrowing the error.
 - Never swallow exceptions inside empty `catch {}` blocks. If an error is caught for cleanup, rethrow or propagate it to the centralized handler.
+

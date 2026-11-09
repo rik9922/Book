@@ -55,3 +55,4 @@ Before any skill is imported from GitLab or open-source repositories into Memori
 1. **Upstream Review**: Check upstream GitLab repositories quarterly for meaningful advancements in clean code, testing, or observability patterns.
 2. **Diff Review**: Inspect diffs before pulling updates to preserve Memoria-specific architectural customizations and path bindings.
 3. **Automated Verification**: After modifying any skill, execute `pnpm run check:quality && pnpm test` to confirm agent workflow stability and verify skill discovery.
+

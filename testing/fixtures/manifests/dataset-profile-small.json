@@ -1,0 +1,16 @@
+{
+  "profile": "small",
+  "description": "Compact dataset for fast CI and smoke testing",
+  "assetIds": [
+    "660c53ec-3cf7-4b5f-8dc9-b5e309eb35f7",
+    "6077c1b8-3efe-49f8-bc22-0e1303718f33",
+    "e676b792-8207-4fe7-9491-9eb50f38bc63",
+    "935d5dec-8931-455f-b9da-f3114fdbf3d2"
+  ],
+  "filenames": [
+    "family_anniversary_portrait.jpg",
+    "lake_tahoe_sunrise.jpg",
+    "maya_graduation_portrait.jpg",
+    "autumn_veranda_baking.jpg"
+  ]
+}
