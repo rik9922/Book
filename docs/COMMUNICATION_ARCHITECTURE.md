@@ -90,3 +90,4 @@ The API Gateway (`services/api-gateway`) acts as a high-performance protocol tra
 3. The Gateway invokes downstream microservices over persistent gRPC channels (`identityClient.validateSession(...)`).
 4. Downstream Protobuf responses are transformed into standard client JSON envelopes (`createSuccessResponse({ user })`).
 5. Internal gRPC errors are converted to standard HTTP status codes (`401`, `404`, `504`) using `grpcStatusToHttpStatus`.
+

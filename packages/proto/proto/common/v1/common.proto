@@ -29,3 +29,4 @@ message StatusResponse {
   bool success = 1;
   string message = 2;
 }
+

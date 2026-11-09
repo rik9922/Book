@@ -58,3 +58,4 @@ Cascading thread starvation is prevented by enforcing explicit deadlines on ever
 
 ### 4.2 Idempotency on Write Operations
 Mutating RPCs (such as `CreateMemory`) require client-provided UUID primary keys (`id`). If a network glitch occurs after the server committed the transaction but before the client received the ack, a retried request with the same UUID fails gracefully on primary key conflict (`ALREADY_EXISTS`) rather than creating duplicate memories.
+

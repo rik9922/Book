@@ -59,3 +59,4 @@ test("Protocol Buffers & gRPC Foundation Suite", async (t) => {
     assert.equal(grpcStatusToHttpStatus(grpc.status.INVALID_ARGUMENT), 400);
   });
 });
+

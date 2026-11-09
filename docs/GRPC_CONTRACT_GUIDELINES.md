@@ -71,3 +71,4 @@ In accordance with our zero-dependency, local-first policy, contracts are loaded
 - Contracts are loaded synchronously on startup (`loadSync`) and cached.
 - TypeScript definitions mirror the proto messages in `packages/proto/src/index.ts` with 100% type safety.
 - Services import client and server definitions directly from `@memory-capsule/proto`.
+

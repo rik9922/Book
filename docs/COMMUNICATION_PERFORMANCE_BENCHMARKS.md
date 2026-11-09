@@ -44,3 +44,4 @@ Each transport executed **300 sequential requests** following a 20-request warmu
 - **REST is Retained For**:
   - All public client-facing boundaries (Next.js PWA, iOS, Admin).
   - High-throughput binary streaming (media file uploads) to prevent memory allocation thrashing.
+

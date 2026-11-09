@@ -85,3 +85,4 @@ message SearchMemoriesResponse {
   repeated MemoryMessage items = 1;
   int32 match_count = 2;
 }
+

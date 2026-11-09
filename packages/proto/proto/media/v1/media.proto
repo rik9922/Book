@@ -43,3 +43,4 @@ message ValidateStorageAccessResponse {
   int64 max_bytes = 3;
   optional string reason = 4;
 }
+

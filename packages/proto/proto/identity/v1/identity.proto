@@ -52,3 +52,4 @@ message CheckMembershipResponse {
   string role = 2;
   map<string, bool> permissions = 3;
 }
+

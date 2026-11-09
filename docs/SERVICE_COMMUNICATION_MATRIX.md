@@ -32,3 +32,4 @@
    - Large raw image buffers (up to 50MB) stream directly to disk without Protobuf Base64/Byte parsing overhead, preventing V8 memory bloat.
 4. **Why NATS JetStream for Lifecycle Events**:
    - Guarantees loose coupling between domains and prevents cascading failures when downstream notification or analytics services are temporarily offline.
+

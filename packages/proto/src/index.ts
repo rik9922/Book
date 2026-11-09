@@ -198,3 +198,4 @@ export function createBookClient(address: string, creds = grpc.credentials.creat
   const bookProto = getBookProto();
   return new bookProto.BookService(address, creds);
 }
+

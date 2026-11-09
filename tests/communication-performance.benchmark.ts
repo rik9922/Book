@@ -156,3 +156,4 @@ test("Communication Performance Benchmark: Internal HTTP/REST vs gRPC/HTTP2", as
   await dbMemory.query(`DELETE FROM memory_spaces WHERE id = $1`, [testSpaceId]);
   await dbMemory.close();
 });
+
