@@ -74,3 +74,4 @@ The application declares explicit user-facing privacy descriptions in [`apps/ios
 - `NSMicrophoneUsageDescription`: "Memoria needs microphone access to record voice memories and oral histories."
 
 Simulator test automation grants these automatically via `xcrun simctl privacy booted grant <service> com.memoria.app`.
+
