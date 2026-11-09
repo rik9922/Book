@@ -101,3 +101,4 @@ describe("Memoria Living Archive — Design System & Contrast Verification Suite
     assert.ok(swiftCode.includes("0x5F735E"), "MemoriaTheme.swift must define sageFunc 0x5F735E");
   });
 });
+

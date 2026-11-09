@@ -318,3 +318,4 @@ export const VERIFIED_CONTRASTS: ContrastVerification[] = [
     wcagAaaNormal: false,
   },
 ];
+

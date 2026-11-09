@@ -162,3 +162,4 @@ The companion package `visual-reference-pack/` (`references.csv` and `index.html
 | **Admin Portal** | `apps/web/src/app/admin/page.tsx` | Permanent Light (`#F7F4EE`) | 14.47:1 table text, 7.45:1 badges | **VERIFIED** |
 | **3D Book Studio** | `apps/web/src/components/3d/ExperienceCanvas.tsx` | Neutral Light Studio (`#F2EFE8`) | 14.17:1 headings, plum controls | **VERIFIED** |
 | **iOS Swift App** | `apps/ios/Memoria/` | `.preferredColorScheme(.light)` | Native SwiftUI `MemoriaTheme` | **VERIFIED** |
+
