@@ -59,7 +59,16 @@ class InMemoryBookTestRepo implements BookRepository {
 export async function buildBookService(): Promise<FastifyInstance> {
   const app = Fastify({ logger: false });
   const dbUrl = process.env.BOOK_DATABASE_URL || process.env.DATABASE_URL;
+  if (!dbUrl && process.env.NODE_ENV !== "test") {
+    throw new Error("[book-service] Database connection string required in non-test mode. Set BOOK_DATABASE_URL or DATABASE_URL.");
+  }
   const db: DatabaseClient = createDatabaseClient(dbUrl);
+  if (process.env.NODE_ENV !== "test") {
+    const isHealthy = await db.healthCheck();
+    if (!isHealthy) {
+      throw new Error("[book-service] PostgreSQL database health check failed during service initialization.");
+    }
+  }
   const eventBus: EventBus = await createEventBus();
 
   const bookRepo: BookRepository = dbUrl

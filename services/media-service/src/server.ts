@@ -21,7 +21,9 @@ import {
   PostgresMediaRepository,
   MediaRepository,
   SpaceQuota,
+  OcrTranscript,
 } from "@memory-capsule/database";
+import { OcrEngine } from "./ocr-engine.js";
 
 const logger: Logger = createServiceLogger("media-service");
 
@@ -33,6 +35,7 @@ const MAX_SINGLE_FILE_BYTES = 50 * 1024 * 1024;    // 50 MB max per single file
 class InMemoryMediaTestRepo implements MediaRepository {
   private assets = new Map<string, MediaAsset>();
   private quotas = new Map<string, number>();
+  private transcripts: OcrTranscript[] = [];
 
   async createAsset(asset: MediaAsset): Promise<MediaAsset> {
     this.assets.set(asset.id, asset);
@@ -60,6 +63,19 @@ class InMemoryMediaTestRepo implements MediaRepository {
     this.quotas.set(spaceId, used);
     return { spaceId, usedBytes: used, maxBytes: MAX_SPACE_STORAGE_BYTES };
   }
+  async saveOcrTranscript(transcript: OcrTranscript): Promise<OcrTranscript> {
+    this.transcripts.push(transcript);
+    return transcript;
+  }
+  async findOcrTranscriptByMediaId(mediaId: string): Promise<OcrTranscript[]> {
+    return this.transcripts.filter((t) => t.mediaId === mediaId);
+  }
+  async searchTranscripts(spaceId: string, query: string): Promise<OcrTranscript[]> {
+    const q = query.toLowerCase();
+    return this.transcripts.filter(
+      (t) => t.spaceId === spaceId && t.extractedText.toLowerCase().includes(q)
+    );
+  }
 }
 
 export async function buildMediaService(): Promise<FastifyInstance> {
@@ -70,7 +86,7 @@ export async function buildMediaService(): Promise<FastifyInstance> {
 
   // Enable binary payload parsing for direct file uploads
   app.addContentTypeParser(
-    ["application/octet-stream", "image/png", "image/jpeg", "image/webp", "image/gif", "audio/mpeg", "video/mp4"],
+    ["application/octet-stream", "image/png", "image/jpeg", "image/webp", "image/gif", "audio/mpeg", "video/mp4", "application/pdf"],
     { parseAs: "buffer" },
     (req, body, done) => {
       done(null, body);
@@ -78,7 +94,16 @@ export async function buildMediaService(): Promise<FastifyInstance> {
   );
 
   const dbUrl = process.env.MEDIA_DATABASE_URL || process.env.DATABASE_URL;
+  if (!dbUrl && process.env.NODE_ENV !== "test") {
+    throw new Error("[media-service] Database connection string required in non-test mode. Set MEDIA_DATABASE_URL or DATABASE_URL.");
+  }
   const db: DatabaseClient = createDatabaseClient(dbUrl);
+  if (process.env.NODE_ENV !== "test") {
+    const isHealthy = await db.healthCheck();
+    if (!isHealthy) {
+      throw new Error("[media-service] PostgreSQL database health check failed during service initialization.");
+    }
+  }
   const eventBus: EventBus = await createEventBus();
   const jobManager: JobManager = createJobManager();
   const storage = new ObjectStorage();
@@ -86,6 +111,8 @@ export async function buildMediaService(): Promise<FastifyInstance> {
   const mediaRepo: MediaRepository = dbUrl
     ? new PostgresMediaRepository(db)
     : new InMemoryMediaTestRepo();
+
+  const ocrEngine = new OcrEngine();
 
   const allowedOrigins = [
     "http://localhost:3000",
@@ -257,18 +284,53 @@ export async function buildMediaService(): Promise<FastifyInstance> {
     }
   });
 
-  // 2. Client confirms upload completed
-  app.post("/api/v1/media/:id/complete", async (req: FastifyRequest<{ Params: { id: string } }>, reply) => {
+  // 2. Client confirms upload completed (with cryptographic checksum verification and idempotent quota accounting)
+  app.post("/api/v1/media/:id/complete", async (req: FastifyRequest<{ Params: { id: string }; Body?: { checksum?: string; sha256?: string } }>, reply) => {
     const asset = await mediaRepo.findAssetById(req.params.id);
     if (!asset) {
       return reply.status(404).send(createErrorResponse("MEDIA_NOT_FOUND", "Media record not found"));
     }
 
-    // Atomically increment space storage usage
+    // Idempotency: never re-process or double-count storage quota on retries
+    if (asset.status === "processing" || asset.status === "ready") {
+      return reply.status(200).send(createSuccessResponse(asset));
+    }
+
+    // Cryptographic and existence verification
+    let computedSha256: string | undefined;
+    try {
+      const buffer = await storage.getObject(asset.storageKey);
+      computedSha256 = crypto.createHash("sha256").update(buffer).digest("hex");
+
+      const expectedChecksum = req.body?.sha256 || req.body?.checksum;
+      if (expectedChecksum && expectedChecksum.toLowerCase() !== computedSha256.toLowerCase()) {
+        return reply.status(400).send(
+          createErrorResponse(
+            "CHECKSUM_MISMATCH",
+            `File integrity verification failed. Expected SHA-256 ${expectedChecksum}, computed ${computedSha256}`
+          )
+        );
+      }
+    } catch (storageErr) {
+      if (process.env.NODE_ENV !== "test") {
+        return reply.status(400).send(
+          createErrorResponse("UPLOAD_INCOMPLETE", "Original media file was not verified in permanent storage")
+        );
+      }
+    }
+
+    // Atomically increment space storage usage (only once per media lifecycle)
     await mediaRepo.incrementSpaceUsage(asset.spaceId, asset.sizeBytes);
+
+    const updatedMetadata = {
+      ...asset.metadata,
+      ...(computedSha256 ? { sha256: computedSha256 } : {}),
+      verifiedAt: new Date().toISOString(),
+    };
 
     const updated = await mediaRepo.updateAsset(asset.id, {
       status: "processing",
+      metadata: updatedMetadata,
     });
 
     // Publish media.uploaded domain event
@@ -279,6 +341,7 @@ export async function buildMediaService(): Promise<FastifyInstance> {
         spaceId: asset.spaceId,
         storageKey: asset.storageKey,
         mimeType: asset.mimeType,
+        sha256: computedSha256,
       })
     );
 
@@ -292,6 +355,21 @@ export async function buildMediaService(): Promise<FastifyInstance> {
     return reply.status(200).send(createSuccessResponse(updated || asset));
   });
 
+  // OCR Engine Status & Capabilities
+  app.get("/api/v1/media/ocr/status", async (req, reply) => {
+    return reply.status(200).send(createSuccessResponse(ocrEngine.getStatus()));
+  });
+
+  // OCR Full-Text Search across Transcripts
+  app.get("/api/v1/media/ocr/search", async (req: FastifyRequest<{ Querystring: { spaceId: string; q: string } }>, reply) => {
+    const { spaceId, q } = req.query;
+    if (!spaceId || !q) {
+      return reply.status(400).send(createErrorResponse("INVALID_QUERY", "Both spaceId and q are required for OCR search"));
+    }
+    const results = await mediaRepo.searchTranscripts(spaceId, q);
+    return reply.status(200).send(createSuccessResponse(results));
+  });
+
   // 3. Query Media Status / Details
   app.get("/api/v1/media/:id", async (req: FastifyRequest<{ Params: { id: string } }>, reply) => {
     const asset = await mediaRepo.findAssetById(req.params.id);
@@ -299,6 +377,83 @@ export async function buildMediaService(): Promise<FastifyInstance> {
       return reply.status(404).send(createErrorResponse("MEDIA_NOT_FOUND", "Media asset not found"));
     }
     return reply.status(200).send(createSuccessResponse(asset));
+  });
+
+  // On-demand Trigger OCR for Media
+  app.post("/api/v1/media/:id/ocr", async (req: FastifyRequest<{ Params: { id: string }; Body?: { language?: string } }>, reply) => {
+    const asset = await mediaRepo.findAssetById(req.params.id);
+    if (!asset) {
+      return reply.status(404).send(createErrorResponse("MEDIA_NOT_FOUND", "Media asset not found"));
+    }
+
+    const ocrStatus = ocrEngine.getStatus();
+    if (!ocrStatus.isAvailable) {
+      return reply.status(503).send(createErrorResponse("OCR_UNAVAILABLE", "Tesseract OCR engine is not available on this host"));
+    }
+
+    try {
+      const buffer = await storage.getObject(asset.storageKey);
+      const language = req.body?.language || "eng";
+      const ocrResult = await ocrEngine.processDocument(buffer, asset.mimeType, language);
+
+      const savedTranscripts: OcrTranscript[] = [];
+      for (const page of ocrResult.pages) {
+        const transcript: OcrTranscript = {
+          id: crypto.randomUUID(),
+          mediaId: asset.id,
+          spaceId: asset.spaceId,
+          status: "completed",
+          extractedText: page.text,
+          confidence: page.confidence,
+          wordCount: page.wordCount,
+          language,
+          pageNumber: page.pageNumber,
+          metadata: {
+            engine: ocrResult.engine,
+            durationMs: ocrResult.durationMs,
+            words: page.words,
+          },
+          createdAt: new Date().toISOString(),
+        };
+        const saved = await mediaRepo.saveOcrTranscript(transcript);
+        savedTranscripts.push(saved);
+      }
+
+      await mediaRepo.updateAsset(asset.id, {
+        metadata: {
+          ...asset.metadata,
+          ocrProcessed: true,
+          ocrConfidence: ocrResult.averageConfidence,
+          ocrWordCount: ocrResult.totalWords,
+          ocrProcessedAt: new Date().toISOString(),
+        },
+      });
+
+      await eventBus.publish(
+        "media.ocr.completed",
+        createDomainEvent("media.ocr.completed", "media-service", {
+          mediaId: asset.id,
+          spaceId: asset.spaceId,
+          pageCount: ocrResult.pages.length,
+          totalWords: ocrResult.totalWords,
+          averageConfidence: ocrResult.averageConfidence,
+        })
+      );
+
+      return reply.status(200).send(createSuccessResponse({
+        result: ocrResult,
+        transcripts: savedTranscripts,
+      }));
+    } catch (err: any) {
+      logger.error({ err, mediaId: asset.id }, "[Media] On-demand OCR processing failed");
+      return reply.status(500).send(createErrorResponse("OCR_PROCESSING_FAILED", err.message || "Failed to process OCR"));
+    }
+  });
+
+  // Get OCR Transcripts for Media
+  app.get("/api/v1/media/:id/ocr", async (req: FastifyRequest<{ Params: { id: string } }>, reply) => {
+    const transcripts = await mediaRepo.findOcrTranscriptByMediaId(req.params.id);
+    return reply.status(200).send(createSuccessResponse(transcripts));
   });
 
   // List assets in space
@@ -341,6 +496,44 @@ export async function buildMediaService(): Promise<FastifyInstance> {
           };
         } catch (procErr) {
           logger.warn({ err: procErr }, "[Worker] Sharp derivative processing error");
+        }
+      }
+
+      // Automatic OCR text extraction for documents & scanned media
+      if (ocrEngine.getStatus().isAvailable && (mimeType.startsWith("image/") || mimeType === "application/pdf")) {
+        try {
+          const originalBuffer = await storage.getObject(storageKey);
+          const ocrResult = await ocrEngine.processDocument(originalBuffer, mimeType, "eng");
+          
+          for (const page of ocrResult.pages) {
+            await mediaRepo.saveOcrTranscript({
+              id: crypto.randomUUID(),
+              mediaId,
+              spaceId: asset.spaceId,
+              status: "completed",
+              extractedText: page.text,
+              confidence: page.confidence,
+              wordCount: page.wordCount,
+              language: "eng",
+              pageNumber: page.pageNumber,
+              metadata: {
+                engine: ocrResult.engine,
+                durationMs: ocrResult.durationMs,
+                words: page.words,
+              },
+              createdAt: new Date().toISOString(),
+            });
+          }
+
+          metadata = {
+            ...metadata,
+            ocrProcessed: true,
+            ocrConfidence: ocrResult.averageConfidence,
+            ocrWordCount: ocrResult.totalWords,
+          };
+          logger.info({ mediaId, totalWords: ocrResult.totalWords }, "[Worker] OCR text extraction completed");
+        } catch (ocrErr) {
+          logger.warn({ err: ocrErr, mediaId }, "[Worker] OCR processing non-fatal error");
         }
       }
 

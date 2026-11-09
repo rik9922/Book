@@ -37,6 +37,7 @@ dump.rdb
 storage/
 storage_data/
 .memoria/
+backups/
 
 
 # Swift & Xcode build outputs

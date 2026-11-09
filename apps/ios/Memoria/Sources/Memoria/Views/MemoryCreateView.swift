@@ -91,7 +91,7 @@ public struct MemoryCreateView: View {
                 spaceId: spaceId,
                 title: title,
                 content: content,
-                format: .photo,
+                format: "image",
                 location: location.isEmpty ? nil : location,
                 tags: tags
             )

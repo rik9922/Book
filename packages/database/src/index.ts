@@ -115,15 +115,21 @@ class InMemoryDatabaseClient implements DatabaseClient {
 export function createDatabaseClient(connectionString?: string, options?: DatabasePoolOptions): DatabaseClient {
   const url = connectionString || process.env.DATABASE_URL;
   if (!url) {
-    logger.warn("[DatabaseClient] No connection string provided — using in-memory mock client");
-    return new InMemoryDatabaseClient();
+    if (process.env.NODE_ENV === "test") {
+      logger.debug("[DatabaseClient] No connection string provided — using in-memory mock client in test mode");
+      return new InMemoryDatabaseClient();
+    }
+    throw new Error("[DatabaseClient] PostgreSQL connection string required in non-test mode. Set DATABASE_URL or service-specific database URL.");
   }
 
   try {
     return new RealDatabaseClient(url, options);
   } catch (err) {
-    logger.warn({ err }, "[DatabaseClient] Connection error — using in-memory mock client");
-    return new InMemoryDatabaseClient();
+    if (process.env.NODE_ENV === "test") {
+      logger.warn({ err }, "[DatabaseClient] Connection error — using in-memory mock client in test mode");
+      return new InMemoryDatabaseClient();
+    }
+    throw new Error(`[DatabaseClient] Failed to initialize PostgreSQL client: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 

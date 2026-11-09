@@ -28,6 +28,9 @@
     "ios:test": "xcodebuild -project apps/ios/Memoria.xcodeproj -scheme MemoriaTests -destination 'platform=iOS Simulator,name=iPhone 17 Pro' CODE_SIGNING_ALLOWED=NO test",
     "ios:open": "open apps/ios/Memoria.xcodeproj",
     "ios:sim": "open -a Simulator",
+    "backup:create": "node --env-file=.env --import tsx scripts/backup.ts",
+    "backup:verify": "node --env-file=.env --import tsx scripts/restore.ts --verify-only",
+    "backup:restore": "node --env-file=.env --import tsx scripts/restore.ts",
     "setup:pgadmin": "node --import tsx scripts/setup-pgadmin.ts"
   },
   "devDependencies": {

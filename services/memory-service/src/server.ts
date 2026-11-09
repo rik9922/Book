@@ -106,7 +106,16 @@ class InMemoryMemoryTestRepo implements MemoryRepository {
 export async function buildMemoryService(): Promise<FastifyInstance> {
   const app = Fastify({ logger: false });
   const dbUrl = process.env.MEMORY_DATABASE_URL || process.env.DATABASE_URL;
+  if (!dbUrl && process.env.NODE_ENV !== "test") {
+    throw new Error("[memory-service] Database connection string required in non-test mode. Set MEMORY_DATABASE_URL or DATABASE_URL.");
+  }
   const db: DatabaseClient = createDatabaseClient(dbUrl);
+  if (process.env.NODE_ENV !== "test") {
+    const isHealthy = await db.healthCheck();
+    if (!isHealthy) {
+      throw new Error("[memory-service] PostgreSQL database health check failed during service initialization.");
+    }
+  }
   const eventBus: EventBus = await createEventBus();
 
   const spaceRepo: SpaceRepository = dbUrl

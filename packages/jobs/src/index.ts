@@ -116,15 +116,19 @@ export function createJobManager(redisUrl?: string): JobManager {
     targetUrl = `redis://${auth}${process.env.REDIS_HOST}:${port}`;
   }
 
-  // If in explicit test mode without Redis requested, fallback safely
+  // Default to standard local Redis if unset in development
+  if (!targetUrl && process.env.NODE_ENV !== "test") {
+    targetUrl = "redis://127.0.0.1:6379";
+  }
+
+  // If in explicit isolated test mode without Redis requested, fallback safely
   if (process.env.NODE_ENV === "test" && !process.env.ENABLE_TEST_REDIS) {
     logger.debug("[JobManager] Using InMemoryJobManager for isolated test execution");
     return new InMemoryJobManager();
   }
 
   if (!targetUrl) {
-    logger.warn("[JobManager] No REDIS_URL or REDIS_HOST provided — falling back to InMemoryJobManager");
-    return new InMemoryJobManager();
+    throw new Error("[JobManager] Redis connection required in non-test mode. Specify REDIS_URL or REDIS_HOST:REDIS_PORT.");
   }
 
   try {
@@ -132,19 +136,22 @@ export function createJobManager(redisUrl?: string): JobManager {
       maxRetriesPerRequest: null,
       lazyConnect: false,
       retryStrategy: (times) => {
-        if (times > 3) return null;
-        return Math.min(times * 200, 1000);
+        if (times > 5) return null;
+        return Math.min(times * 200, 2000);
       },
     });
 
     redis.on("error", (err) => {
-      logger.warn({ err: err.message }, "[JobManager] Redis connection warning");
+      logger.error({ err: err.message }, "[JobManager] Redis connection error");
     });
 
     logger.info({ targetUrl: targetUrl.replace(/:[^:@]+@/, ":***@") }, "[JobManager] Connected to BullMQ Redis backend");
     return new BullMQJobManager(redis);
   } catch (err) {
-    logger.warn({ err }, "[JobManager] Failed to initialize BullMQ Redis — falling back to InMemoryJobManager");
-    return new InMemoryJobManager();
+    if (process.env.NODE_ENV === "test") {
+      logger.warn({ err }, "[JobManager] Failed to initialize BullMQ Redis — falling back to InMemoryJobManager in test");
+      return new InMemoryJobManager();
+    }
+    throw new Error(`[JobManager] Failed to initialize required Redis backend: ${err instanceof Error ? err.message : String(err)}`);
   }
 }

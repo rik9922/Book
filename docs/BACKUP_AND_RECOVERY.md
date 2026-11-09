@@ -1,92 +1,115 @@
-# DATABASE BACKUP AND RECOVERY SPECIFICATION
-**Memory Capsule Platform — Disaster Recovery, Point-in-Time Recovery & Zero-Budget Tooling**
-**Document Version:** 1.0.0  
+# MEMORIA — DATABASE & MEDIA BACKUP AND RECOVERY SPECIFICATION
+
+**Product:** Memoria  
+**Tagline:** Your memories, made timeless.  
 **Target RDBMS:** PostgreSQL 17.x  
+**Budget Policy:** Absolute $0 (Local-First, Zero Cloud Subscriptions)
 
 ---
 
-## 1. BACKUP PHILOSOPHY ($0 BUDGET, LOCAL-FIRST)
+## 1. Zero-Loss Architecture Overview
 
-Under the strict **$0 budget constraint**, enterprise cloud backup services (such as AWS RDS automated snapshots or Cloudflare automated backups) are not permitted. 
+Memoria employs a hybrid backup strategy ensuring independent recovery of both relational metadata and raw binary media assets:
 
-All backups are managed using native PostgreSQL utilities (`pg_dump`, `pg_restore`, and Write-Ahead Log archiving) written to local rotated storage or developer-controlled offline backup drives.
+```mermaid
+graph TD
+    subgraph DataSources ["Primary Data Sources"]
+        PG["PostgreSQL 17 Databases (7 microservice DBs)"]
+        Media["Local Storage (storage/local/originals)"]
+    end
 
----
+    subgraph BackupEngine ["Memoria Backup Engine (scripts/backup.ts)"]
+        Dump["Logical pg_dump --clean --if-exists"]
+        Tar["Tarball Gzip Compression"]
+        Hash["SHA-256 Checksum Calculation"]
+        Manifest["manifest.json Generation"]
+    end
 
-## 2. BACKUP TYPES & AUTOMATION
+    subgraph StorageTarget ["Backup Repository (backups/)"]
+        Archive["memoria-backup-<timestamp>/"]
+    end
 
-### 2.1 Logical Backups (`pg_dump`)
-Logical backups generate self-contained, compressed `.dump` files with complete schema definitions, data rows, sequences, and foreign-key constraints.
-
-#### Daily Full Backup Script (`scripts/backup-databases.sh`)
-```bash
-#!/bin/bash
-set -euo pipefail
-
-BACKUP_DIR="${HOME}/.memory_capsule/backups"
-TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
-DATABASES=("identity_db" "memory_db" "media_db" "collab_db" "book_db" "commerce_db" "notification_db")
-
-mkdir -p "${BACKUP_DIR}"
-
-for DB in "${DATABASES[@]}"; do
-  echo "Backing up ${DB}..."
-  pg_dump -Fc -h localhost -p 5432 -U ritik "${DB}" > "${BACKUP_DIR}/${DB}_${TIMESTAMP}.dump"
-done
-
-# Retain 7 daily backups, delete older
-find "${BACKUP_DIR}" -name "*.dump" -mtime +7 -delete
-echo "Backups completed successfully to ${BACKUP_DIR}."
-```
-
-### 2.2 Backup Verification & Integrity Validation
-A backup is invalid until a restore has been verified. The automated verification script recreates a temporary database, restores the dump, and verifies row counts:
-```bash
-#!/bin/bash
-set -euo pipefail
-
-DUMP_FILE="$1"
-TEST_DB="verify_restore_tmp"
-
-dropdb --if-exists -h localhost -p 5432 -U ritik "${TEST_DB}"
-createdb -h localhost -p 5432 -U ritik "${TEST_DB}"
-pg_restore -h localhost -p 5432 -U ritik -d "${TEST_DB}" "${DUMP_FILE}"
-
-echo "Validation query:"
-psql -h localhost -p 5432 -U ritik -d "${TEST_DB}" -c "SELECT count(*) FROM memories;"
-dropdb -h localhost -p 5432 -U ritik "${TEST_DB}"
-echo "Verification SUCCESS."
+    PG --> Dump
+    Media --> Tar
+    Dump --> Hash
+    Tar --> Hash
+    Hash --> Manifest
+    Dump --> Archive
+    Tar --> Archive
+    Manifest --> Archive
 ```
 
 ---
 
-## 3. DISASTER RECOVERY RUNBOOK
+## 2. Microservice Database Dumps
 
-### Scenario: Accidental Drop or Corruption of `memory_db`
-1. **Stop Microservices**:
-   ```bash
-   pnpm stop:services
-   ```
-2. **Identify Latest Valid Dump**:
-   ```bash
-   LATEST_DUMP=$(ls -t ${HOME}/.memory_capsule/backups/memory_db_*.dump | head -n 1)
-   ```
-3. **Recreate Target Database**:
-   ```bash
-   dropdb -h localhost -p 5432 -U ritik memory_db
-   createdb -h localhost -p 5432 -U ritik memory_db
-   ```
-4. **Restore Schema & Data**:
-   ```bash
-   pg_restore -h localhost -p 5432 -U ritik -d memory_db --clean --if-exists "${LATEST_DUMP}"
-   ```
-5. **Verify Restored Integrity**:
-   ```bash
-   psql -d memory_db -c "SELECT count(*) FROM memories WHERE deleted_at IS NULL;"
-   ```
-6. **Restart Microservices**:
-   ```bash
-   pnpm start:services
-   ```
-Recovery Time Objective (RTO): **< 2 minutes**  
-Recovery Point Objective (RPO): **< 24 hours** (or < 1 hour with WAL archiving)
+Every microservice maintains an isolated database dumped via `pg_dump`:
+
+| Database | Ownership | Included Tables |
+| :--- | :--- | :--- |
+| `identity_db` | Identity Service | `users`, `sessions`, `credentials` |
+| `memory_db` | Memory Service | `memory_spaces`, `space_profiles`, `memories` |
+| `media_db` | Media Service | `media_assets`, `media_derivatives`, `space_storage_usage` |
+| `collab_db` | Collaboration Service | `invitations`, `memberships`, `activity_logs` |
+| `book_db` | Book Studio Service | `books`, `book_editions`, `chapters`, `page_layouts` |
+| `commerce_db` | Commerce Service | `orders`, `fulfillment_records`, `shipping_profiles` |
+| `notification_db` | Notification Service | `notification_templates`, `delivery_receipts` |
+
+---
+
+## 3. Cryptographic Manifest Specification
+
+Every backup directory contains `manifest.json`:
+
+```json
+{
+  "backupId": "memoria-backup-2026-11-09T16-28-27-179Z",
+  "createdAt": "2026-11-09T16:28:27.193Z",
+  "postgresVersion": "psql (PostgreSQL) 17.10 (Homebrew)",
+  "databases": [
+    {
+      "name": "memory_db",
+      "dumpFile": "databases/memory_db.sql",
+      "sizeBytes": 52940,
+      "sha256": "8b6be26eef4695015b63013d33ff61d198889b7fae4eb245b786d34e9e144a19",
+      "recordCounts": {
+        "memory_spaces": 1,
+        "memories": 6
+      }
+    }
+  ],
+  "mediaArchive": {
+    "file": "media-storage.tar.gz",
+    "sizeBytes": 5120,
+    "sha256": "e4add8979e27c191a3299c82c2e99f430c45d3c8c4a169b2d39aa4789547d6e6"
+  },
+  "totalSizeBytes": 128940,
+  "status": "COMPLETE"
+}
+```
+
+---
+
+## 4. Retention Policy
+
+The backup engine automatically enforces a 7-day rolling window:
+- Keeps up to 7 most recent backups.
+- Never deletes older backups if fewer than 3 total backups exist in the repository.
+- Pruning runs atomically at the conclusion of every successful backup.
+
+---
+
+## 5. Developer & Operational Commands
+
+The backup and restoration workflow is executable through standard project scripts:
+
+```bash
+# 1. Create a complete point-in-time backup (Databases + Media Storage + Manifest)
+pnpm run backup:create
+
+# 2. Dry-run verify integrity of all dumps and hashes (zero mutations)
+pnpm run backup:verify
+
+# 3. Restore databases and media storage from latest backup
+pnpm run backup:restore
+```

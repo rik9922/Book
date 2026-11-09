@@ -3,11 +3,41 @@ import Foundation
 public actor MemoriaAPIClient {
     public static let shared = MemoriaAPIClient()
 
-    private let baseURL: URL
+    public private(set) var baseURL: URL
     private var authToken: String?
 
-    public init(baseURL: URL = URL(string: "http://127.0.0.1:4000/api/v1")!) {
-        self.baseURL = baseURL
+    public init(baseURL: URL? = nil) {
+        if let provided = baseURL {
+            self.baseURL = provided
+        } else {
+            self.baseURL = Self.resolveDefaultBaseURL()
+        }
+    }
+
+    public static func resolveDefaultBaseURL() -> URL {
+        // 1. Environment Variable Override (Xcode scheme / test runner)
+        if let envUrlString = ProcessInfo.processInfo.environment["MEMORIA_API_URL"],
+           let envUrl = URL(string: envUrlString) {
+            return envUrl
+        }
+
+        // 2. Info.plist configuration
+        if let plistHost = Bundle.main.infoDictionary?["MemoriaAPIHost"] as? String,
+           let plistUrl = URL(string: "http://\(plistHost)/api/v1") {
+            return plistUrl
+        }
+
+        // 3. Simulator loopback vs Physical device LAN host
+        #if targetEnvironment(simulator)
+        return URL(string: "http://127.0.0.1:4000/api/v1")!
+        #else
+        // On physical devices, default to mac.local mDNS or fallback
+        return URL(string: "http://mac.local:4000/api/v1") ?? URL(string: "http://127.0.0.1:4000/api/v1")!
+        #endif
+    }
+
+    public func setBaseURL(_ url: URL) {
+        self.baseURL = url
     }
 
     public func setAuthToken(_ token: String) {
@@ -33,7 +63,6 @@ public actor MemoriaAPIClient {
     }
 
     public func authenticateSyntheticUser(email: String = "arthur.bennett@synthetic.memoria.internal") async throws -> String {
-        // Return synthetic session token for local/testing environment
         let syntheticToken = "synthetic-jwt-\(email)-\(UUID().uuidString.prefix(8))"
         self.authToken = syntheticToken
         return syntheticToken
@@ -48,53 +77,40 @@ public actor MemoriaAPIClient {
             throw NSError(domain: "MemoriaAPIClient", code: (response as? HTTPURLResponse)?.statusCode ?? 500, userInfo: [NSLocalizedDescriptionKey: "Failed to fetch memories"])
         }
 
-        struct ResponseEnvelope: Codable {
+        struct ResponseEnvelope: Decodable {
             let success: Bool
             let data: [Memory]
         }
 
-        let envelope = try JSONDecoder().decode(ResponseEnvelope.self, from: data)
-        return envelope.data
+        let decoded = try JSONDecoder().decode(ResponseEnvelope.self, from: data)
+        return decoded.data
     }
 
-    public func createMemory(
-        spaceId: String,
-        title: String,
-        content: String,
-        format: MemoryFormat = .photo,
-        capturedAt: String = ISO8601DateFormatter().string(from: Date()),
-        location: String? = nil,
-        tags: [String] = [],
-        mediaIds: [String] = []
-    ) async throws -> Memory {
+    public func createMemory(spaceId: String, title: String, content: String?, format: String = "text", location: String? = nil, tags: [String] = [], mediaIds: [String] = []) async throws -> Memory {
         var request = createRequest(path: "spaces/\(spaceId)/memories", method: "POST")
 
         let payload: [String: Any] = [
-            "spaceId": spaceId,
             "title": title,
-            "content": content,
-            "format": format.rawValue,
-            "capturedAt": capturedAt,
+            "content": content as Any,
+            "format": format,
             "location": location as Any,
             "tags": tags,
             "mediaIds": mediaIds,
-            "associatedProfileIds": []
+            "capturedAt": ISO8601DateFormatter().string(from: Date())
         ]
-
-        request.httpBody = try JSONSerialization.data(withJSONObject: payload.compactMapValues { $0 })
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload)
 
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode) else {
             throw NSError(domain: "MemoriaAPIClient", code: (response as? HTTPURLResponse)?.statusCode ?? 500, userInfo: [NSLocalizedDescriptionKey: "Failed to create memory"])
         }
 
-        struct CreateResponseEnvelope: Codable {
+        struct SingleResponseEnvelope: Decodable {
             let success: Bool
             let data: Memory
         }
 
-        let envelope = try JSONDecoder().decode(CreateResponseEnvelope.self, from: data)
-        return envelope.data
+        let decoded = try JSONDecoder().decode(SingleResponseEnvelope.self, from: data)
+        return decoded.data
     }
 }
-

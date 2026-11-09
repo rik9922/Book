@@ -486,6 +486,20 @@ export interface SpaceQuota {
   maxBytes: number;
 }
 
+export interface OcrTranscript {
+  id: string;
+  mediaId: string;
+  spaceId: string;
+  status: string;
+  extractedText: string;
+  confidence: number;
+  wordCount: number;
+  language: string;
+  pageNumber: number;
+  metadata?: Record<string, unknown>;
+  createdAt?: string;
+}
+
 export interface MediaRepository {
   createAsset(asset: MediaAsset): Promise<MediaAsset>;
   findAssetById(id: string): Promise<MediaAsset | null>;
@@ -493,6 +507,9 @@ export interface MediaRepository {
   listAssets(spaceId: string): Promise<MediaAsset[]>;
   getSpaceQuota(spaceId: string): Promise<SpaceQuota>;
   incrementSpaceUsage(spaceId: string, bytesDelta: number): Promise<SpaceQuota>;
+  saveOcrTranscript(transcript: OcrTranscript): Promise<OcrTranscript>;
+  findOcrTranscriptByMediaId(mediaId: string): Promise<OcrTranscript[]>;
+  searchTranscripts(spaceId: string, query: string): Promise<OcrTranscript[]>;
 }
 
 export class PostgresMediaRepository implements MediaRepository {
@@ -610,6 +627,62 @@ export class PostgresMediaRepository implements MediaRepository {
       usedBytes: Number(res.rows[0].usedBytes),
       maxBytes: Number(res.rows[0].maxBytes),
     };
+  }
+
+  async saveOcrTranscript(transcript: OcrTranscript): Promise<OcrTranscript> {
+    await this.db.query(
+      `INSERT INTO media_ocr_transcripts (id, media_id, space_id, status, extracted_text, confidence, word_count, language, page_number, metadata, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, COALESCE($11, NOW()))`,
+      [
+        transcript.id,
+        transcript.mediaId,
+        transcript.spaceId,
+        transcript.status,
+        transcript.extractedText,
+        transcript.confidence,
+        transcript.wordCount,
+        transcript.language,
+        transcript.pageNumber,
+        JSON.stringify(transcript.metadata || {}),
+        transcript.createdAt || new Date().toISOString(),
+      ]
+    );
+    return transcript;
+  }
+
+  async findOcrTranscriptByMediaId(mediaId: string): Promise<OcrTranscript[]> {
+    const res = await this.db.query(
+      `SELECT id, media_id as "mediaId", space_id as "spaceId", status, extracted_text as "extractedText",
+              confidence::numeric as "confidence", word_count as "wordCount", language, page_number as "pageNumber",
+              metadata, created_at::text as "createdAt"
+       FROM media_ocr_transcripts
+       WHERE media_id = $1
+       ORDER BY page_number ASC`,
+      [mediaId]
+    );
+    return res.rows.map((r: any) => ({
+      ...r,
+      confidence: parseFloat(r.confidence || "0"),
+      metadata: typeof r.metadata === "string" ? JSON.parse(r.metadata) : (r.metadata || {}),
+    }));
+  }
+
+  async searchTranscripts(spaceId: string, query: string): Promise<OcrTranscript[]> {
+    const res = await this.db.query(
+      `SELECT id, media_id as "mediaId", space_id as "spaceId", status, extracted_text as "extractedText",
+              confidence::numeric as "confidence", word_count as "wordCount", language, page_number as "pageNumber",
+              metadata, created_at::text as "createdAt"
+       FROM media_ocr_transcripts
+       WHERE space_id = $1 AND to_tsvector('english', extracted_text) @@ plainto_tsquery('english', $2)
+       ORDER BY created_at DESC
+       LIMIT 50`,
+      [spaceId, query]
+    );
+    return res.rows.map((r: any) => ({
+      ...r,
+      confidence: parseFloat(r.confidence || "0"),
+      metadata: typeof r.metadata === "string" ? JSON.parse(r.metadata) : (r.metadata || {}),
+    }));
   }
 }
 

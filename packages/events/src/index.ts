@@ -115,16 +115,18 @@ export async function createEventBus(natsUrl = process.env.NATS_URL || "nats://l
       const jsm = await nc.jetstreamManager();
       const streams = await jsm.streams.list().next();
       const streamNames = streams.map((s) => s.config.name);
-      if (!streamNames.includes("CAPSULE_EVENTS")) {
+      const streamName = streamNames.includes("MEMORIA_EVENTS") ? "MEMORIA_EVENTS" : (streamNames.includes("CAPSULE_EVENTS") ? "CAPSULE_EVENTS" : "MEMORIA_EVENTS");
+      
+      if (!streamNames.includes(streamName)) {
         await jsm.streams.add({
-          name: "CAPSULE_EVENTS",
-          subjects: ["identity.>", "memory.>", "media.>", "book.>", "collab.>", "test.>"],
+          name: streamName,
+          subjects: ["identity.>", "memory.>", "media.>", "book.>", "collab.>", "notification.>", "test.>"],
         });
-        logger.info("[EventBus] Created durable JetStream stream: CAPSULE_EVENTS");
+        logger.info({ streamName }, "[EventBus] Created durable JetStream stream");
       } else {
         try {
-          await jsm.streams.update("CAPSULE_EVENTS", {
-            subjects: ["identity.>", "memory.>", "media.>", "book.>", "collab.>", "test.>"],
+          await jsm.streams.update(streamName, {
+            subjects: ["identity.>", "memory.>", "media.>", "book.>", "collab.>", "notification.>", "test.>"],
           });
         } catch {}
       }
@@ -135,8 +137,11 @@ export async function createEventBus(natsUrl = process.env.NATS_URL || "nats://l
     logger.info({ natsUrl }, "[EventBus] Connected to NATS JetStream successfully");
     return new NatsEventBus(nc);
   } catch (err) {
-    logger.warn({ natsUrl }, "[EventBus] NATS connection unavailable — falling back to local InMemoryEventBus");
-    return new InMemoryEventBus();
+    if (process.env.NODE_ENV === "test") {
+      logger.debug({ natsUrl }, "[EventBus] NATS connection unavailable — using local InMemoryEventBus in test mode");
+      return new InMemoryEventBus();
+    }
+    throw new Error(`[EventBus] NATS JetStream connection required in non-test mode (${natsUrl}): ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
