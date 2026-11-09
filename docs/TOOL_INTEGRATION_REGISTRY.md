@@ -47,3 +47,25 @@ The AI Agent acts as autonomous database administrator via `packages/database`:
 | **Tier 2 (Conditional)** | Creating new database tables, updating Docker Compose configurations, adding new Fastify service endpoints, updating design tokens. | Notified via summary report. |
 | **Tier 3 (Strict Approval)** | Adding paid services, entering credit cards, dropping production tables, force-pushing Git branches, exposing private family media. | **Strictly Forbidden** under $0 budget policy. |
 
+---
+
+## 4. Specialized Engineering, QA, Truthfulness & Security Skill Registry
+
+The following curated skills are installed under `.agents/skills/`, `.claude/skills/`, and `agent/skills/` to guarantee architectural excellence, strict anti-hallucination, privacy security, and QA:
+
+| Skill | Category | Source / Provenance | Core Capability & Operational Safeguard |
+| :--- | :--- | :--- | :--- |
+| **`agentic-integrity-and-security`** | Core Agent Guardrail | Repository Custom Standard | Enforces context retention, zero data fabrication, continuous health monitoring, PII protection, and cardless budget policy. |
+| **`context-engineering`** | Context Retention | `addyosmani/agent-skills` | Manages working context windows, prevents task amnesia, tracks active systems. |
+| **`bmad-project-context`** | Architecture Memory | `bmad-code-org/bmad-method` | Preserves repository conventions, operational pitfalls, and architectural standards. |
+| **`validate-changes-match-specs`** | Anti-Hallucination | `warpdotdev/common-skills` | Validates that all implemented code strictly satisfies checked-in specifications. |
+| **`check-impl-against-spec`** | Spec Verification | `warpdotdev/common-skills` | Audits implementation against specs to detect and prevent discrepancies. |
+| **`qa-expert`** | QA & Test Strategy | `daymade/claude-code-skills` | End-to-end QA frameworks, test cases, P0–P4 bug tracking, and release acceptance. |
+| **`qa-test-planner`** | Test Planning | `softaworks/agent-toolkit` | Automated and manual test plan generation, regression suites, and edge case coverage. |
+| **`security-and-hardening`** | Security & Privacy | `addyosmani/agent-skills` | Code hardening against vulnerabilities, session management, safe data handling. |
+| **`security-threat-model`** | Threat Modeling | `openai/skills` | STRIDE analysis, attack surface enumeration, mitigation mapping. |
+| **`owasp-top-10-testing`** | Ethical Hacking & Audit | `usestrix/strix` | Verifies protection against OWASP Top 10 vulnerabilities (auth, injection, SSRF). |
+| **`web-app-penetration-testing`**| Web Pen-Testing | `usestrix/strix` | Dynamic penetration testing for web applications, auth bypass, and XSS. |
+| **`api-security-testing`** | API Pen-Testing | `usestrix/strix` | BOLA/IDOR auditing, rate limit testing, broken object-level authorization testing. |
+
+
