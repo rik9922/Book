@@ -40,3 +40,4 @@ sequenceDiagram
 - **Thumbnail (Large)**: 1280x1280 WebP, max-fit, 85% quality for memory detail viewing.
 - **Book Print Master**: 300+ DPI preserved for physical book rendering.
 - **Color Palette & Blurhash**: Extracted during worker processing and stored in database for instantaneous layout placeholders.
+

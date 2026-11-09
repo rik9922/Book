@@ -48,3 +48,4 @@ All Fastify microservices adhere to strict typed contracts defined in `@memory-c
   }
 }
 ```
+

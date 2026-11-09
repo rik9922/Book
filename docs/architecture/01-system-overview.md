@@ -61,3 +61,4 @@ The platform rejects monolithic and tight synchronous coupling in favor of an **
 3. **Direct-to-Object-Storage Uploads**: Media never blocks the API gateway or application servers. Authorized clients upload directly to Cloudflare R2 / S3 using presigned upload sessions.
 4. **Resilient Background Processing**: Media transcoding, thumbnail generation, and print preflight run via BullMQ with Redis, featuring exponential backoff, dead-letter queues, and deterministic idempotency.
 5. **Modern Heirloom Design**: Crafted with an archival, tactile aesthetic balancing warmth, timeless typography, and fluid spatial micro-interactions.
+

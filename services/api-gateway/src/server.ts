@@ -116,3 +116,4 @@ if (process.env.NODE_ENV !== "test") {
     logger.info({ address, port }, `[Gateway] Listening at ${address}`);
   });
 }
+

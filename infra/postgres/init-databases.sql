@@ -6,3 +6,4 @@ CREATE DATABASE collab_db;
 CREATE DATABASE book_db;
 CREATE DATABASE commerce_db;
 CREATE DATABASE notification_db;
+

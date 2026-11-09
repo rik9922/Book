@@ -45,3 +45,4 @@ Operational background tasks (CPU/GPU-heavy, scheduled, or retryable workloads) 
 2. `audio-transcription`: Speech-to-text transcription and waveform generation for voice notes.
 3. `book-preflight`: Validates print geometry (bleed, DPI, CMYK color space, gutter, spine width).
 4. `print-pdf-generation`: Generates immutable, high-resolution PDF/X-1a print files for physical order fulfillment.
+

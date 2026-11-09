@@ -22,3 +22,4 @@ Modern Heirloom pairs the warmth, dignity, and permanence of physical bookcraft 
 - **Serif (Headings & Memory Titles)**: `Newsreader` / `Playfair Display` / `Georgia` for editorial warmth.
 - **Sans (Interface & Data)**: `Inter` / `Geist` / system UI for crisp readability at small sizes.
 - **Mono (Timestamps & Preflight Specs)**: `JetBrains Mono` / monospace for technical print parameters and coordinates.
+

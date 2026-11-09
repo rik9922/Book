@@ -107,3 +107,4 @@ export async function createEventBus(natsUrl = process.env.NATS_URL || "nats://l
     return new InMemoryEventBus();
   }
 }
+

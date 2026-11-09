@@ -33,3 +33,4 @@ The 3D Book simulation rejects simplistic textured cube approximations and model
   $$y = A \cdot \sin(kx) \cdot (1 - e^{-\alpha z})$$
 - **Paper PBR Material**: Roughness ~0.85, metalness 0.0, micro-fiber normal map, and subtle subsurface scattering (SSS) for light bleed through organic paper stock.
 - **Progressive Memory Management**: Rather than loading all spreads into GPU VRAM, only the active spread $N$, preceding spread $N-1$, and upcoming spread $N+1$ maintain active WebGL textures. Distant spreads use low-resolution mipmapped proxy textures.
+

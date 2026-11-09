@@ -90,3 +90,4 @@ export function createDatabaseClient(connectionString?: string): DatabaseClient 
     return new InMemoryDatabaseClient();
   }
 }
+

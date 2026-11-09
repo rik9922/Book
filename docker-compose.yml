@@ -67,3 +67,4 @@ volumes:
   redisdata:
   natsdata:
   miniodata:
+
