@@ -10,6 +10,7 @@
     "seed": "node --import tsx scripts/seed.ts"
   },
   "dependencies": {
+    "@memory-capsule/contracts": "workspace:*",
     "@memory-capsule/logger": "workspace:*",
     "pg": "^8.13.3"
   },

@@ -93,4 +93,5 @@ export function createDatabaseClient(connectionString?: string): DatabaseClient 
 
 export * from "./migrator.js";
 export * from "./inspector.js";
+export * from "./repositories.js";
 

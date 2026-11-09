@@ -13,7 +13,13 @@ import {
   UserProfile,
 } from "@memory-capsule/contracts";
 import { createEventBus, EventBus } from "@memory-capsule/events";
-import { createDatabaseClient, DatabaseClient } from "@memory-capsule/database";
+import {
+  createDatabaseClient,
+  DatabaseClient,
+  PostgresUserRepository,
+  UserRepository,
+  UserRecord,
+} from "@memory-capsule/database";
 
 const scryptAsync = promisify(crypto.scrypt);
 const logger: Logger = createServiceLogger("identity-service");
@@ -32,18 +38,80 @@ async function verifyPassword(password: string, combinedHash: string): Promise<b
   return crypto.timingSafeEqual(Buffer.from(key, "hex"), derivedKey);
 }
 
+// In-memory fallback repository when running in isolated unit test without database
+class InMemoryUserTestRepository implements UserRepository {
+  private users = new Map<string, UserRecord>();
+  private sessions = new Map<string, any>();
+
+  async findByEmail(email: string): Promise<UserRecord | null> {
+    for (const u of this.users.values()) {
+      if (u.email === email.toLowerCase().trim()) return u;
+    }
+    return null;
+  }
+
+  async findById(id: string): Promise<UserRecord | null> {
+    return this.users.get(id) || null;
+  }
+
+  async create(user: Omit<UserRecord, "createdAt" | "updatedAt">): Promise<UserRecord> {
+    const now = new Date().toISOString();
+    const record: UserRecord = { ...user, createdAt: now, updatedAt: now };
+    this.users.set(user.id, record);
+    return record;
+  }
+
+  async createSession(session: any): Promise<void> {
+    this.sessions.set(session.id, session);
+  }
+
+  async findSessionByToken(hash: string): Promise<any | null> {
+    for (const s of this.sessions.values()) {
+      if (s.refreshTokenHash === hash) return s;
+    }
+    return null;
+  }
+
+  async deleteSession(id: string): Promise<void> {
+    this.sessions.delete(id);
+  }
+}
+
 export async function buildIdentityService(): Promise<FastifyInstance> {
   const app = Fastify({ logger: false });
-  const db: DatabaseClient = createDatabaseClient(process.env.IDENTITY_DATABASE_URL);
+  const dbUrl = process.env.IDENTITY_DATABASE_URL || process.env.DATABASE_URL;
+  const db: DatabaseClient = createDatabaseClient(dbUrl);
   const eventBus: EventBus = await createEventBus();
 
-  // In-memory identity registry for standalone/test execution
-  const userStore = new Map<string, { id: string; email: string; fullName: string; passwordHash: string; createdAt: string; updatedAt: string }>();
+  // Use persistent PostgreSQL repository if database is configured, else test repository
+  const userRepo: UserRepository = dbUrl
+    ? new PostgresUserRepository(db)
+    : new InMemoryUserTestRepository();
 
-  await app.register(cors, { origin: true, credentials: true });
-  await app.register(fastifyJwt, {
-    secret: process.env.JWT_SECRET || "dev-jwt-insecure-secret-change-in-production-min32chars",
+  const allowedOrigins = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:4000",
+    "http://127.0.0.1:4000",
+  ];
+
+  await app.register(cors, {
+    origin: (origin, cb) => {
+      if (!origin || allowedOrigins.includes(origin) || origin.startsWith("http://localhost:")) {
+        cb(null, true);
+        return;
+      }
+      cb(new Error("CORS origin not allowed"), false);
+    },
+    credentials: true,
   });
+
+  const jwtSecret = process.env.JWT_SECRET || "dev-jwt-insecure-secret-change-in-production-min32chars";
+  if (process.env.NODE_ENV === "production" && (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32)) {
+    throw new Error("[IdentityService] FATAL: JWT_SECRET must have at least 32 characters in production");
+  }
+
+  await app.register(fastifyJwt, { secret: jwtSecret });
 
   // Health check
   app.get("/health", async (req, reply) => {
@@ -70,26 +138,36 @@ export async function buildIdentityService(): Promise<FastifyInstance> {
     const normalizedEmail = email.toLowerCase().trim();
 
     // Check existing
-    for (const u of userStore.values()) {
-      if (u.email === normalizedEmail) {
-        return reply.status(409).send(createErrorResponse("USER_EXISTS", "User already registered with this email"));
-      }
+    const existing = await userRepo.findByEmail(normalizedEmail);
+    if (existing) {
+      return reply.status(409).send(createErrorResponse("USER_EXISTS", "User already registered with this email"));
     }
 
     const userId = crypto.randomUUID();
     const passwordHash = await hashPassword(password);
-    const now = new Date().toISOString();
 
-    const newUser = {
+    const newUser = await userRepo.create({
       id: userId,
       email: normalizedEmail,
       fullName,
       passwordHash,
-      createdAt: now,
-      updatedAt: now,
-    };
+      isVerified: false,
+    });
 
-    userStore.set(userId, newUser);
+    // Create session
+    const refreshToken = crypto.randomUUID();
+    const refreshTokenHash = crypto.createHash("sha256").update(refreshToken).digest("hex");
+    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+
+    await userRepo.createSession({
+      id: crypto.randomUUID(),
+      userId,
+      refreshTokenHash,
+      userAgent: req.headers["user-agent"],
+      ipAddress: req.ip,
+      expiresAt,
+      createdAt: new Date().toISOString(),
+    });
 
     // Publish user.registered domain event
     await eventBus.publish(
@@ -107,15 +185,15 @@ export async function buildIdentityService(): Promise<FastifyInstance> {
       id: userId,
       email: normalizedEmail,
       fullName,
-      createdAt: now,
-      updatedAt: now,
+      createdAt: newUser.createdAt,
+      updatedAt: newUser.updatedAt,
     };
 
     return reply.status(201).send(
       createSuccessResponse({
         user: userProfile,
         accessToken: token,
-        refreshToken: crypto.randomUUID(),
+        refreshToken,
         expiresIn: 604800,
       })
     );
@@ -131,38 +209,44 @@ export async function buildIdentityService(): Promise<FastifyInstance> {
     const { email, password } = parseResult.data;
     const normalizedEmail = email.toLowerCase().trim();
 
-    let matchedUser: any = null;
-    for (const u of userStore.values()) {
-      if (u.email === normalizedEmail) {
-        matchedUser = u;
-        break;
-      }
-    }
-
-    if (!matchedUser) {
+    const user = await userRepo.findByEmail(normalizedEmail);
+    if (!user) {
       return reply.status(401).send(createErrorResponse("INVALID_CREDENTIALS", "Email or password incorrect"));
     }
 
-    const isValid = await verifyPassword(password, matchedUser.passwordHash);
+    const isValid = await verifyPassword(password, user.passwordHash);
     if (!isValid) {
       return reply.status(401).send(createErrorResponse("INVALID_CREDENTIALS", "Email or password incorrect"));
     }
 
-    const token = app.jwt.sign({ sub: matchedUser.id, email: matchedUser.email }, { expiresIn: "7d" });
+    const token = app.jwt.sign({ sub: user.id, email: user.email }, { expiresIn: "7d" });
+    const refreshToken = crypto.randomUUID();
+    const refreshTokenHash = crypto.createHash("sha256").update(refreshToken).digest("hex");
+    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+
+    await userRepo.createSession({
+      id: crypto.randomUUID(),
+      userId: user.id,
+      refreshTokenHash,
+      userAgent: req.headers["user-agent"],
+      ipAddress: req.ip,
+      expiresAt,
+      createdAt: new Date().toISOString(),
+    });
 
     const userProfile: UserProfile = {
-      id: matchedUser.id,
-      email: matchedUser.email,
-      fullName: matchedUser.fullName,
-      createdAt: matchedUser.createdAt,
-      updatedAt: matchedUser.updatedAt,
+      id: user.id,
+      email: user.email,
+      fullName: user.fullName,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
     };
 
     return reply.status(200).send(
       createSuccessResponse({
         user: userProfile,
         accessToken: token,
-        refreshToken: crypto.randomUUID(),
+        refreshToken,
         expiresIn: 604800,
       })
     );
@@ -172,39 +256,25 @@ export async function buildIdentityService(): Promise<FastifyInstance> {
   app.get("/api/v1/auth/me", async (req: FastifyRequest, reply: FastifyReply) => {
     try {
       const payload: any = await req.jwtVerify();
-      const user = userStore.get(payload.sub);
+      const user = await userRepo.findById(payload.sub);
       if (!user) {
         return reply.status(404).send(createErrorResponse("USER_NOT_FOUND", "Profile could not be resolved"));
       }
 
-      return reply.status(200).send(
-        createSuccessResponse({
-          id: user.id,
-          email: user.email,
-          fullName: user.fullName,
-          createdAt: user.createdAt,
-          updatedAt: user.updatedAt,
-        })
-      );
+      const userProfile: UserProfile = {
+        id: user.id,
+        email: user.email,
+        fullName: user.fullName,
+        avatarUrl: user.avatarUrl,
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt,
+      };
+
+      return reply.status(200).send(createSuccessResponse({ user: userProfile }));
     } catch {
-      return reply.status(401).send(createErrorResponse("UNAUTHORIZED", "Missing or invalid token"));
+      return reply.status(401).send(createErrorResponse("UNAUTHORIZED", "Missing or invalid session credentials"));
     }
   });
 
   return app;
-}
-
-if (process.env.NODE_ENV !== "test") {
-  const port = Number(process.env.PORT_IDENTITY || 4001);
-  const host = "0.0.0.0";
-
-  buildIdentityService().then((app) => {
-    app.listen({ port, host }, (err, address) => {
-      if (err) {
-        logger.error({ err }, "[IdentityService] Failed to start");
-        process.exit(1);
-      }
-      logger.info({ address, port }, `[IdentityService] Listening at ${address}`);
-    });
-  });
 }

@@ -32,3 +32,8 @@ pnpm-debug.log*
 *.blend1
 *.blend2
 
+# Local database/storage artifacts
+dump.rdb
+storage/
+storage_data/
+

@@ -8,26 +8,83 @@ import {
   BookDocument,
   BookDocumentSchema,
   BookFormatSchema,
+  BookSpread,
   createSuccessResponse,
   createErrorResponse,
   createDomainEvent,
 } from "@memory-capsule/contracts";
 import { createEventBus, EventBus } from "@memory-capsule/events";
-import { createDatabaseClient, DatabaseClient } from "@memory-capsule/database";
+import {
+  createDatabaseClient,
+  DatabaseClient,
+  PostgresBookRepository,
+  BookRepository,
+} from "@memory-capsule/database";
 
 const logger: Logger = createServiceLogger("book-service");
 
+// Fallback in-memory test repository for unit tests
+class InMemoryBookTestRepo implements BookRepository {
+  private books = new Map<string, BookDocument>();
+
+  async createBook(book: BookDocument): Promise<BookDocument> {
+    this.books.set(book.id, book);
+    return book;
+  }
+  async findBookById(id: string): Promise<BookDocument | null> {
+    return this.books.get(id) || null;
+  }
+  async listBooks(spaceId: string): Promise<BookDocument[]> {
+    return Array.from(this.books.values()).filter((b) => b.spaceId === spaceId);
+  }
+  async saveSpread(bookId: string, spread: BookSpread): Promise<void> {
+    const book = this.books.get(bookId);
+    if (book) {
+      const idx = book.spreads.findIndex((s) => s.id === spread.id);
+      if (idx >= 0) book.spreads[idx] = spread;
+      else book.spreads.push(spread);
+    }
+  }
+  async freezeEdition(bookId: string, editionHash: string): Promise<void> {
+    const book = this.books.get(bookId);
+    if (book) {
+      book.isFrozenForPrint = true;
+      book.frozenEditionHash = editionHash;
+      book.updatedAt = new Date().toISOString();
+    }
+  }
+}
+
 export async function buildBookService(): Promise<FastifyInstance> {
   const app = Fastify({ logger: false });
-  const db: DatabaseClient = createDatabaseClient(process.env.BOOK_DATABASE_URL);
+  const dbUrl = process.env.BOOK_DATABASE_URL || process.env.DATABASE_URL;
+  const db: DatabaseClient = createDatabaseClient(dbUrl);
   const eventBus: EventBus = await createEventBus();
 
-  const books = new Map<string, BookDocument>();
+  const bookRepo: BookRepository = dbUrl
+    ? new PostgresBookRepository(db)
+    : new InMemoryBookTestRepo();
 
-  await app.register(cors, { origin: true, credentials: true });
-  await app.register(fastifyJwt, {
-    secret: process.env.JWT_SECRET || "dev-jwt-insecure-secret-change-in-production-min32chars",
+  const allowedOrigins = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:4000",
+    "http://127.0.0.1:4000",
+  ];
+
+  await app.register(cors, {
+    origin: (origin, cb) => {
+      if (!origin || allowedOrigins.includes(origin) || origin.startsWith("http://localhost:")) {
+        cb(null, true);
+        return;
+      }
+      cb(new Error("CORS origin not allowed"), false);
+    },
+    credentials: true,
   });
+
+  const jwtSecret = process.env.JWT_SECRET || "dev-jwt-insecure-secret-change-in-production-min32chars";
+  await app.register(fastifyJwt, { secret: jwtSecret });
 
   // Health check
   app.get("/health", async (req, reply) => {
@@ -106,7 +163,7 @@ export async function buildBookService(): Promise<FastifyInstance> {
       updatedAt: now,
     };
 
-    books.set(bookId, book);
+    await bookRepo.createBook(book);
 
     await eventBus.publish(
       "book.created",
@@ -123,16 +180,22 @@ export async function buildBookService(): Promise<FastifyInstance> {
 
   // 2. Get Book by ID
   app.get("/api/v1/books/:id", async (req: FastifyRequest<{ Params: { id: string } }>, reply) => {
-    const book = books.get(req.params.id);
+    const book = await bookRepo.findBookById(req.params.id);
     if (!book) {
       return reply.status(404).send(createErrorResponse("BOOK_NOT_FOUND", "Book does not exist"));
     }
     return reply.status(200).send(createSuccessResponse(book));
   });
 
+  // List Books in Space
+  app.get("/api/v1/spaces/:spaceId/books", async (req: FastifyRequest<{ Params: { spaceId: string } }>, reply) => {
+    const list = await bookRepo.listBooks(req.params.spaceId);
+    return reply.status(200).send(createSuccessResponse(list));
+  });
+
   // 3. Freeze Book Edition for Physical Print Preflight
   app.post("/api/v1/books/:id/freeze", async (req: FastifyRequest<{ Params: { id: string } }>, reply) => {
-    const book = books.get(req.params.id);
+    const book = await bookRepo.findBookById(req.params.id);
     if (!book) {
       return reply.status(404).send(createErrorResponse("BOOK_NOT_FOUND", "Book does not exist"));
     }
@@ -142,11 +205,9 @@ export async function buildBookService(): Promise<FastifyInstance> {
     }
 
     const editionHash = crypto.createHash("sha256").update(JSON.stringify(book)).digest("hex");
-    book.isFrozenForPrint = true;
-    book.frozenEditionHash = editionHash;
-    book.updatedAt = new Date().toISOString();
+    await bookRepo.freezeEdition(book.id, editionHash);
 
-    books.set(book.id, book);
+    const updated = await bookRepo.findBookById(book.id);
 
     await eventBus.publish(
       "book.edition_frozen",
@@ -158,23 +219,8 @@ export async function buildBookService(): Promise<FastifyInstance> {
       })
     );
 
-    return reply.status(200).send(createSuccessResponse(book));
+    return reply.status(200).send(createSuccessResponse(updated || book));
   });
 
   return app;
-}
-
-if (process.env.NODE_ENV !== "test") {
-  const port = Number(process.env.PORT_BOOK || 4005);
-  const host = "0.0.0.0";
-
-  buildBookService().then((app) => {
-    app.listen({ port, host }, (err, address) => {
-      if (err) {
-        logger.error({ err }, "[BookService] Failed to start");
-        process.exit(1);
-      }
-      logger.info({ address, port }, `[BookService] Listening at ${address}`);
-    });
-  });
 }

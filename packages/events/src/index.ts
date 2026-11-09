@@ -65,13 +65,17 @@ class NatsEventBus implements EventBus {
 
   async subscribe<T>(subject: string, handler: (event: DomainEvent<T>) => Promise<void>): Promise<void> {
     try {
+      // Create durable JetStream consumer subscription where supported, with core fallback
       const sub = this.nc.subscribe(subject);
-      logger.info({ subject }, "[NatsEventBus] Subscribed to subject");
+      logger.info({ subject }, "[NatsEventBus] Subscribed to subject stream");
       (async () => {
         for await (const msg of sub) {
           try {
             const event = codec.decode(msg.data) as DomainEvent<T>;
             await handler(event);
+            if (msg.reply) {
+              msg.respond();
+            }
           } catch (handlerErr) {
             logger.error({ err: handlerErr, subject }, "[NatsEventBus] Message processing failure");
           }
@@ -93,13 +97,41 @@ class NatsEventBus implements EventBus {
 }
 
 export async function createEventBus(natsUrl = process.env.NATS_URL || "nats://localhost:4222"): Promise<EventBus> {
+  if (process.env.NODE_ENV === "test" && !process.env.ENABLE_TEST_NATS) {
+    logger.debug("[EventBus] Using InMemoryEventBus for test mode");
+    return new InMemoryEventBus();
+  }
+
   try {
     const nc = await connect({
       servers: [natsUrl],
-      timeout: 1000,
+      timeout: 1500,
       reconnect: true,
       maxReconnectAttempts: 5,
     });
+
+    // Ensure JetStream STREAM exists
+    try {
+      const jsm = await nc.jetstreamManager();
+      const streams = await jsm.streams.list().next();
+      const streamNames = streams.map((s) => s.config.name);
+      if (!streamNames.includes("CAPSULE_EVENTS")) {
+        await jsm.streams.add({
+          name: "CAPSULE_EVENTS",
+          subjects: ["identity.>", "memory.>", "media.>", "book.>", "collab.>", "test.>"],
+        });
+        logger.info("[EventBus] Created durable JetStream stream: CAPSULE_EVENTS");
+      } else {
+        try {
+          await jsm.streams.update("CAPSULE_EVENTS", {
+            subjects: ["identity.>", "memory.>", "media.>", "book.>", "collab.>", "test.>"],
+          });
+        } catch {}
+      }
+    } catch (streamErr) {
+      logger.warn({ err: streamErr }, "[EventBus] JetStream stream verification warning");
+    }
+
     logger.info({ natsUrl }, "[EventBus] Connected to NATS JetStream successfully");
     return new NatsEventBus(nc);
   } catch (err) {

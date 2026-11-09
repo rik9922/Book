@@ -61,12 +61,14 @@ describe("Stage 1 — Engineering Foundation Verification Suite", () => {
   test("3. Identity Service Registration & Auth Flow", async () => {
     const app = await buildIdentityService();
 
+    const testEmail = `sarah_${Date.now()}@familycapsule.com`;
+
     // Register
     const regRes = await app.inject({
       method: "POST",
       url: "/api/v1/auth/register",
       payload: {
-        email: "sarah@familycapsule.com",
+        email: testEmail,
         password: "FamilyPassword99!",
         fullName: "Sarah Jenkins",
       },
@@ -75,7 +77,7 @@ describe("Stage 1 — Engineering Foundation Verification Suite", () => {
     assert.equal(regRes.statusCode, 201);
     const regBody = JSON.parse(regRes.body);
     assert.equal(regBody.success, true);
-    assert.equal(regBody.data.user.email, "sarah@familycapsule.com");
+    assert.equal(regBody.data.user.email, testEmail);
     assert.ok(regBody.data.accessToken);
 
     // Duplicate rejection
@@ -83,7 +85,7 @@ describe("Stage 1 — Engineering Foundation Verification Suite", () => {
       method: "POST",
       url: "/api/v1/auth/register",
       payload: {
-        email: "sarah@familycapsule.com",
+        email: testEmail,
         password: "AnotherPassword123!",
         fullName: "Duplicate Sarah",
       },
@@ -95,7 +97,7 @@ describe("Stage 1 — Engineering Foundation Verification Suite", () => {
       method: "POST",
       url: "/api/v1/auth/login",
       payload: {
-        email: "sarah@familycapsule.com",
+        email: testEmail,
         password: "FamilyPassword99!",
       },
     });
@@ -172,12 +174,14 @@ describe("Stage 1 — Engineering Foundation Verification Suite", () => {
   test("5. Media Service Upload Session & Confirmation", async () => {
     const app = await buildMediaService();
 
+    const testSpaceId = crypto.randomUUID();
+
     // Create upload session
     const sessionRes = await app.inject({
       method: "POST",
       url: "/api/v1/media/upload-session",
       payload: {
-        spaceId: "12345678-1234-4234-8234-123456789012",
+        spaceId: testSpaceId,
         fileName: "first-steps.jpg",
         mimeType: "image/jpeg",
         fileSizeBytes: 4500000,
@@ -200,7 +204,7 @@ describe("Stage 1 — Engineering Foundation Verification Suite", () => {
     // Zero-Budget Quota verification
     const quotaRes = await app.inject({
       method: "GET",
-      url: "/api/v1/media/spaces/12345678-1234-4234-8234-123456789012/quota",
+      url: `/api/v1/media/spaces/${testSpaceId}/quota`,
     });
     assert.equal(quotaRes.statusCode, 200);
     const quotaData = JSON.parse(quotaRes.body).data;
@@ -212,7 +216,7 @@ describe("Stage 1 — Engineering Foundation Verification Suite", () => {
       method: "POST",
       url: "/api/v1/media/upload-session",
       payload: {
-        spaceId: "12345678-1234-4234-8234-123456789012",
+        spaceId: testSpaceId,
         fileName: "giant-video.raw",
         mimeType: "video/raw",
         fileSizeBytes: 60 * 1024 * 1024,

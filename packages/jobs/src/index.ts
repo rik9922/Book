@@ -108,25 +108,43 @@ class BullMQJobManager implements JobManager {
   }
 }
 
-export function createJobManager(redisUrl = process.env.REDIS_URL): JobManager {
-  // If no REDIS_URL explicitly configured or running in test without redis, use in-memory manager
-  if (!redisUrl || process.env.NODE_ENV === "test") {
+export function createJobManager(redisUrl?: string): JobManager {
+  let targetUrl = redisUrl || process.env.REDIS_URL;
+  if (!targetUrl && process.env.REDIS_HOST) {
+    const auth = process.env.REDIS_PASSWORD ? `:${process.env.REDIS_PASSWORD}@` : "";
+    const port = process.env.REDIS_PORT || 6379;
+    targetUrl = `redis://${auth}${process.env.REDIS_HOST}:${port}`;
+  }
+
+  // If in explicit test mode without Redis requested, fallback safely
+  if (process.env.NODE_ENV === "test" && !process.env.ENABLE_TEST_REDIS) {
+    logger.debug("[JobManager] Using InMemoryJobManager for isolated test execution");
+    return new InMemoryJobManager();
+  }
+
+  if (!targetUrl) {
+    logger.warn("[JobManager] No REDIS_URL or REDIS_HOST provided — falling back to InMemoryJobManager");
     return new InMemoryJobManager();
   }
 
   try {
-    const redis = new Redis(redisUrl, {
+    const redis = new Redis(targetUrl, {
       maxRetriesPerRequest: null,
       lazyConnect: false,
-      retryStrategy: () => null,
+      retryStrategy: (times) => {
+        if (times > 3) return null;
+        return Math.min(times * 200, 1000);
+      },
     });
 
     redis.on("error", (err) => {
-      logger.warn({ err: err.message }, "[JobManager] Redis error");
+      logger.warn({ err: err.message }, "[JobManager] Redis connection warning");
     });
 
+    logger.info({ targetUrl: targetUrl.replace(/:[^:@]+@/, ":***@") }, "[JobManager] Connected to BullMQ Redis backend");
     return new BullMQJobManager(redis);
-  } catch {
+  } catch (err) {
+    logger.warn({ err }, "[JobManager] Failed to initialize BullMQ Redis — falling back to InMemoryJobManager");
     return new InMemoryJobManager();
   }
 }
