@@ -452,6 +452,12 @@
       "skillPath": "skills/pdfkit/SKILL.md",
       "computedHash": "ce120d6c32e157a4796a52c55b9ec06ec0b0d614c105d4f3ed745adeb2740e44"
     },
+    "performance": {
+      "source": "addyosmani/web-quality-skills",
+      "sourceType": "github",
+      "skillPath": "skills/performance/SKILL.md",
+      "computedHash": "ce9d36f139a1b2a6a8ac2cb222698963b8076d2dd8b41685e8e8ae589cdcf1e4"
+    },
     "performance-optimization": {
       "source": "addyosmani/agent-skills",
       "sourceType": "github",

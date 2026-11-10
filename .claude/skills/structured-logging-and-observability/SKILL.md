@@ -47,3 +47,4 @@ The logger must automatically configure deep redaction paths on initialization.
    ```
 2. **Context Child Loggers**: Use `logger.child({ correlationId, requestId })` to automatically attach tracing context throughout asynchronous execution lifecycles.
 3. **Structured Error Serialization**: Always log errors as structured objects under the `err` property (`logger.error({ err, userId }, "Failed to load timeline")`) so Pino standard serializers serialize name, message, and stack trace cleanly.
+

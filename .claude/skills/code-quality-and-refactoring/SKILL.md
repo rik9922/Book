@@ -30,3 +30,4 @@ Before any pull request, commit, or agent completion report:
 
 - Every bug discovered and fixed must be accompanied by an automated regression test in `tests/` that recreates the failing edge case and asserts the resolution.
 - Never weaken existing tests, comment out assertions, or delete test suites to force a passing build.
+

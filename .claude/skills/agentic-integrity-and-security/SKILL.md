@@ -37,3 +37,4 @@ This skill enforces continuous engineering discipline and security safeguards fo
 ## 5. Zero-Budget & Cardless Enforcement
 - Never activate or depend on services requiring credit card entry, PayPal, or automated pay-as-you-go transitions.
 - Rely on local-first drivers (`LocalDiskStorageDriver`), self-hosted Docker compose services, and verified cardless developer tiers.
+
