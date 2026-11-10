@@ -1,6 +1,10 @@
 import SwiftUI
 
 public struct BookshelfView: View {
+    @State private var selectedConfig = Book3DConfiguration()
+    @State private var isPresentingReader = false
+    @State private var isPresenting2DFallback = false
+
     public init() {}
 
     public var body: some View {
@@ -14,54 +18,155 @@ public struct BookshelfView: View {
                             Text("Heirloom Library")
                                 .font(.largeTitle.bold())
                                 .foregroundStyle(MemoriaTheme.ink)
-                            Text("Published digital editions and interactive 3D books")
+                            Text("Published digital editions and interactive 3D RealityKit books")
                                 .font(.subheadline)
                                 .foregroundStyle(MemoriaTheme.textSecondary)
                         }
                         .padding(.horizontal)
 
-                        // 3D Miniature Book Representation in Light Mode
-                        VStack(spacing: 16) {
-                            VStack(spacing: 20) {
-                                Image(systemName: "book.pages")
-                                    .font(.system(size: 64))
-                                    .foregroundStyle(MemoriaTheme.plum)
-
-                                VStack(spacing: 4) {
-                                    Text("THE BENNETT FAMILY")
-                                        .font(.headline)
-                                        .tracking(2)
-                                        .foregroundStyle(MemoriaTheme.ink)
-                                    Text("Volume I • 1974–2026")
-                                        .font(.caption)
-                                        .foregroundStyle(MemoriaTheme.sageFunc)
+                        // Featured Volume Card with Live 3D RealityKit Preview
+                        VStack(spacing: 18) {
+                            ZStack(alignment: .topTrailing) {
+                                #if canImport(RealityKit) && os(iOS)
+                                Book3DRealityView(
+                                    configuration: selectedConfig,
+                                    allowGestures: false,
+                                    onToggleOpen: {
+                                        isPresentingReader = true
+                                    }
+                                )
+                                .frame(height: 240)
+                                .clipShape(RoundedRectangle(cornerRadius: MemoriaTheme.radiusLg))
+                                .onTapGesture {
+                                    isPresentingReader = true
                                 }
+                                #else
+                                RoundedRectangle(cornerRadius: MemoriaTheme.radiusLg)
+                                    .fill(MemoriaTheme.surfaceSecondary)
+                                    .frame(height: 200)
+                                    .overlay(
+                                        Image(systemName: "book.pages")
+                                            .font(.system(size: 56))
+                                            .foregroundStyle(MemoriaTheme.plum)
+                                    )
+                                #endif
 
-                                Text("6 Chapters • 84 Pages • Digital Edition Frozen")
-                                    .font(.caption2)
-                                    .foregroundStyle(MemoriaTheme.textSecondary)
+                                Text("RealityKit USDZ")
+                                    .font(.caption2.weight(.semibold))
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 5)
+                                    .background(MemoriaTheme.surfacePrimary.opacity(0.92))
+                                    .foregroundStyle(MemoriaTheme.sageFunc)
+                                    .clipShape(Capsule())
+                                    .overlay(
+                                        Capsule()
+                                            .stroke(MemoriaTheme.borderSubtle, lineWidth: 1)
+                                    )
+                                    .padding(10)
+                            }
 
-                                HStack(spacing: 12) {
-                                    Button("Open 3D Reader") {}
-                                        .buttonStyle(.borderedProminent)
-                                        .tint(MemoriaTheme.plum)
+                            VStack(spacing: 4) {
+                                Text(selectedConfig.coverTitle.uppercased())
+                                    .font(.headline)
+                                    .tracking(2)
+                                    .foregroundStyle(MemoriaTheme.ink)
+                                Text("\(selectedConfig.coverSubtitle) • \(selectedConfig.leather.displayName)")
+                                    .font(.caption)
+                                    .foregroundStyle(MemoriaTheme.sageFunc)
+                            }
 
-                                    Button("Order Print Proof") {}
-                                        .buttonStyle(.bordered)
-                                        .tint(MemoriaTheme.ink)
+                            // Quick Binding Swatch Selector on Shelf
+                            HStack(spacing: 12) {
+                                ForEach(BookLeatherSwatch.allCases) { swatch in
+                                    Button {
+                                        selectedConfig.leather = swatch
+                                    } label: {
+                                        Circle()
+                                            .fill(swatch.swiftUIColor)
+                                            .frame(width: 28, height: 28)
+                                            .overlay(
+                                                Circle()
+                                                    .stroke(
+                                                        selectedConfig.leather == swatch
+                                                        ? MemoriaTheme.plum
+                                                        : Color.black.opacity(0.15),
+                                                        lineWidth: selectedConfig.leather == swatch ? 3 : 1
+                                                    )
+                                            )
+                                    }
+                                    .frame(minWidth: 44, minHeight: 44)
+                                    .accessibilityLabel("Select \(swatch.displayName) binding")
                                 }
                             }
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 36)
-                            .padding(.horizontal, 24)
-                            .memoriaCard()
-                            .padding(.horizontal)
+
+                            Text("4 Interactive Spreads • 240 Archival Pages • Edition Frozen")
+                                .font(.caption2)
+                                .foregroundStyle(MemoriaTheme.textSecondary)
+
+                            HStack(spacing: 12) {
+                                Button {
+                                    isPresentingReader = true
+                                } label: {
+                                    Label("Open 3D Reader", systemImage: "book.pages")
+                                        .frame(minHeight: 44)
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .tint(MemoriaTheme.plum)
+
+                                Button {
+                                    isPresenting2DFallback = true
+                                } label: {
+                                    Label("2D Proof", systemImage: "doc.plaintext")
+                                        .frame(minHeight: 44)
+                                }
+                                .buttonStyle(.bordered)
+                                .tint(MemoriaTheme.ink)
+                            }
                         }
+                        .frame(maxWidth: .infinity)
+                        .padding(20)
+                        .memoriaCard()
+                        .padding(.horizontal)
                     }
                     .padding(.vertical)
                 }
             }
             .navigationTitle("Bookshelf")
+            #if os(iOS)
+            .fullScreenCover(isPresented: $isPresentingReader) {
+                Book3DReaderView(initialConfiguration: selectedConfig)
+            }
+            #else
+            .sheet(isPresented: $isPresentingReader) {
+                Book3DReaderView(initialConfiguration: selectedConfig)
+            }
+            #endif
+            .sheet(isPresented: $isPresenting2DFallback) {
+                NavigationStack {
+                    Book2DSpreadFallbackView(
+                        configuration: selectedConfig,
+                        onSelectSpread: { nextIndex in
+                            selectedConfig.currentSpreadIndex = nextIndex
+                        },
+                        onReturnTo3D: {
+                            isPresenting2DFallback = false
+                            isPresentingReader = true
+                        }
+                    )
+                    .navigationTitle("Accessible 2D Proof")
+                    #if os(iOS)
+                    .navigationBarTitleDisplayMode(.inline)
+                    #endif
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Close") {
+                                isPresenting2DFallback = false
+                            }
+                            .foregroundStyle(MemoriaTheme.plum)
+                        }
+                    }
+                }
+            }
         }
     }
 }

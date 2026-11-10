@@ -2,16 +2,29 @@ import Fastify, { FastifyInstance, FastifyRequest, FastifyReply } from "fastify"
 import cors from "@fastify/cors";
 import fastifyJwt from "@fastify/jwt";
 import crypto from "node:crypto";
+import fs from "node:fs";
+import fsp from "node:fs/promises";
+import path from "node:path";
 import { z } from "zod";
 import { createServiceLogger, Logger } from "@memory-capsule/logger";
 import {
   BookDocument,
-  BookDocumentSchema,
   BookFormatSchema,
   BookSpread,
+  BOOK_3D_HIERARCHY,
+  BOOK_ANIMATION_CONTRACT,
+  BOOK_CAMERA_PRESETS,
+  BOOK_FOIL_SWATCHES,
+  BOOK_LEATHER_SWATCHES,
+  BOOK_LIGHTING_INTENT,
+  Book3DConfigurationSchema,
+  CANONICAL_BOOK_3D_MANIFEST,
+  CANONICAL_SAMPLE_SPREADS,
   createSuccessResponse,
   createErrorResponse,
   createDomainEvent,
+  resolveFoilSwatch,
+  resolveLeatherSwatch,
   startServiceServer,
 } from "@memory-capsule/contracts";
 import { createEventBus, EventBus } from "@memory-capsule/events";
@@ -23,6 +36,65 @@ import {
 } from "@memory-capsule/database";
 
 const logger: Logger = createServiceLogger("book-service");
+
+interface AssetCatalogEntry {
+  filename: string;
+  contentType: string;
+  expectedSha256: string;
+  format: "glb" | "usdz";
+}
+
+const BOOK_3D_ASSET_CATALOG: Record<string, AssetCatalogEntry> = {
+  "memoria_heirloom_book.glb": {
+    filename: "memoria_heirloom_book.glb",
+    contentType: "model/gltf-binary",
+    expectedSha256: CANONICAL_BOOK_3D_MANIFEST.assets.glb.sha256,
+    format: "glb",
+  },
+  "heirloom_book.glb": {
+    filename: "heirloom_book.glb",
+    contentType: "model/gltf-binary",
+    expectedSha256: CANONICAL_BOOK_3D_MANIFEST.assets.glb.sha256,
+    format: "glb",
+  },
+  glb: {
+    filename: "memoria_heirloom_book.glb",
+    contentType: "model/gltf-binary",
+    expectedSha256: CANONICAL_BOOK_3D_MANIFEST.assets.glb.sha256,
+    format: "glb",
+  },
+  "MemoriaHeirloomBook.usdz": {
+    filename: "MemoriaHeirloomBook.usdz",
+    contentType: "model/vnd.usdz+zip",
+    expectedSha256: CANONICAL_BOOK_3D_MANIFEST.assets.usdz.sha256,
+    format: "usdz",
+  },
+  usdz: {
+    filename: "MemoriaHeirloomBook.usdz",
+    contentType: "model/vnd.usdz+zip",
+    expectedSha256: CANONICAL_BOOK_3D_MANIFEST.assets.usdz.sha256,
+    format: "usdz",
+  },
+};
+
+function resolveModelsDirectory(): string {
+  const envDir = process.env.BOOK_3D_MODELS_DIR;
+  if (envDir && fs.existsSync(envDir)) {
+    return path.resolve(envDir);
+  }
+
+  const candidates = [
+    path.resolve(process.cwd(), "apps/web/public/models"),
+    path.resolve(process.cwd(), "../../apps/web/public/models"),
+    path.resolve(__dirname, "../../../apps/web/public/models"),
+  ];
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  return candidates[0];
+}
 
 // Fallback in-memory test repository for unit tests
 class InMemoryBookTestRepo implements BookRepository {
@@ -107,6 +179,166 @@ export async function buildBookService(): Promise<FastifyInstance> {
       })
     );
   });
+
+  // 0A. Versioned 3D Asset Manifest & Cross-Platform Engine Contracts
+  const serveManifest = async (
+    req: FastifyRequest<{ Params: { version?: string } }>,
+    reply: FastifyReply
+  ) => {
+    const requestedVersion = req.params.version;
+    const supportedVersions = new Set([
+      "latest",
+      "v2",
+      "2.0.0",
+      CANONICAL_BOOK_3D_MANIFEST.version,
+    ]);
+    if (requestedVersion && !supportedVersions.has(requestedVersion)) {
+      return reply
+        .status(404)
+        .send(
+          createErrorResponse(
+            "MANIFEST_VERSION_NOT_FOUND",
+            `3D manifest version '${requestedVersion}' is not available`
+          )
+        );
+    }
+
+    const etag = `"manifest-${CANONICAL_BOOK_3D_MANIFEST.version}-${CANONICAL_BOOK_3D_MANIFEST.assets.glb.sha256.slice(0, 12)}"`;
+    if (req.headers["if-none-match"] === etag) {
+      return reply.status(304).send();
+    }
+
+    reply.header("ETag", etag);
+    reply.header("Cache-Control", "public, max-age=300");
+
+    return reply.status(200).send(
+      createSuccessResponse({
+        manifest: CANONICAL_BOOK_3D_MANIFEST,
+        endpoints: {
+          manifest: `/api/v1/books/3d/manifest/${CANONICAL_BOOK_3D_MANIFEST.version}`,
+          glb: `/api/v1/books/3d/assets/memoria_heirloom_book.glb?v=${CANONICAL_BOOK_3D_MANIFEST.version}`,
+          usdz: `/api/v1/books/3d/assets/MemoriaHeirloomBook.usdz?v=${CANONICAL_BOOK_3D_MANIFEST.version}`,
+        },
+        engineContracts: {
+          hierarchy: BOOK_3D_HIERARCHY,
+          leatherSwatches: BOOK_LEATHER_SWATCHES,
+          foilSwatches: BOOK_FOIL_SWATCHES,
+          cameraPresets: BOOK_CAMERA_PRESETS,
+          lightingIntent: BOOK_LIGHTING_INTENT,
+          animationContract: BOOK_ANIMATION_CONTRACT,
+        },
+      })
+    );
+  };
+
+  app.get("/api/v1/books/3d/manifest", serveManifest);
+  app.get("/api/v1/books/3d/manifest/:version", serveManifest);
+
+  // 0B. Binary 3D Asset Delivery (GLB & USDZ) with ETag & SHA-256 Verification
+  app.get(
+    "/api/v1/books/3d/assets/:assetKey",
+    async (
+      req: FastifyRequest<{
+        Params: { assetKey: string };
+        Querystring: { v?: string };
+      }>,
+      reply: FastifyReply
+    ) => {
+      const entry = BOOK_3D_ASSET_CATALOG[req.params.assetKey];
+      if (!entry) {
+        return reply
+          .status(404)
+          .send(createErrorResponse("ASSET_NOT_FOUND", "Requested 3D asset does not exist"));
+      }
+
+      const modelsDir = resolveModelsDirectory();
+      const fullPath = path.join(modelsDir, entry.filename);
+      if (!fs.existsSync(fullPath)) {
+        logger.error({ fullPath, assetKey: req.params.assetKey }, "[Book3D] Missing 3D asset file");
+        return reply
+          .status(404)
+          .send(createErrorResponse("ASSET_FILE_MISSING", "3D model binary is missing on disk"));
+      }
+
+      const payload = await fsp.readFile(fullPath);
+      const actualSha256 = crypto.createHash("sha256").update(payload).digest("hex");
+      if (actualSha256 !== entry.expectedSha256) {
+        logger.error(
+          { filename: entry.filename, actualSha256, expectedSha256: entry.expectedSha256 },
+          "[Book3D] SHA-256 checksum verification failed"
+        );
+        return reply
+          .status(500)
+          .send(createErrorResponse("ASSET_INTEGRITY_MISMATCH", "3D asset checksum mismatch"));
+      }
+
+      const etag = `"${actualSha256}"`;
+      if (req.headers["if-none-match"] === etag) {
+        return reply.status(304).send();
+      }
+
+      reply.header("Content-Type", entry.contentType);
+      reply.header("Content-Length", payload.byteLength);
+      reply.header("ETag", etag);
+      reply.header("X-Asset-Sha256", actualSha256);
+      reply.header("X-Asset-Version", CANONICAL_BOOK_3D_MANIFEST.version);
+      reply.header("Content-Disposition", `inline; filename="${entry.filename}"`);
+      reply.header(
+        "Cache-Control",
+        req.query.v ? "public, max-age=31536000, immutable" : "public, max-age=3600"
+      );
+
+      return reply.status(200).send(payload);
+    }
+  );
+
+  // 0C. Book-Specific Resolved 3D Reader Configuration
+  app.get(
+    "/api/v1/books/:id/3d-model",
+    async (req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+      const isSample = req.params.id === "sample";
+      const book = isSample ? null : await bookRepo.findBookById(req.params.id);
+
+      if (!isSample && !book) {
+        return reply
+          .status(404)
+          .send(createErrorResponse("BOOK_NOT_FOUND", "Book does not exist"));
+      }
+
+      const leatherSwatch = resolveLeatherSwatch(book?.coverColor);
+      const foilSwatch = resolveFoilSwatch(book?.foilStamping);
+      const configuration = Book3DConfigurationSchema.parse({
+        leatherId: leatherSwatch.id,
+        foilId: foilSwatch.id,
+        coverTitle: book?.coverTitle || "The Bennett Heritage",
+        coverSubtitle: book?.subtitle || "1948 — 2026 • Memoria Volume I",
+        spineText: book?.spineText || "MEMORIA VOL. I",
+        isOpen: false,
+        currentSpreadIndex: 0,
+        totalSpreads: book && book.spreads.length > 0 ? book.spreads.length : CANONICAL_SAMPLE_SPREADS.length,
+        cameraPreset: "hero",
+        reducedMotion: false,
+      });
+
+      return reply.status(200).send(
+        createSuccessResponse({
+          bookId: book?.id || "sample",
+          title: book?.title || configuration.coverTitle,
+          subtitle: book?.subtitle || configuration.coverSubtitle,
+          manifest: CANONICAL_BOOK_3D_MANIFEST,
+          modelUrls: {
+            glb: `/api/v1/books/3d/assets/memoria_heirloom_book.glb?v=${CANONICAL_BOOK_3D_MANIFEST.version}`,
+            usdz: `/api/v1/books/3d/assets/MemoriaHeirloomBook.usdz?v=${CANONICAL_BOOK_3D_MANIFEST.version}`,
+          },
+          configuration,
+          cameraPresets: BOOK_CAMERA_PRESETS,
+          lightingIntent: BOOK_LIGHTING_INTENT,
+          animationContract: BOOK_ANIMATION_CONTRACT,
+          sampleSpreads: CANONICAL_SAMPLE_SPREADS,
+        })
+      );
+    }
+  );
 
   // 1. Create a Book
   const CreateBookSchema = z.object({

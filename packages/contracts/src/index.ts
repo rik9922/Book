@@ -285,5 +285,6 @@ export * from "./config.js";
 export * from "./ports.js";
 export * from "./server-launcher.js";
 export * from "./design-tokens.js";
+export * from "./book-3d.js";
 
 

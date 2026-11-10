@@ -51,3 +51,76 @@ struct MemoriaTests {
         #expect(currentToken == token)
     }
 }
+
+@Suite("Memoria Unified 3D Book Engine Parity & RealityKit Tests")
+struct Book3DEngineTests {
+    @Test("Verify Canonical Swatches, Camera Presets, and Node Hierarchy Parity")
+    func testCanonicalContracts() {
+        let defaultConfig = Book3DConfiguration()
+        #expect(defaultConfig.leather == .plum)
+        #expect(defaultConfig.leather.hexString == "#76556F")
+        #expect(defaultConfig.foil == .gold)
+        #expect(BookLeatherSwatch.allCases.count == 5)
+        #expect(BookFoilSwatch.allCases.count == 4)
+        #expect(BookCameraPreset.allCases.count == 5)
+        #expect(Book3DHierarchy.requiredNodes.count == 11)
+        #expect(Book3DSampleData.sampleSpreads.count == 4)
+
+        for preset in BookCameraPreset.allCases {
+            #expect(preset.minDistance > 0)
+            #expect(preset.maxDistance > preset.minDistance)
+            #expect(preset.fovDegrees >= 20 && preset.fovDegrees <= 75)
+        }
+    }
+
+    @Test("Verify Cover Hinge & Page Turn Kinematic Interpolation")
+    func testKinematics() {
+        #expect(BookAnimationContract.evaluateCubicBezierEaseInOut(0.0) == 0.0)
+        #expect(abs(BookAnimationContract.evaluateCubicBezierEaseInOut(0.5) - 0.5) < 0.0001)
+        #expect(BookAnimationContract.evaluateCubicBezierEaseInOut(1.0) == 1.0)
+
+        let closedAngle = BookAnimationContract.computeCoverHingeAngle(openProgress: 0.0)
+        let openAngle = BookAnimationContract.computeCoverHingeAngle(openProgress: 1.0)
+        #expect(closedAngle == 0.0)
+        #expect(abs(openAngle - 2.764) < 0.0001)
+
+        let pageStart = BookAnimationContract.computePageTurnAngle(turnProgress: 0.0)
+        let pageEnd = BookAnimationContract.computePageTurnAngle(turnProgress: 1.0)
+        #expect(pageStart == 0.0)
+        #expect(abs(pageEnd - 2.88) < 0.0001)
+    }
+
+    #if os(iOS) && canImport(RealityKit)
+    @Test("Verify Bundled MemoriaHeirloomBook.usdz Loads and Matches Node Hierarchy")
+    @MainActor
+    func testBundledUSDZLoadingAndHierarchy() async throws {
+        let usdzURL = Book3DAssetLocator.locateBundledUSDZ()
+        #expect(usdzURL != nil)
+
+        let root = try await Book3DRealityController.loadBookSceneRoot()
+        #expect(root.findEntity(named: Book3DHierarchy.frontCoverHinge) != nil)
+        #expect(root.findEntity(named: Book3DHierarchy.turningPageHinge) != nil)
+        #expect(root.findEntity(named: Book3DHierarchy.frontCover) != nil)
+        #expect(root.findEntity(named: Book3DHierarchy.backCover) != nil)
+        #expect(root.findEntity(named: Book3DHierarchy.spine) != nil)
+        #expect(root.findEntity(named: Book3DHierarchy.textBlock) != nil)
+        #expect(root.findEntity(named: Book3DHierarchy.emblem) != nil)
+        #expect(root.findEntity(named: Book3DHierarchy.cornerGuards) != nil)
+        #expect(root.findEntity(named: Book3DHierarchy.ribbon) != nil)
+        #expect(root.findEntity(named: Book3DHierarchy.turningPageLeaf) != nil)
+
+        let controller = Book3DRealityController()
+        controller.bookRoot = root
+        controller.frontCoverHinge = root.findEntity(named: Book3DHierarchy.frontCoverHinge)
+        controller.turningPageHinge = root.findEntity(named: Book3DHierarchy.turningPageHinge)
+
+        var openConfig = Book3DConfiguration(leather: .plum, foil: .gold, isOpen: true)
+        openConfig.reducedMotion = true
+        controller.syncConfiguration(openConfig, turnNonce: 1, turnDirection: 1)
+        controller.tick(deltaTime: 0.016)
+
+        let hingeAngle = controller.frontCoverHinge?.orientation.angle ?? 0
+        #expect(abs(hingeAngle - BookAnimationContract.openAngleRadians) < 0.01)
+    }
+    #endif
+}

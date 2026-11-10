@@ -1,0 +1,93 @@
+{
+  "version": "2.0.0",
+  "modelId": "memoria_heirloom_book_v2",
+  "generator": "scripts/generate_book_model.py",
+  "updatedAt": "2026-11-10T04:00:00Z",
+  "dimensions": {
+    "bookWidth": 0.2,
+    "bookHeight": 0.26,
+    "boardThickness": 0.0035,
+    "textblockThickness": 0.022,
+    "unit": "meters"
+  },
+  "topology": {
+    "totalVertices": 313,
+    "totalTriangles": 218,
+    "subdivisions": {
+      "spineSteps": 20,
+      "emblemSegments": 32,
+      "pageCurlSteps": 16
+    }
+  },
+  "materials": {
+    "MutedPlumLeather": {
+      "color": [
+        0.463,
+        0.333,
+        0.435,
+        1.0
+      ],
+      "metallic": 0.04,
+      "roughness": 0.8,
+      "description": "Tactile French-morocco goatskin leather binding with matte grain"
+    },
+    "ArchivalPaperIvory": {
+      "color": [
+        0.969,
+        0.957,
+        0.933,
+        1.0
+      ],
+      "metallic": 0.0,
+      "roughness": 0.95,
+      "description": "Heavy archival cotton-rag page stock with warm deckle edge"
+    },
+    "MetallicGoldFoil": {
+      "color": [
+        0.831,
+        0.686,
+        0.216,
+        1.0
+      ],
+      "metallic": 0.92,
+      "roughness": 0.25,
+      "description": "24-karat hot-stamped gold foil and polished brass corner brackets"
+    },
+    "SilkRibbonSage": {
+      "color": [
+        0.518,
+        0.58,
+        0.514,
+        1.0
+      ],
+      "metallic": 0.35,
+      "roughness": 0.45,
+      "description": "Archival satin ribbon page marker in Soft Sage"
+    }
+  },
+  "assets": {
+    "glb": {
+      "relativePath": "models/memoria_heirloom_book.glb",
+      "byteSize": 18776,
+      "sha256": "2656f184a87657332b2fff31ef2fc1d5aa8267a1c32e4282aba65852ae28645a",
+      "targetPlatform": "Web / Three.js / React Three Fiber"
+    },
+    "usdz": {
+      "relativePath": "models/MemoriaHeirloomBook.usdz",
+      "byteSize": 32811,
+      "sha256": "0079a4b3180148fa26e1d7fd3fe38e08b2537520617f0af20096579573968a3d",
+      "targetPlatform": "iOS 17+ / RealityKit / QuickLook"
+    }
+  },
+  "kinematics": {
+    "hingeAxis": "Z",
+    "hingePivot": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "maxOpenAngleRadians": 2.764,
+    "pageTurnMaxAngleRadians": 2.88,
+    "easing": "easeInOutCubic"
+  }
+}

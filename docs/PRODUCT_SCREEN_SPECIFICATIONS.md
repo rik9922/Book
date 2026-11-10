@@ -516,7 +516,7 @@ This document establishes the exhaustive, binding single source of truth for all
   - [ ] opens 3D viewer, turns 3 pages, clicks reset camera, toggles 2D proof
 
 #### 17. UI Component Inventory
-`ExperienceCanvas`, `ReaderHUD`, `PageTurnController`, `FlatProofFallback`
+`ExperienceCanvas` (`apps/web/src/components/3d/ExperienceCanvas.tsx`), `AccessibleSpreadReader` (`apps/web/src/components/3d/AccessibleSpreadReader.tsx`), `CanvasErrorBoundary`, `packages/contracts/src/book-3d.ts`, `GET /api/v1/books/3d/manifest`, `GET /api/v1/books/3d/assets/memoria_heirloom_book.glb`, [3D Architecture](docs/3D_BOOK_ENGINE_ARCHITECTURE.md)
 
 ---
 
@@ -5961,7 +5961,7 @@ This document establishes the exhaustive, binding single source of truth for all
   - [ ] changes cover color to Plum, selects Gold foil, confirms 3D foil reflection, clicks Save
 
 #### 17. UI Component Inventory
-`CoverCanvas`, `MaterialPicker`, `FoilSelector`, `SpineInput`, `Button`
+`ExperienceCanvas` (`apps/web/src/components/3d/ExperienceCanvas.tsx`, Muted Plum/Navy/Burgundy/Onyx/Emerald + Gold/Rose/Silver/Blind Emboss swatches), `packages/contracts/src/book-3d.ts`, `GET /api/v1/books/3d/manifest`, [Cross-Platform 3D Consistency](docs/CROSS_PLATFORM_3D_CONSISTENCY.md)
 
 ---
 
@@ -6430,7 +6430,7 @@ This document establishes the exhaustive, binding single source of truth for all
   - [ ] opens 3D reader, turns 3 pages via right arrow, presses Space to close cover
 
 #### 17. UI Component Inventory
-`ExperienceCanvas`, `ReaderHUD`, `PageTurnController`, `FlatProofFallback`
+`ExperienceCanvas` (`apps/web/src/components/3d/ExperienceCanvas.tsx`), `AccessibleSpreadReader` (`apps/web/src/components/3d/AccessibleSpreadReader.tsx`), `CanvasErrorBoundary`, `packages/contracts/src/book-3d.ts`, `GET /api/v1/books/3d/manifest`, `GET /api/v1/books/3d/assets/memoria_heirloom_book.glb`, [3D Architecture](docs/3D_BOOK_ENGINE_ARCHITECTURE.md)
 
 ---
 
@@ -11668,7 +11668,7 @@ Demoting an Admin or removing a member prompts: 'Confirm permission change for [
 ### IOS-43 — 3D Bookshelf with Apple RealityKit Interactive Models
 
 **Category**: Native iOS — Books & RealityKit 3D  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Browse family memory volumes rendered as interactive 3D books on a virtual wooden library shelf using RealityKit.
@@ -11752,7 +11752,7 @@ Demoting an Admin or removing a member prompts: 'Confirm permission change for [
   - [ ] taps 3D book model on shelf, verifies selection banner updates, taps Open Volume
 
 #### 17. UI Component Inventory
-`RealityView`, `BookshelfSceneEntity`, `BookModel3D`, `BookDetailBanner`, `Button`
+`BookshelfView` (`apps/ios/Memoria/Sources/Memoria/Views/BookshelfView.swift`), `Book3DRealityView` (`apps/ios/Memoria/Sources/Memoria/Views/Book3DRealityView.swift`), `Book3DContract` (`apps/ios/Memoria/Sources/Memoria/Models/Book3DContract.swift`), `MemoriaHeirloomBook.usdz`, [3D Book Engine Architecture](docs/3D_BOOK_ENGINE_ARCHITECTURE.md)
 
 ---
 
@@ -12233,7 +12233,7 @@ Tapping Cancel prompts: 'Discard book creation? Your draft settings will not be 
 ### IOS-49 — Immersive RealityKit 3D Book Reader & Physics Page Turn
 
 **Category**: Native iOS — Books & RealityKit 3D  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Read a published memory book with lifelike 3D cloth binding, page curl physics, and spatial audio paper sounds using RealityKit.
@@ -12319,7 +12319,7 @@ Tapping Cancel prompts: 'Discard book creation? Your draft settings will not be 
   - [ ] swipes left to turn page, verifies page curl animation executes smoothly and page index advances to 2
 
 #### 17. UI Component Inventory
-`RealityView`, `PageCurlEntity`, `SpatialAudioPlayer`, `PageScrubberBar`, `Button`
+`Book3DReaderView` (`apps/ios/Memoria/Sources/Memoria/Views/Book3DReaderView.swift`), `Book3DRealityView` (`apps/ios/Memoria/Sources/Memoria/Views/Book3DRealityView.swift`), `Book2DSpreadFallbackView` (`apps/ios/Memoria/Sources/Memoria/Views/Book2DSpreadFallbackView.swift`), `MemoriaHeirloomBook.usdz`, `GET /api/v1/books/3d/assets/MemoriaHeirloomBook.usdz`, [Cross-Platform 3D Consistency](docs/CROSS_PLATFORM_3D_CONSISTENCY.md)
 
 ---
 
@@ -15591,13 +15591,13 @@ The following traceability matrix establishes the direct mapping between each sc
 | `IOS-40` | As a space administrator, I want to change Uncle Bob's role to Admin so he can help manage scanned letters and member invites. | RoleSelectionRow, Toggle, DestructiveButton, Button | PATCH /api/spaces/:spaceId/members/:userId | identity-service | space_members, outbox_events | Events: space.member_role_updated | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
 | `IOS-41` | As a family member, I want to pull down to refresh the space activity stream to see what new stories Uncle Dave added today. | ActivityFeedView, ActivityRowCell, ThumbnailPreviewStrip, UIRefreshControl | GET /api/spaces/:spaceId/activity | memory-service | space_activity, users, memories | None | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
 | `IOS-42` | As an aunt, I want to comment on my nephew's baby photo and attach a 10-second voice note remembering that day. | ReactionBar, CommentsListView, CommentCell, CommentComposerBar (+1) | POST /api/memories/:memoryId/comments | memory-service | memory_comments, memory_reactions, outbox_events | Events: memory.comment_added, memory.reaction_added | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
-| `IOS-43` | As an archivist, I want to see our published volumes on an interactive 3D shelf, rotate them in 3D space, and tap to read. | RealityView, BookshelfSceneEntity, BookModel3D, BookDetailBanner (+1) | GET /api/spaces/:spaceId/books | book-service | books | None | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
+| `IOS-43` | As an archivist, I want to see our published volumes on an interactive 3D shelf, rotate them in 3D space, and tap to read. | BookshelfView, Book3DRealityView, Book3DContract, MemoriaHeirloomBook.usdz | GET /api/spaces/:spaceId/books, GET /api/v1/books/3d/manifest | book-service | books | None | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `IOS-44` | As an archivist, I want to inspect our 8x10 Hardcover volume to see its page count, chapters, and print readiness. | BookPreviewCard, SpecPillGroup, ChapterList, PrimaryActionButton (+1) | GET /api/books/:bookId | book-service | books, book_spreads | None | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
 | `IOS-45` | As an archivist, I want a 3-step wizard on iOS to compile all 2024 memories into an annual family yearbook. | WizardStepBar, TextField, FormatSelectionCard, SegmentedPicker (+1) | POST /api/spaces/:spaceId/books | book-service | books, outbox_events | Events: book.created; Jobs: generate-auto-book-layout | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
 | `IOS-46` | As an archivist, I want to scroll through our photos and tap checkmarks to include 40 specific pictures in the new book. | SelectableMediaGrid, CheckmarkOverlay, SelectionTrayStrip, FilterChipBar (+1) | PUT /api/books/:bookId/memories | book-service | books, memories | None | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
 | `IOS-47` | As an archivist, I want to long-press and drag our wedding spread before the honeymoon chapter so the book flows chronologically. | SpreadReorderGrid, SpreadMiniatureCard, ChapterDividerView, Button | PUT /api/books/:bookId/spreads/reorder | book-service | books, book_spreads | None | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
 | `IOS-48` | As an archivist, I want to choose Deep Forest Green cloth with embossed Gold Foil lettering for our heirloom family bible volume. | Cover3DPreviewCanvas, MaterialSwatchPicker, FoilSwatchPicker, TypographySelector (+1) | PATCH /api/books/:bookId/cover | book-service | books, outbox_events | Events: book.cover_updated; Jobs: generate-book-3d-model | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
-| `IOS-49` | As a reader, I want to swipe my finger across the screen to turn the physical-feeling paper pages and hear the gentle paper rustle sound. | RealityView, PageCurlEntity, SpatialAudioPlayer, PageScrubberBar (+1) | GET /api/books/:bookId/spreads | book-service | books, book_spreads | Events: book.read | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
+| `IOS-49` | As a reader, I want to swipe my finger across the screen to turn the physical-feeling paper pages and hear the gentle paper rustle sound. | Book3DReaderView, Book3DRealityView, Book2DSpreadFallbackView, MemoriaHeirloomBook.usdz | GET /api/books/:bookId/spreads, GET /api/v1/books/3d/assets/MemoriaHeirloomBook.usdz | book-service | books, book_spreads | Events: book.read | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `IOS-50` | As a reader with visual impairments or on low-battery mode, I want a flat 2D spread viewer where I can zoom in on captions and photos. | PagingSpreadScrollView, ZoomablePageView, ThumbnailFilmstripBar, Button | GET /api/books/:bookId/spreads | book-service | books, book_spreads | None | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
 | `IOS-51` | As an archivist, I want the preflight tool to warn me if an old scanned photo is too low resolution so that my printed book looks sharp. | PreflightChecklistView, ChecklistStatusRow, WarningDetailCallout, Button | POST /api/books/:bookId/preflight | book-service | books, book_spreads, media_assets | Events: book.preflight_executed | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
 | `IOS-52` | As a customer, I want to tap Apple Pay on my iPhone to buy 3 copies of our family book for Christmas gifts with biometric Touch/Face ID. | PKPaymentButton, QuantityStepper, PriceBreakdownCard, ShippingMethodPicker (+1) | POST /api/orders/checkout | commerce-service | print_orders, outbox_events | Events: order.placed; Jobs: generate-print-cmyk-pdf, notify-fulfillment-partner | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |

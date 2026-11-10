@@ -113,4 +113,24 @@ public actor MemoriaAPIClient {
         let decoded = try JSONDecoder().decode(SingleResponseEnvelope.self, from: data)
         return decoded.data
     }
+
+    public func fetchBook3DManifest() async throws -> Book3DManifestDTO {
+        let request = createRequest(path: "books/3d/manifest", method: "GET")
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode) else {
+            throw NSError(
+                domain: "MemoriaAPIClient",
+                code: (response as? HTTPURLResponse)?.statusCode ?? 500,
+                userInfo: [NSLocalizedDescriptionKey: "Failed to fetch 3D book manifest"]
+            )
+        }
+
+        struct ManifestEnvelope: Decodable {
+            let success: Bool
+            let data: Book3DManifestDTO
+        }
+
+        let decoded = try JSONDecoder().decode(ManifestEnvelope.self, from: data)
+        return decoded.data
+    }
 }

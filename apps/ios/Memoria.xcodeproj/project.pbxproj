@@ -8,15 +8,20 @@
 
 /* Begin PBXBuildFile section */
 		3BA1D813E76F21E5A29B419D /* MemoriaApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42A9EEEF173309FE9F4A450B /* MemoriaApp.swift */; };
+		3BDA7749FEEE4B48B6E1A2D4 /* Book2DSpreadFallbackView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6010C2CBB4DEA0D1BDAD2E0 /* Book2DSpreadFallbackView.swift */; };
 		3E3958A9DB28AB4A116BF8D4 /* LocalStorageService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5B4C378C6DE635DF76551A1 /* LocalStorageService.swift */; };
+		407BCA7F3AFBE3B9FBB92E84 /* Book3DContract.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B1032798CE8462F8BEB0F06 /* Book3DContract.swift */; };
 		43256B66A2A710731475468D /* MemoriaTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48B083AB7A7AA58A884BA05A /* MemoriaTheme.swift */; };
 		4A1938B5DA08A9292C900403 /* MediaImportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1BE195B60330E260358A724 /* MediaImportService.swift */; };
+		5201299C86C34B10C600AEDE /* MemoriaHeirloomBook.usdz in Resources */ = {isa = PBXBuildFile; fileRef = 27957311F5BB1F3F8EB3BE3C /* MemoriaHeirloomBook.usdz */; };
 		53A7B6685FC028F141D6E5EE /* MemoriaAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0186D1525C9D289547C6651 /* MemoriaAPIClient.swift */; };
 		55DDA151445CB6A779D4B2F2 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 287E5FC36F9B6EE91B84AEAB /* SettingsView.swift */; };
 		58DECFC14C13F65DDC2EA40D /* MemoryCreateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87A869C359EB0FA226321CA5 /* MemoryCreateView.swift */; };
 		643A929129CEDE4E306E91A1 /* HomeFeedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBA06307A01578ADBB6EBF8F /* HomeFeedView.swift */; };
 		9B020469E76DACC9A0727C71 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = C917C715782F1EA8AFAD1FC1 /* Assets.xcassets */; };
+		AE5E747344BA9697F08532A2 /* Book3DRealityView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00B846A423A8D175D4AEB91 /* Book3DRealityView.swift */; };
 		B0AB60FD7E8324BD955A4310 /* Profile.swift in Sources */ = {isa = PBXBuildFile; fileRef = EABDF7113CD6975ED42EFA5D /* Profile.swift */; };
+		B62E91F58EDBB19C286154B9 /* Book3DReaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2AF54DCB89CB19776E5818D /* Book3DReaderView.swift */; };
 		C9CF2C1401CA0C5DD78BEF10 /* MemoriaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E898BB538D5BB5026923F81 /* MemoriaTests.swift */; };
 		DD00052E208EB983E5EBB2F9 /* Memoria.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E436BE18620ABA8C140912D /* Memoria.swift */; };
 		EA533C93896FA1399A99FB98 /* Memory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7603410260A1C4B0495EBED4 /* Memory.swift */; };
@@ -36,7 +41,9 @@
 
 /* Begin PBXFileReference section */
 		0E898BB538D5BB5026923F81 /* MemoriaTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoriaTests.swift; sourceTree = "<group>"; };
+		1B1032798CE8462F8BEB0F06 /* Book3DContract.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Book3DContract.swift; sourceTree = "<group>"; };
 		222AE1FC9ECF455120C38236 /* MemoriaTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = MemoriaTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		27957311F5BB1F3F8EB3BE3C /* MemoriaHeirloomBook.usdz */ = {isa = PBXFileReference; lastKnownFileType = file.usdz; path = MemoriaHeirloomBook.usdz; sourceTree = "<group>"; };
 		287E5FC36F9B6EE91B84AEAB /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		42A9EEEF173309FE9F4A450B /* MemoriaApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoriaApp.swift; sourceTree = "<group>"; };
 		48B083AB7A7AA58A884BA05A /* MemoriaTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoriaTheme.swift; sourceTree = "<group>"; };
@@ -45,6 +52,8 @@
 		7603410260A1C4B0495EBED4 /* Memory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Memory.swift; sourceTree = "<group>"; };
 		80C980320A5A67ABC6685DCE /* BookshelfView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookshelfView.swift; sourceTree = "<group>"; };
 		87A869C359EB0FA226321CA5 /* MemoryCreateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryCreateView.swift; sourceTree = "<group>"; };
+		A00B846A423A8D175D4AEB91 /* Book3DRealityView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Book3DRealityView.swift; sourceTree = "<group>"; };
+		A2AF54DCB89CB19776E5818D /* Book3DReaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Book3DReaderView.swift; sourceTree = "<group>"; };
 		C1BE195B60330E260358A724 /* MediaImportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaImportService.swift; sourceTree = "<group>"; };
 		C917C715782F1EA8AFAD1FC1 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		D5B4C378C6DE635DF76551A1 /* LocalStorageService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalStorageService.swift; sourceTree = "<group>"; };
@@ -52,6 +61,7 @@
 		E0186D1525C9D289547C6651 /* MemoriaAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoriaAPIClient.swift; sourceTree = "<group>"; };
 		EABDF7113CD6975ED42EFA5D /* Profile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Profile.swift; sourceTree = "<group>"; };
 		EC56191CE06F441682E54829 /* Memoria.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Memoria.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		F6010C2CBB4DEA0D1BDAD2E0 /* Book2DSpreadFallbackView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Book2DSpreadFallbackView.swift; sourceTree = "<group>"; };
 		FA35F6BD71F81864DE20DEFA /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -69,6 +79,9 @@
 		10E67A55477E074F053F5B65 /* Views */ = {
 			isa = PBXGroup;
 			children = (
+				F6010C2CBB4DEA0D1BDAD2E0 /* Book2DSpreadFallbackView.swift */,
+				A2AF54DCB89CB19776E5818D /* Book3DReaderView.swift */,
+				A00B846A423A8D175D4AEB91 /* Book3DRealityView.swift */,
 				80C980320A5A67ABC6685DCE /* BookshelfView.swift */,
 				DBA06307A01578ADBB6EBF8F /* HomeFeedView.swift */,
 				87A869C359EB0FA226321CA5 /* MemoryCreateView.swift */,
@@ -89,6 +102,7 @@
 		3993F774171BF6AE36C0DCBC /* Models */ = {
 			isa = PBXGroup;
 			children = (
+				1B1032798CE8462F8BEB0F06 /* Book3DContract.swift */,
 				7603410260A1C4B0495EBED4 /* Memory.swift */,
 				EABDF7113CD6975ED42EFA5D /* Profile.swift */,
 			);
@@ -100,6 +114,7 @@
 			children = (
 				C917C715782F1EA8AFAD1FC1 /* Assets.xcassets */,
 				FA35F6BD71F81864DE20DEFA /* Info.plist */,
+				D3FE1C2A1B318A5A496FCCA2 /* Models */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -154,6 +169,14 @@
 				B74FB26263E260255147DF44 /* Tests */,
 			);
 			path = Memoria;
+			sourceTree = "<group>";
+		};
+		D3FE1C2A1B318A5A496FCCA2 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				27957311F5BB1F3F8EB3BE3C /* MemoriaHeirloomBook.usdz */,
+			);
+			path = Models;
 			sourceTree = "<group>";
 		};
 		D44041E048182FE37A29739C /* MemoriaTests */ = {
@@ -258,6 +281,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				9B020469E76DACC9A0727C71 /* Assets.xcassets in Resources */,
+				5201299C86C34B10C600AEDE /* MemoriaHeirloomBook.usdz in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -276,6 +300,10 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				3BDA7749FEEE4B48B6E1A2D4 /* Book2DSpreadFallbackView.swift in Sources */,
+				407BCA7F3AFBE3B9FBB92E84 /* Book3DContract.swift in Sources */,
+				B62E91F58EDBB19C286154B9 /* Book3DReaderView.swift in Sources */,
+				AE5E747344BA9697F08532A2 /* Book3DRealityView.swift in Sources */,
 				FE3F9067E684421C154643CB /* BookshelfView.swift in Sources */,
 				643A929129CEDE4E306E91A1 /* HomeFeedView.swift in Sources */,
 				3E3958A9DB28AB4A116BF8D4 /* LocalStorageService.swift in Sources */,
