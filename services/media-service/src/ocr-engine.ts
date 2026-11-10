@@ -10,6 +10,9 @@ import { createServiceLogger } from "@memory-capsule/logger";
 const execFileAsync = promisify(execFile);
 const logger = createServiceLogger("ocr-engine");
 
+const OCR_EXEC_TIMEOUT_MS = 30_000;
+const MAX_PDF_OCR_PAGES = 20;
+
 export interface OcrWordBox {
   text: string;
   confidence: number;
@@ -86,12 +89,13 @@ export class OcrEngine {
 
   /**
    * Preprocesses an image buffer using Sharp to maximize OCR character recognition:
-   * 1. Grayscale
-   * 2. Contrast normalization
-   * 3. Sharpening filter
+   * 1. Auto-orient via EXIF (.rotate())
+   * 2. Grayscale + flatten alpha
+   * 3. Contrast normalization & sharpening
    */
   public async preprocessImage(inputBuffer: Buffer): Promise<Buffer> {
     return sharp(inputBuffer)
+      .rotate()
       .flatten({ background: "#ffffff" })
       .toColourspace("b-w")
       .normalize()
@@ -101,67 +105,87 @@ export class OcrEngine {
   }
 
   /**
-   * Processes an image file or buffer and extracts text with TSV bounding box data and confidence
+   * Processes an image buffer in a single Tesseract TSV pass, reconstructing
+   * paragraph/line-ordered plain text and word bounding boxes without invoking tesseract twice.
    */
   public async processImage(imageBuffer: Buffer, language = "eng"): Promise<OcrPageResult> {
     if (!this.isAvailable) {
-      throw new Error(`[OcrEngine] Tesseract executable not found. Please verify installation via brew install tesseract.`);
+      throw new Error(
+        `[OcrEngine] Tesseract executable not found. Please verify installation via brew install tesseract.`
+      );
     }
 
+    const safeLang = /^[a-zA-Z0-9_+-]{2,24}$/.test(language) ? language : "eng";
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "memoria-ocr-"));
     const preprocessedBuffer = await this.preprocessImage(imageBuffer);
     const tempInput = path.join(tempDir, "input.png");
     await fs.writeFile(tempInput, preprocessedBuffer);
 
     try {
-      // 1. Run Tesseract generating TSV output for word-level confidence
-      const { stdout: tsvOutput } = await execFileAsync(this.tesseractPath, [
-        tempInput,
-        "stdout",
-        "-l", language,
-        "--psm", "3",
-        "tsv",
-      ]);
+      const { stdout: tsvOutput } = await execFileAsync(
+        this.tesseractPath,
+        [tempInput, "stdout", "-l", safeLang, "--psm", "3", "tsv"],
+        { timeout: OCR_EXEC_TIMEOUT_MS, maxBuffer: 16 * 1024 * 1024 }
+      );
 
-      // 2. Parse TSV
       const lines = tsvOutput.trim().split("\n");
       const words: OcrWordBox[] = [];
       let totalConf = 0;
       let validWordCount = 0;
 
+      const textLines: string[] = [];
+      let currentLineWords: string[] = [];
+      let lastLineKey = "";
+      let lastParKey = "";
+
       for (let i = 1; i < lines.length; i++) {
         const cols = lines[i].split("\t");
-        if (cols.length >= 12) {
-          const conf = parseFloat(cols[10]);
-          const text = cols[11]?.trim();
+        if (cols.length < 12) continue;
 
-          if (text && conf >= 0) {
-            words.push({
-              text,
-              confidence: conf,
-              bbox: {
-                left: parseInt(cols[6], 10),
-                top: parseInt(cols[7], 10),
-                width: parseInt(cols[8], 10),
-                height: parseInt(cols[9], 10),
-              },
-            });
-            totalConf += conf;
-            validWordCount++;
+        const blockNum = cols[2];
+        const parNum = cols[3];
+        const lineNum = cols[4];
+        const conf = parseFloat(cols[10]);
+        const text = cols[11]?.trim();
+
+        if (!text || conf < 0 || Number.isNaN(conf)) continue;
+
+        const parKey = `${blockNum}:${parNum}`;
+        const lineKey = `${parKey}:${lineNum}`;
+
+        if (lastLineKey && lineKey !== lastLineKey && currentLineWords.length > 0) {
+          textLines.push(currentLineWords.join(" "));
+          currentLineWords = [];
+          if (lastParKey && parKey !== lastParKey) {
+            textLines.push("");
           }
         }
+
+        lastParKey = parKey;
+        lastLineKey = lineKey;
+        currentLineWords.push(text);
+
+        words.push({
+          text,
+          confidence: conf,
+          bbox: {
+            left: parseInt(cols[6], 10) || 0,
+            top: parseInt(cols[7], 10) || 0,
+            width: parseInt(cols[8], 10) || 0,
+            height: parseInt(cols[9], 10) || 0,
+          },
+        });
+        totalConf += conf;
+        validWordCount++;
       }
 
-      // 3. Plain text extraction
-      const { stdout: textOutput } = await execFileAsync(this.tesseractPath, [
-        tempInput,
-        "stdout",
-        "-l", language,
-        "--psm", "3",
-      ]);
+      if (currentLineWords.length > 0) {
+        textLines.push(currentLineWords.join(" "));
+      }
 
-      const cleanedText = textOutput.trim();
-      const avgConfidence = validWordCount > 0 ? parseFloat((totalConf / validWordCount).toFixed(2)) : 0;
+      const cleanedText = textLines.join("\n").trim();
+      const avgConfidence =
+        validWordCount > 0 ? parseFloat((totalConf / validWordCount).toFixed(2)) : 0;
 
       return {
         pageNumber: 1,
@@ -171,14 +195,20 @@ export class OcrEngine {
         words,
       };
     } finally {
-      await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+      await fs.rm(tempDir, { recursive: true, force: true }).catch((err) => {
+        logger.warn({ err, tempDir }, "[OcrEngine] Temp cleanup warning");
+      });
     }
   }
 
   /**
-   * Processes a multi-page PDF or image document
+   * Processes a multi-page PDF (capped at MAX_PDF_OCR_PAGES) or image document.
    */
-  public async processDocument(buffer: Buffer, mimeType: string, language = "eng"): Promise<OcrProcessingResult> {
+  public async processDocument(
+    buffer: Buffer,
+    mimeType: string,
+    language = "eng"
+  ): Promise<OcrProcessingResult> {
     const startTime = Date.now();
 
     if (mimeType === "application/pdf") {
@@ -191,11 +221,27 @@ export class OcrEngine {
       await fs.writeFile(tempPdf, buffer);
 
       try {
-        // Render PDF pages to PNG at 150 DPI
-        await execFileAsync(this.pdftoppmPath, ["-png", "-r", "150", tempPdf, path.join(tempDir, "page")]);
+        await execFileAsync(
+          this.pdftoppmPath,
+          [
+            "-png",
+            "-r",
+            "150",
+            "-f",
+            "1",
+            "-l",
+            String(MAX_PDF_OCR_PAGES),
+            tempPdf,
+            path.join(tempDir, "page"),
+          ],
+          { timeout: OCR_EXEC_TIMEOUT_MS }
+        );
 
         const files = await fs.readdir(tempDir);
-        const pageFiles = files.filter((f) => f.startsWith("page-") && f.endsWith(".png")).sort();
+        const pageFiles = files
+          .filter((f) => f.startsWith("page-") && f.endsWith(".png"))
+          .sort()
+          .slice(0, MAX_PDF_OCR_PAGES);
 
         const pages: OcrPageResult[] = [];
         let totalWords = 0;
@@ -210,8 +256,12 @@ export class OcrEngine {
           sumConfidence += pageResult.confidence;
         }
 
-        const fullText = pages.map((p) => p.text).filter((t) => t.length > 0).join("\n\n--- Page Break ---\n\n");
-        const avgConfidence = pages.length > 0 ? parseFloat((sumConfidence / pages.length).toFixed(2)) : 0;
+        const fullText = pages
+          .map((p) => p.text)
+          .filter((t) => t.length > 0)
+          .join("\n\n--- Page Break ---\n\n");
+        const avgConfidence =
+          pages.length > 0 ? parseFloat((sumConfidence / pages.length).toFixed(2)) : 0;
 
         return {
           pages,
@@ -222,10 +272,11 @@ export class OcrEngine {
           engine: "tesseract-5.5.3-poppler",
         };
       } finally {
-        await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+        await fs.rm(tempDir, { recursive: true, force: true }).catch((err) => {
+          logger.warn({ err, tempDir }, "[OcrEngine] PDF temp cleanup warning");
+        });
       }
     } else {
-      // Standard image
       const pageResult = await this.processImage(buffer, language);
       return {
         pages: [pageResult],

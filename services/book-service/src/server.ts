@@ -8,8 +8,14 @@ import path from "node:path";
 import { z } from "zod";
 import { createServiceLogger, Logger } from "@memory-capsule/logger";
 import {
+  BaseServiceConfigSchema,
+  validateServiceConfig,
+  createFastifyErrorHandler,
+  UnauthorizedError,
+  ForbiddenError,
   BookDocument,
   BookFormatSchema,
+  BookPageSchema,
   BookSpread,
   BOOK_3D_HIERARCHY,
   BOOK_ANIMATION_CONTRACT,
@@ -32,7 +38,13 @@ import {
   createDatabaseClient,
   DatabaseClient,
   PostgresBookRepository,
+  PostgresSpaceRepository,
+  PostgresCollaborationRepository,
+  PostgresOutboxRepository,
   BookRepository,
+  SpaceRepository,
+  CollaborationRepository,
+  OutboxRepository,
 } from "@memory-capsule/database";
 
 const logger: Logger = createServiceLogger("book-service");
@@ -110,12 +122,34 @@ class InMemoryBookTestRepo implements BookRepository {
   async listBooks(spaceId: string): Promise<BookDocument[]> {
     return Array.from(this.books.values()).filter((b) => b.spaceId === spaceId);
   }
+  async updateBook(
+    id: string,
+    updates: Partial<
+      Pick<
+        BookDocument,
+        "title" | "subtitle" | "format" | "coverColor" | "foilStamping" | "coverTitle" | "spineText"
+      >
+    >
+  ): Promise<BookDocument | null> {
+    const book = this.books.get(id);
+    if (!book) return null;
+    const updated: BookDocument = {
+      ...book,
+      ...updates,
+      version: (book.version || 1) + 1,
+      updatedAt: new Date().toISOString(),
+    };
+    this.books.set(id, updated);
+    return updated;
+  }
   async saveSpread(bookId: string, spread: BookSpread): Promise<void> {
     const book = this.books.get(bookId);
     if (book) {
       const idx = book.spreads.findIndex((s) => s.id === spread.id);
       if (idx >= 0) book.spreads[idx] = spread;
       else book.spreads.push(spread);
+      book.spreads.sort((a, b) => a.spreadIndex - b.spreadIndex);
+      book.updatedAt = new Date().toISOString();
     }
   }
   async freezeEdition(bookId: string, editionHash: string): Promise<void> {
@@ -129,23 +163,76 @@ class InMemoryBookTestRepo implements BookRepository {
 }
 
 export async function buildBookService(): Promise<FastifyInstance> {
+  const cfg = validateServiceConfig(BaseServiceConfigSchema);
   const app = Fastify({ logger: false });
-  const dbUrl = process.env.BOOK_DATABASE_URL || process.env.DATABASE_URL;
-  if (!dbUrl && process.env.NODE_ENV !== "test") {
-    throw new Error("[book-service] Database connection string required in non-test mode. Set BOOK_DATABASE_URL or DATABASE_URL.");
+  app.setErrorHandler(createFastifyErrorHandler(logger));
+
+  const dbUrl = cfg.BOOK_DATABASE_URL || cfg.DATABASE_URL;
+  if (!dbUrl && cfg.NODE_ENV !== "test") {
+    throw new Error(
+      "[book-service] Database connection string required in non-test mode. Set BOOK_DATABASE_URL or DATABASE_URL."
+    );
   }
   const db: DatabaseClient = createDatabaseClient(dbUrl);
-  if (process.env.NODE_ENV !== "test") {
+  if (cfg.NODE_ENV !== "test") {
     const isHealthy = await db.healthCheck();
     if (!isHealthy) {
-      throw new Error("[book-service] PostgreSQL database health check failed during service initialization.");
+      throw new Error(
+        "[book-service] PostgreSQL database health check failed during service initialization."
+      );
     }
   }
-  const eventBus: EventBus = await createEventBus();
+  const eventBus: EventBus = await createEventBus(cfg.NATS_URL);
 
   const bookRepo: BookRepository = dbUrl
     ? new PostgresBookRepository(db)
     : new InMemoryBookTestRepo();
+  const outboxRepo: OutboxRepository | null = dbUrl ? new PostgresOutboxRepository(db) : null;
+
+  const memoryDb: DatabaseClient | null = cfg.MEMORY_DATABASE_URL
+    ? createDatabaseClient(cfg.MEMORY_DATABASE_URL)
+    : null;
+  const spaceRepo: SpaceRepository | null = memoryDb ? new PostgresSpaceRepository(memoryDb) : null;
+
+  const collabDb: DatabaseClient | null = cfg.COLLAB_DATABASE_URL
+    ? createDatabaseClient(cfg.COLLAB_DATABASE_URL)
+    : null;
+  const collabRepo: CollaborationRepository | null = collabDb
+    ? new PostgresCollaborationRepository(collabDb)
+    : null;
+
+  // In-memory 3D binary asset cache keyed by full file path + mtime
+  const assetCache = new Map<string, { payload: Buffer; sha256: string; mtimeMs: number }>();
+
+  let outboxTimer: NodeJS.Timeout | null = null;
+  if (outboxRepo && outboxRepo.relayPending) {
+    outboxTimer = setInterval(() => {
+      outboxRepo
+        .relayPending!(async (evt) => {
+          await eventBus.publish(
+            evt.eventType,
+            createDomainEvent(evt.eventType, "book-service", evt.payload)
+          );
+        })
+        .catch((err) => {
+          logger.warn({ err }, "[Book Outbox] Relay cycle warning");
+        });
+    }, 1000);
+    outboxTimer.unref();
+  }
+
+  app.addHook("onClose", async () => {
+    if (outboxTimer) clearInterval(outboxTimer);
+    assetCache.clear();
+    await eventBus.close().catch((err) => logger.warn({ err }, "[Book] EventBus close warning"));
+    if (memoryDb) {
+      await memoryDb.close().catch((err) => logger.warn({ err }, "[Book] Memory DB close warning"));
+    }
+    if (collabDb) {
+      await collabDb.close().catch((err) => logger.warn({ err }, "[Book] Collab DB close warning"));
+    }
+    await db.close().catch((err) => logger.warn({ err }, "[Book] DB close warning"));
+  });
 
   const allowedOrigins = [
     "http://localhost:3000",
@@ -165,8 +252,82 @@ export async function buildBookService(): Promise<FastifyInstance> {
     credentials: true,
   });
 
-  const jwtSecret = process.env.JWT_SECRET || "dev-jwt-insecure-secret-change-in-production-min32chars";
-  await app.register(fastifyJwt, { secret: jwtSecret });
+  await app.register(fastifyJwt, { secret: cfg.JWT_SECRET });
+
+  async function requireAuthUser(req: FastifyRequest): Promise<string> {
+    try {
+      const claims: any = await req.jwtVerify();
+      const userId = claims?.sub || claims?.userId;
+      if (!userId || typeof userId !== "string") {
+        throw new UnauthorizedError("Missing subject in JWT");
+      }
+      return userId;
+    } catch {
+      throw new UnauthorizedError("Valid authentication token required");
+    }
+  }
+
+  async function assertSpaceAccess(
+    spaceId: string,
+    userId: string,
+    requireWrite = false
+  ): Promise<void> {
+    if (!spaceRepo && !collabRepo) {
+      return;
+    }
+    if (spaceRepo) {
+      const space = await spaceRepo.findSpaceById(spaceId);
+      if (space) {
+        if (space.ownerId === userId) return;
+        if (collabRepo) {
+          const member = await collabRepo.getMember(spaceId, userId);
+          if (member) {
+            if (requireWrite && member.role === "viewer") {
+              throw new ForbiddenError("Viewer role does not permit book edits");
+            }
+            return;
+          }
+        }
+        throw new ForbiddenError("Access denied for this memory space");
+      }
+    }
+    if (collabRepo) {
+      const member = await collabRepo.getMember(spaceId, userId);
+      if (member) {
+        if (requireWrite && member.role === "viewer") {
+          throw new ForbiddenError("Viewer role does not permit book edits");
+        }
+        return;
+      }
+    }
+    throw new ForbiddenError("Space not found or access denied");
+  }
+
+  async function publishDomainEvent(
+    subject: string,
+    eventType: string,
+    aggregateId: string,
+    payload: Record<string, any>
+  ): Promise<void> {
+    if (outboxRepo) {
+      await outboxRepo.stageEvent({
+        eventType: subject,
+        aggregateType: "book",
+        aggregateId,
+        payload,
+      });
+      if (outboxRepo.relayPending) {
+        await outboxRepo.relayPending(async (evt) => {
+          await eventBus.publish(
+            evt.eventType,
+            createDomainEvent(eventType, "book-service", evt.payload)
+          );
+        });
+      }
+    } else {
+      await eventBus.publish(subject, createDomainEvent(eventType, "book-service", payload));
+    }
+  }
 
   // Health check
   app.get("/health", async (req, reply) => {
@@ -180,7 +341,7 @@ export async function buildBookService(): Promise<FastifyInstance> {
     );
   });
 
-  // 0A. Versioned 3D Asset Manifest & Cross-Platform Engine Contracts
+  // 0A. Versioned 3D Asset Manifest & Cross-Platform Engine Contracts (Public)
   const serveManifest = async (
     req: FastifyRequest<{ Params: { version?: string } }>,
     reply: FastifyReply
@@ -238,7 +399,7 @@ export async function buildBookService(): Promise<FastifyInstance> {
   app.get("/api/v1/books/3d/manifest", serveManifest);
   app.get("/api/v1/books/3d/manifest/:version", serveManifest);
 
-  // 0B. Binary 3D Asset Delivery (GLB & USDZ) with ETag & SHA-256 Verification
+  // 0B. Binary 3D Asset Delivery (GLB & USDZ) with In-Memory Cache, ETag & SHA-256 Verification
   app.get(
     "/api/v1/books/3d/assets/:assetKey",
     async (
@@ -264,11 +425,18 @@ export async function buildBookService(): Promise<FastifyInstance> {
           .send(createErrorResponse("ASSET_FILE_MISSING", "3D model binary is missing on disk"));
       }
 
-      const payload = await fsp.readFile(fullPath);
-      const actualSha256 = crypto.createHash("sha256").update(payload).digest("hex");
-      if (actualSha256 !== entry.expectedSha256) {
+      const stat = await fsp.stat(fullPath);
+      let cached = assetCache.get(fullPath);
+      if (!cached || cached.mtimeMs !== stat.mtimeMs) {
+        const payload = await fsp.readFile(fullPath);
+        const sha256 = crypto.createHash("sha256").update(payload).digest("hex");
+        cached = { payload, sha256, mtimeMs: stat.mtimeMs };
+        assetCache.set(fullPath, cached);
+      }
+
+      if (cached.sha256 !== entry.expectedSha256) {
         logger.error(
-          { filename: entry.filename, actualSha256, expectedSha256: entry.expectedSha256 },
+          { filename: entry.filename, actualSha256: cached.sha256, expectedSha256: entry.expectedSha256 },
           "[Book3D] SHA-256 checksum verification failed"
         );
         return reply
@@ -276,7 +444,7 @@ export async function buildBookService(): Promise<FastifyInstance> {
           .send(createErrorResponse("ASSET_INTEGRITY_MISMATCH", "3D asset checksum mismatch"));
       }
 
-      const etag = `"${actualSha256}"`;
+      const etag = `"${cached.sha256}"`;
       const ifNoneMatch = req.headers["if-none-match"];
       if (
         typeof ifNoneMatch === "string" &&
@@ -286,9 +454,9 @@ export async function buildBookService(): Promise<FastifyInstance> {
       }
 
       reply.header("Content-Type", entry.contentType);
-      reply.header("Content-Length", payload.byteLength);
+      reply.header("Content-Length", cached.payload.byteLength);
       reply.header("ETag", etag);
-      reply.header("X-Asset-Sha256", actualSha256);
+      reply.header("X-Asset-Sha256", cached.sha256);
       reply.header("X-Asset-Version", CANONICAL_BOOK_3D_MANIFEST.version);
       reply.header("Content-Disposition", `inline; filename="${entry.filename}"`);
       reply.header(
@@ -296,21 +464,25 @@ export async function buildBookService(): Promise<FastifyInstance> {
         req.query.v ? "public, max-age=31536000, immutable" : "public, max-age=3600"
       );
 
-      return reply.status(200).send(payload);
+      return reply.status(200).send(cached.payload);
     }
   );
 
-  // 0C. Book-Specific Resolved 3D Reader Configuration
+  // 0C. Book-Specific Resolved 3D Reader Configuration ("sample" is public; real book IDs require auth + space membership)
   app.get(
     "/api/v1/books/:id/3d-model",
     async (req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
       const isSample = req.params.id === "sample";
+      const userId = isSample ? null : await requireAuthUser(req);
       const book = isSample ? null : await bookRepo.findBookById(req.params.id);
 
       if (!isSample && !book) {
         return reply
           .status(404)
           .send(createErrorResponse("BOOK_NOT_FOUND", "Book does not exist"));
+      }
+      if (book && userId) {
+        await assertSpaceAccess(book.spaceId, userId, false);
       }
 
       const leatherSwatch = resolveLeatherSwatch(book?.coverColor);
@@ -345,6 +517,7 @@ export async function buildBookService(): Promise<FastifyInstance> {
           cameraPresets: BOOK_CAMERA_PRESETS,
           lightingIntent: BOOK_LIGHTING_INTENT,
           animationContract: BOOK_ANIMATION_CONTRACT,
+          spreads: book?.spreads || [],
           sampleSpreads: CANONICAL_SAMPLE_SPREADS,
         })
       );
@@ -364,12 +537,16 @@ export async function buildBookService(): Promise<FastifyInstance> {
   });
 
   app.post("/api/v1/books", async (req: FastifyRequest, reply: FastifyReply) => {
+    const userId = await requireAuthUser(req);
     const parseResult = CreateBookSchema.safeParse(req.body);
     if (!parseResult.success) {
-      return reply.status(400).send(createErrorResponse("VALIDATION_ERROR", "Invalid book payload", "corr", parseResult.error.issues));
+      return reply
+        .status(400)
+        .send(createErrorResponse("VALIDATION_ERROR", "Invalid book payload", "corr", parseResult.error.issues));
     }
 
     const { spaceId, title, subtitle, format, coverColor, foilStamping, coverTitle, spineText } = parseResult.data;
+    await assertSpaceAccess(spaceId, userId, true);
     const bookId = crypto.randomUUID();
     const now = new Date().toISOString();
 
@@ -387,7 +564,7 @@ export async function buildBookService(): Promise<FastifyInstance> {
         {
           id: crypto.randomUUID(),
           spreadIndex: 0,
-          leftPage: null, // Inside front cover
+          leftPage: null,
           rightPage: {
             id: crypto.randomUUID(),
             pageNumber: 1,
@@ -417,44 +594,142 @@ export async function buildBookService(): Promise<FastifyInstance> {
     };
 
     await bookRepo.createBook(book);
-
-    await eventBus.publish(
-      "book.created",
-      createDomainEvent("book.created", "book-service", {
-        bookId,
-        spaceId,
-        title,
-        format,
-      })
-    );
+    await publishDomainEvent("book.created", "book.created", bookId, {
+      bookId,
+      spaceId,
+      title,
+      format,
+    });
 
     return reply.status(201).send(createSuccessResponse(book));
   });
 
   // 2. Get Book by ID
   app.get("/api/v1/books/:id", async (req: FastifyRequest<{ Params: { id: string } }>, reply) => {
+    const userId = await requireAuthUser(req);
     const book = await bookRepo.findBookById(req.params.id);
     if (!book) {
       return reply.status(404).send(createErrorResponse("BOOK_NOT_FOUND", "Book does not exist"));
     }
+    await assertSpaceAccess(book.spaceId, userId, false);
     return reply.status(200).send(createSuccessResponse(book));
   });
 
-  // List Books in Space
-  app.get("/api/v1/spaces/:spaceId/books", async (req: FastifyRequest<{ Params: { spaceId: string } }>, reply) => {
-    const list = await bookRepo.listBooks(req.params.spaceId);
-    return reply.status(200).send(createSuccessResponse(list));
+  // Update Book Metadata & Binding Customization
+  const UpdateBookSchema = z.object({
+    title: z.string().min(1).optional(),
+    subtitle: z.string().optional(),
+    format: BookFormatSchema.optional(),
+    coverColor: z.string().optional(),
+    foilStamping: z.enum(["gold", "rose", "silver", "blind_emboss", "none"]).optional(),
+    coverTitle: z.string().min(1).optional(),
+    spineText: z.string().optional(),
   });
 
-  // 3. Freeze Book Edition for Physical Print Preflight
-  app.post("/api/v1/books/:id/freeze", async (req: FastifyRequest<{ Params: { id: string } }>, reply) => {
+  app.patch("/api/v1/books/:id", async (req: FastifyRequest<{ Params: { id: string } }>, reply) => {
+    const userId = await requireAuthUser(req);
     const book = await bookRepo.findBookById(req.params.id);
     if (!book) {
       return reply.status(404).send(createErrorResponse("BOOK_NOT_FOUND", "Book does not exist"));
     }
+    await assertSpaceAccess(book.spaceId, userId, true);
+    if (book.isFrozenForPrint) {
+      return reply
+        .status(409)
+        .send(createErrorResponse("BOOK_FROZEN", "Cannot modify a frozen print edition"));
+    }
+
+    const parseResult = UpdateBookSchema.safeParse(req.body);
+    if (!parseResult.success) {
+      return reply
+        .status(400)
+        .send(createErrorResponse("VALIDATION_ERROR", "Invalid book update payload", "corr", parseResult.error.issues));
+    }
+
+    const updated = bookRepo.updateBook
+      ? await bookRepo.updateBook(book.id, parseResult.data)
+      : book;
+
+    await publishDomainEvent("book.updated", "book.updated", book.id, {
+      bookId: book.id,
+      spaceId: book.spaceId,
+      version: updated?.version,
+    });
+
+    return reply.status(200).send(createSuccessResponse(updated || book));
+  });
+
+  // Upsert Book Spread Layout
+  const UpsertSpreadSchema = z.object({
+    spreadIndex: z.number().int().min(0),
+    leftPage: BookPageSchema.nullable(),
+    rightPage: BookPageSchema.nullable(),
+  });
+
+  app.put(
+    "/api/v1/books/:id/spreads/:spreadId",
+    async (req: FastifyRequest<{ Params: { id: string; spreadId: string } }>, reply) => {
+      const userId = await requireAuthUser(req);
+      const book = await bookRepo.findBookById(req.params.id);
+      if (!book) {
+        return reply.status(404).send(createErrorResponse("BOOK_NOT_FOUND", "Book does not exist"));
+      }
+      await assertSpaceAccess(book.spaceId, userId, true);
+      if (book.isFrozenForPrint) {
+        return reply
+          .status(409)
+          .send(createErrorResponse("BOOK_FROZEN", "Cannot edit spreads on a frozen print edition"));
+      }
+
+      const parseResult = UpsertSpreadSchema.safeParse(req.body);
+      if (!parseResult.success) {
+        return reply
+          .status(400)
+          .send(createErrorResponse("VALIDATION_ERROR", "Invalid spread payload", "corr", parseResult.error.issues));
+      }
+
+      const spread: BookSpread = {
+        id: req.params.spreadId,
+        spreadIndex: parseResult.data.spreadIndex,
+        leftPage: parseResult.data.leftPage,
+        rightPage: parseResult.data.rightPage,
+      };
+
+      await bookRepo.saveSpread(book.id, spread);
+      await publishDomainEvent("book.spread.saved", "book.spread.saved", book.id, {
+        bookId: book.id,
+        spreadId: spread.id,
+        spreadIndex: spread.spreadIndex,
+      });
+
+      return reply.status(200).send(createSuccessResponse(spread));
+    }
+  );
+
+  // List Books in Space
+  app.get(
+    "/api/v1/spaces/:spaceId/books",
+    async (req: FastifyRequest<{ Params: { spaceId: string } }>, reply) => {
+      const userId = await requireAuthUser(req);
+      await assertSpaceAccess(req.params.spaceId, userId, false);
+      const list = await bookRepo.listBooks(req.params.spaceId);
+      return reply.status(200).send(createSuccessResponse(list));
+    }
+  );
+
+  // 3. Freeze Book Edition for Physical Print Preflight
+  app.post("/api/v1/books/:id/freeze", async (req: FastifyRequest<{ Params: { id: string } }>, reply) => {
+    const userId = await requireAuthUser(req);
+    const book = await bookRepo.findBookById(req.params.id);
+    if (!book) {
+      return reply.status(404).send(createErrorResponse("BOOK_NOT_FOUND", "Book does not exist"));
+    }
+    await assertSpaceAccess(book.spaceId, userId, true);
 
     if (book.isFrozenForPrint) {
-      return reply.status(409).send(createErrorResponse("ALREADY_FROZEN", "Book edition is already frozen for printing"));
+      return reply
+        .status(409)
+        .send(createErrorResponse("ALREADY_FROZEN", "Book edition is already frozen for printing"));
     }
 
     const editionHash = crypto.createHash("sha256").update(JSON.stringify(book)).digest("hex");
@@ -462,15 +737,12 @@ export async function buildBookService(): Promise<FastifyInstance> {
 
     const updated = await bookRepo.findBookById(book.id);
 
-    await eventBus.publish(
-      "book.edition_frozen",
-      createDomainEvent("book.edition_frozen", "book-service", {
-        bookId: book.id,
-        editionHash,
-        pageCount: book.spreads.length * 2,
-        format: book.format,
-      })
-    );
+    await publishDomainEvent("book.edition_frozen", "book.edition_frozen", book.id, {
+      bookId: book.id,
+      editionHash,
+      pageCount: book.spreads.length * 2,
+      format: book.format,
+    });
 
     return reply.status(200).send(createSuccessResponse(updated || book));
   });
@@ -493,4 +765,3 @@ if (process.env.NODE_ENV !== "test") {
     }
   })();
 }
-

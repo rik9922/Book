@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import {
   Metadata,
   status as GrpcStatus,
@@ -13,7 +14,14 @@ export const USER_ID_HEADER = "x-user-id";
 export const SPACE_ID_HEADER = "x-space-id";
 
 // Internal service secret used for service-to-service authentication
-export const DEFAULT_INTERNAL_SERVICE_KEY = process.env.INTERNAL_SERVICE_KEY || "memory-capsule-internal-service-secret-2026";
+export const DEFAULT_INTERNAL_SERVICE_KEY =
+  process.env.INTERNAL_SERVICE_KEY || "memory-capsule-internal-service-secret-2026";
+
+function timingSafeEqualStrings(a: string, b: string): boolean {
+  const hashA = crypto.createHash("sha256").update(a, "utf8").digest();
+  const hashB = crypto.createHash("sha256").update(b, "utf8").digest();
+  return crypto.timingSafeEqual(hashA, hashB);
+}
 
 export interface RequestContextMetadata {
   serviceToken?: string;
@@ -51,7 +59,7 @@ export function verifyServiceAuth(metadata: Metadata, expectedKey?: string): boo
   if (!headerVal) return false;
   const token = String(headerVal);
   const validKey = expectedKey || process.env.INTERNAL_SERVICE_KEY || DEFAULT_INTERNAL_SERVICE_KEY;
-  return token === validKey;
+  return timingSafeEqualStrings(token, validKey);
 }
 
 /**
@@ -113,8 +121,11 @@ export function closeAllGrpcClients(): void {
   for (const client of clientRegistry.values()) {
     try {
       client.close();
-    } catch {
-      // Ignored on teardown
+    } catch (closeErr) {
+      if (closeErr instanceof Error && process.env.NODE_ENV !== "test") {
+        // Channel already closed during teardown
+        void closeErr.message;
+      }
     }
   }
   clientRegistry.clear();

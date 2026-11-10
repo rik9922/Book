@@ -28,6 +28,11 @@
 	<string>Memoria needs microphone access to record voice memories and oral histories.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Memoria needs access to your photos to archive and preserve family heirloom memories.</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

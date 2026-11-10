@@ -1,13 +1,30 @@
-import { connect, NatsConnection, JSONCodec, JetStreamClient } from "nats";
+import {
+  AckPolicy,
+  connect,
+  ConsumerMessages,
+  DeliverPolicy,
+  JetStreamClient,
+  JetStreamManager,
+  JSONCodec,
+  NatsConnection,
+} from "nats";
 import { DomainEvent } from "@memory-capsule/contracts";
 import { createServiceLogger, Logger } from "@memory-capsule/logger";
 
 const logger: Logger = createServiceLogger("event-bus");
 const codec = JSONCodec<DomainEvent>();
 
+export interface SubscribeOptions {
+  durableName?: string;
+}
+
 export interface EventBus {
   publish<T>(subject: string, event: DomainEvent<T>): Promise<void>;
-  subscribe<T>(subject: string, handler: (event: DomainEvent<T>) => Promise<void>): Promise<void>;
+  subscribe<T>(
+    subject: string,
+    handler: (event: DomainEvent<T>) => Promise<void>,
+    options?: SubscribeOptions
+  ): Promise<void>;
   close(): Promise<void>;
   isLive(): boolean;
 }
@@ -46,26 +63,71 @@ class InMemoryEventBus implements EventBus {
 class NatsEventBus implements EventBus {
   private nc: NatsConnection;
   private js: JetStreamClient;
+  private jsm: JetStreamManager | null;
+  private streamName: string;
+  private activeConsumers: ConsumerMessages[] = [];
 
-  constructor(nc: NatsConnection) {
+  constructor(nc: NatsConnection, jsm: JetStreamManager | null, streamName: string) {
     this.nc = nc;
     this.js = nc.jetstream();
+    this.jsm = jsm;
+    this.streamName = streamName;
   }
 
   async publish<T>(subject: string, event: DomainEvent<T>): Promise<void> {
     try {
       const data = codec.encode(event);
       await this.js.publish(subject, data);
-      logger.info({ subject, eventType: event.eventType, eventId: event.eventId }, "[NatsEventBus] Event published to JetStream");
+      logger.info(
+        { subject, eventType: event.eventType, eventId: event.eventId },
+        "[NatsEventBus] Event published to JetStream"
+      );
     } catch (err) {
       logger.error({ err, subject, eventId: event.eventId }, "[NatsEventBus] Failed to publish event");
       throw err;
     }
   }
 
-  async subscribe<T>(subject: string, handler: (event: DomainEvent<T>) => Promise<void>): Promise<void> {
+  async subscribe<T>(
+    subject: string,
+    handler: (event: DomainEvent<T>) => Promise<void>,
+    options?: SubscribeOptions
+  ): Promise<void> {
     try {
-      // Create durable JetStream consumer subscription where supported, with core fallback
+      const sanitizedSubject = subject.replace(/[^a-zA-Z0-9_-]/g, "_");
+      const durableName = options?.durableName || `durable_${sanitizedSubject}`;
+
+      if (this.jsm) {
+        await this.jsm.consumers.add(this.streamName, {
+          durable_name: durableName,
+          filter_subject: subject,
+          ack_policy: AckPolicy.Explicit,
+          deliver_policy: DeliverPolicy.New,
+          max_deliver: 5,
+        });
+        const consumer = await this.js.consumers.get(this.streamName, durableName);
+        const messages = await consumer.consume();
+        this.activeConsumers.push(messages);
+        logger.info({ subject, streamName: this.streamName, durableName }, "[NatsEventBus] Subscribed durable JetStream consumer");
+
+        (async () => {
+          for await (const msg of messages) {
+            try {
+              const event = codec.decode(msg.data) as DomainEvent<T>;
+              await handler(event);
+              msg.ack();
+            } catch (handlerErr) {
+              logger.error({ err: handlerErr, subject, durableName }, "[NatsEventBus] JetStream consumer handler failed, naking message");
+              msg.nak(1000);
+            }
+          }
+        })().catch((consumeErr) => {
+          logger.error({ err: consumeErr, subject, durableName }, "[NatsEventBus] Consumer loop terminated");
+        });
+        return;
+      }
+
+      // Fallback core subscription if JetStreamManager is unavailable
       const sub = this.nc.subscribe(subject);
       logger.info({ subject }, "[NatsEventBus] Subscribed to subject stream");
       (async () => {
@@ -88,6 +150,14 @@ class NatsEventBus implements EventBus {
   }
 
   async close(): Promise<void> {
+    for (const c of this.activeConsumers) {
+      try {
+        c.close();
+      } catch (err) {
+        logger.warn({ err }, "[NatsEventBus] Consumer close warning");
+      }
+    }
+    this.activeConsumers = [];
     await this.nc.drain();
   }
 
@@ -110,32 +180,40 @@ export async function createEventBus(natsUrl = process.env.NATS_URL || "nats://l
       maxReconnectAttempts: 5,
     });
 
+    let jsm: JetStreamManager | null = null;
+    let streamName = "CAPSULE_EVENTS";
+
     // Ensure JetStream STREAM exists
     try {
-      const jsm = await nc.jetstreamManager();
+      jsm = await nc.jetstreamManager();
       const streams = await jsm.streams.list().next();
       const streamNames = streams.map((s) => s.config.name);
-      const streamName = streamNames.includes("MEMORIA_EVENTS") ? "MEMORIA_EVENTS" : (streamNames.includes("CAPSULE_EVENTS") ? "CAPSULE_EVENTS" : "MEMORIA_EVENTS");
-      
+      streamName = streamNames.includes("CAPSULE_EVENTS")
+        ? "CAPSULE_EVENTS"
+        : streamNames.includes("MEMORIA_EVENTS")
+          ? "MEMORIA_EVENTS"
+          : "CAPSULE_EVENTS";
+
+      const subjects = ["identity.>", "memory.>", "media.>", "book.>", "collab.>", "commerce.>", "notification.>", "test.>"];
       if (!streamNames.includes(streamName)) {
         await jsm.streams.add({
           name: streamName,
-          subjects: ["identity.>", "memory.>", "media.>", "book.>", "collab.>", "notification.>", "test.>"],
+          subjects,
         });
         logger.info({ streamName }, "[EventBus] Created durable JetStream stream");
       } else {
         try {
-          await jsm.streams.update(streamName, {
-            subjects: ["identity.>", "memory.>", "media.>", "book.>", "collab.>", "notification.>", "test.>"],
-          });
-        } catch {}
+          await jsm.streams.update(streamName, { subjects });
+        } catch (updateErr) {
+          logger.warn({ err: updateErr, streamName }, "[EventBus] JetStream stream subject update skipped");
+        }
       }
     } catch (streamErr) {
       logger.warn({ err: streamErr }, "[EventBus] JetStream stream verification warning");
     }
 
-    logger.info({ natsUrl }, "[EventBus] Connected to NATS JetStream successfully");
-    return new NatsEventBus(nc);
+    logger.info({ natsUrl, streamName }, "[EventBus] Connected to NATS JetStream successfully");
+    return new NatsEventBus(nc, jsm, streamName);
   } catch (err) {
     if (process.env.NODE_ENV === "test") {
       logger.debug({ natsUrl }, "[EventBus] NATS connection unavailable — using local InMemoryEventBus in test mode");
@@ -144,4 +222,3 @@ export async function createEventBus(natsUrl = process.env.NATS_URL || "nats://l
     throw new Error(`[EventBus] NATS JetStream connection required in non-test mode (${natsUrl}): ${err instanceof Error ? err.message : String(err)}`);
   }
 }
-

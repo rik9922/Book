@@ -159,6 +159,7 @@ public struct Book3DRealityView: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("3D Heirloom Book: \(configuration.coverTitle)")
+        .accessibilityValue(accessibilitySpreadDescription)
         .accessibilityHint(
             allowGestures
                 ? (configuration.isOpen ? "Book is open. Double tap to close cover, or swipe to turn pages." : "Book is closed. Double tap to open cover.")
@@ -167,6 +168,16 @@ public struct Book3DRealityView: View {
         .accessibilityAddTraits(.isButton)
         .accessibilityAction {
             onToggleOpen()
+        }
+        .accessibilityAction(named: "Next Page") {
+            if allowGestures && configuration.isOpen && configuration.currentSpreadIndex + 1 < spreads.count {
+                onTurnPage(1)
+            }
+        }
+        .accessibilityAction(named: "Previous Page") {
+            if allowGestures && configuration.isOpen && configuration.currentSpreadIndex > 0 {
+                onTurnPage(-1)
+            }
         }
         .accessibilityAdjustableAction { direction in
             guard allowGestures, configuration.isOpen else { return }
@@ -179,6 +190,21 @@ public struct Book3DRealityView: View {
                 break
             }
         }
+    }
+
+    private var accessibilitySpreadDescription: String {
+        guard configuration.isOpen, !spreads.isEmpty else {
+            return "Closed \(configuration.leather.displayName) cover with \(configuration.foil.displayName) stamping."
+        }
+        let idx = max(0, min(spreads.count - 1, configuration.currentSpreadIndex))
+        let spread = spreads[idx]
+        var summary = "Spread \(idx + 1) of \(spreads.count): \(spread.chapterTitle). "
+        summary += "Page \(spread.leftPageNumber): \(spread.leftHeading). \(spread.leftBody) "
+        summary += "Page \(spread.rightPageNumber): \(spread.rightHeading). \(spread.rightBody)"
+        if let ocr = spread.ocrInscription, !ocr.isEmpty {
+            summary += " Archival inscription: \(ocr)"
+        }
+        return summary
     }
 
     @available(iOS 18.0, *)

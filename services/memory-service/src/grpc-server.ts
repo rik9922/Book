@@ -14,7 +14,11 @@ import {
   MemoryMessage,
 } from "@memory-capsule/proto";
 import { MemoryRepository, PostgresMemoryRepository, createDatabaseClient } from "@memory-capsule/database";
-import { Memory } from "@memory-capsule/contracts";
+import {
+  BaseServiceConfigSchema,
+  validateServiceConfig,
+  Memory,
+} from "@memory-capsule/contracts";
 import { createServiceLogger, Logger } from "@memory-capsule/logger";
 
 const logger: Logger = createServiceLogger("memory-grpc-server");
@@ -45,8 +49,11 @@ function mapDomainMemoryToProto(m: Memory): MemoryMessage {
 }
 
 export function createMemoryGrpcServer(options: MemoryGrpcServerOptions = {}): grpc.Server {
-  const memoryRepo = options.memoryRepo || new PostgresMemoryRepository(createDatabaseClient(process.env.MEMORY_DATABASE_URL || "postgres://ritik@localhost:5432/memory_db"));
-  const { expectedServiceKey } = options;
+  const cfg = validateServiceConfig(BaseServiceConfigSchema);
+  const memoryDbUrl = cfg.MEMORY_DATABASE_URL || cfg.DATABASE_URL;
+  const memoryRepo =
+    options.memoryRepo || new PostgresMemoryRepository(createDatabaseClient(memoryDbUrl));
+  const expectedServiceKey = options.expectedServiceKey || cfg.INTERNAL_SERVICE_KEY;
   const memoryProto = getMemoryProto();
   const server = new grpc.Server();
 
@@ -209,18 +216,26 @@ export function createMemoryGrpcServer(options: MemoryGrpcServerOptions = {}): g
   return server;
 }
 
-export function startMemoryGrpcServer(options: MemoryGrpcServerOptions = {}): Promise<{ server: grpc.Server; port: number }> {
+export function startMemoryGrpcServer(
+  options: MemoryGrpcServerOptions = {}
+): Promise<{ server: grpc.Server; port: number }> {
   return new Promise((resolve, reject) => {
     const server = createMemoryGrpcServer(options);
-    const targetPort = options.port || (process.env.MEMORY_GRPC_PORT ? parseInt(process.env.MEMORY_GRPC_PORT, 10) : 50052);
+    const targetPort =
+      options.port ||
+      (process.env.MEMORY_GRPC_PORT ? parseInt(process.env.MEMORY_GRPC_PORT, 10) : 50052);
 
-    server.bindAsync(`0.0.0.0:${targetPort}`, grpc.ServerCredentials.createInsecure(), (err, boundPort) => {
-      if (err) {
-        logger.error({ err }, "[Memory gRPC] Failed to bind server");
-        return reject(err);
+    server.bindAsync(
+      `0.0.0.0:${targetPort}`,
+      grpc.ServerCredentials.createInsecure(),
+      (err, boundPort) => {
+        if (err) {
+          logger.error({ err }, "[Memory gRPC] Failed to bind server");
+          return reject(err);
+        }
+        logger.info({ port: boundPort }, "[Memory gRPC] Server running");
+        resolve({ server, port: boundPort });
       }
-      logger.info({ port: boundPort }, "[Memory gRPC] Server running");
-      resolve({ server, port: boundPort });
-    });
+    );
   });
 }

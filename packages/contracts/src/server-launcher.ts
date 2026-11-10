@@ -85,8 +85,8 @@ export async function startServiceServer(options: ServiceListenOptions): Promise
         command: process.argv.join(" "),
       };
       await fs.writeFile(pidPath, JSON.stringify(pidRecord, null, 2), "utf-8");
-    } catch {
-      // Non-fatal if PID directory is restricted
+    } catch (pidErr) {
+      logger.warn({ err: pidErr, serviceId }, `[${serviceId}] Unable to write PID file`);
     }
 
     return address;

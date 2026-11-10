@@ -9,7 +9,10 @@ import { BackupManifest } from "./backup.js";
 const execFileAsync = promisify(execFile);
 
 const BACKUPS_ROOT = path.resolve(process.cwd(), "backups");
-const STORAGE_LOCAL = path.resolve(process.cwd(), "storage/local");
+const STORAGE_LOCAL = path.resolve(
+  process.cwd(),
+  process.env.LOCAL_STORAGE_PATH || "storage_data"
+);
 
 async function calculateFileSha256(filePath: string): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -89,8 +92,26 @@ export async function restoreBackup(options: {
 
   // STEP 2: Restore PostgreSQL Databases
   console.log("\n--- STEP 2: Restoring PostgreSQL Databases ---");
-  const pgUser = process.env.PGUSER || process.env.DB_USER || "postgres";
-  const pgPass = process.env.PGPASSWORD || process.env.DB_PASSWORD || "postgrespassword";
+  let defaultUser = "postgres";
+  let defaultPass = "";
+  let defaultHost = "localhost";
+  let defaultPort = "5432";
+  const sampleUrl = process.env.IDENTITY_DATABASE_URL || process.env.DATABASE_URL;
+  if (sampleUrl) {
+    try {
+      const parsed = new URL(sampleUrl);
+      defaultUser = parsed.username || defaultUser;
+      defaultPass = parsed.password || defaultPass;
+      defaultHost = parsed.hostname || defaultHost;
+      defaultPort = parsed.port || defaultPort;
+    } catch {
+      // Fallback to env defaults
+    }
+  }
+  const pgUser = process.env.PGUSER || process.env.DB_USER || defaultUser;
+  const pgPass = process.env.PGPASSWORD || process.env.DB_PASSWORD || defaultPass;
+  const pgHost = process.env.PGHOST || defaultHost;
+  const pgPort = process.env.PGPORT || defaultPort;
 
   for (const db of manifest.databases) {
     const fullDumpPath = path.join(targetDir, db.dumpFile);
@@ -98,13 +119,14 @@ export async function restoreBackup(options: {
 
     try {
       await execFileAsync("psql", [
-        "-h", "localhost",
-        "-p", "5432",
+        "-v", "ON_ERROR_STOP=1",
+        "-h", pgHost,
+        "-p", pgPort,
         "-U", pgUser,
         "-d", db.name,
         "-f", fullDumpPath,
       ], {
-        env: { ...process.env, PGPASSWORD: pgPass },
+        env: { ...process.env, ...(pgPass ? { PGPASSWORD: pgPass } : {}) },
       });
       process.stdout.write("🟢 RESTORED\n");
     } catch (restoreErr: any) {
@@ -118,6 +140,7 @@ export async function restoreBackup(options: {
     const mediaPath = path.join(targetDir, manifest.mediaArchive.file);
     if (existsSync(mediaPath)) {
       console.log("\n--- STEP 3: Restoring Media Storage ---");
+      await fs.mkdir(path.dirname(STORAGE_LOCAL), { recursive: true });
       process.stdout.write(`  ⏳ Unpacking ${manifest.mediaArchive.file} to ${path.dirname(STORAGE_LOCAL)}... `);
       await execFileAsync("tar", [
         "-xzf",

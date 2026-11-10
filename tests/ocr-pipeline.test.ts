@@ -1,20 +1,30 @@
 import { test, describe, before, after } from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
+import jwt from "jsonwebtoken";
 import sharp from "sharp";
+import { BaseServiceConfigSchema, validateServiceConfig } from "@memory-capsule/contracts";
 import { OcrEngine } from "../services/media-service/src/ocr-engine.ts";
 import { buildMediaService } from "../services/media-service/src/server.ts";
-import { createDatabaseClient, PostgresMediaRepository } from "@memory-capsule/database";
+import { createDatabaseClient, PostgresMediaRepository, PostgresSpaceRepository } from "@memory-capsule/database";
 
 describe("Phase 5 — Tesseract OCR Media Processing Pipeline", () => {
   let ocrEngine: OcrEngine;
   let testImageBuffer: Buffer;
   let mediaApp: any;
+  let authToken: string;
+  let authUserId: string;
 
   before(async () => {
     ocrEngine = new OcrEngine();
+    const cfg = validateServiceConfig(BaseServiceConfigSchema);
+    authUserId = crypto.randomUUID();
+    authToken = jwt.sign(
+      { sub: authUserId, email: "ocr-test@memoria.internal" },
+      cfg.JWT_SECRET,
+      { expiresIn: "1h" }
+    );
 
-    // Generate crisp synthetic image with known text using SVG -> Sharp -> PNG
     const svg = `
       <svg width="600" height="200" xmlns="http://www.w3.org/2000/svg">
         <rect width="100%" height="100%" fill="#ffffff" />
@@ -53,10 +63,9 @@ describe("Phase 5 — Tesseract OCR Media Processing Pipeline", () => {
     assert.equal(metadata.format, "png", "Image format should be PNG");
   });
 
-  test("3. Local Tesseract OCR text extraction and word bounding box parsing", async () => {
+  test("3. Local Tesseract OCR text extraction and word bounding box parsing (single pass)", async () => {
     const status = ocrEngine.getStatus();
     if (!status.isAvailable) {
-      // Skip live extraction if tesseract is not on this environment
       return;
     }
 
@@ -82,8 +91,7 @@ describe("Phase 5 — Tesseract OCR Media Processing Pipeline", () => {
     assert.ok(docResult.engine.includes("tesseract"), "Engine identifier must include tesseract");
   });
 
-  test("5. Media Service API OCR endpoints (Status & Processing)", async () => {
-    // 5a. GET /api/v1/media/ocr/status
+  test("5. Media Service API OCR endpoints (Async Queue + Authenticated Retrieval)", async () => {
     const statusRes = await mediaApp.inject({
       method: "GET",
       url: "/api/v1/media/ocr/status",
@@ -93,11 +101,25 @@ describe("Phase 5 — Tesseract OCR Media Processing Pipeline", () => {
     assert.equal(statusJson.success, true);
     assert.equal(typeof statusJson.data.isAvailable, "boolean");
 
-    // 5b. Upload session and file upload
     const testSpaceId = crypto.randomUUID();
+    const memoryDbUrl = process.env.MEMORY_DATABASE_URL || process.env.DATABASE_URL;
+    if (memoryDbUrl) {
+      const memDb = createDatabaseClient(memoryDbUrl);
+      const spaceRepo = new PostgresSpaceRepository(memDb);
+      await spaceRepo.createSpace({
+        id: testSpaceId,
+        ownerId: authUserId,
+        name: "OCR Pipeline Space",
+        type: "family",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+      await memDb.close();
+    }
     const sessionRes = await mediaApp.inject({
       method: "POST",
       url: "/api/v1/media/upload-session",
+      headers: { authorization: `Bearer ${authToken}` },
       payload: {
         spaceId: testSpaceId,
         fileName: "archival_scan.png",
@@ -108,50 +130,56 @@ describe("Phase 5 — Tesseract OCR Media Processing Pipeline", () => {
     assert.equal(sessionRes.statusCode, 201);
     const sessionJson = JSON.parse(sessionRes.body);
     const mediaId = sessionJson.data.mediaId;
-    const storageKey = sessionJson.data.storageKey;
+    const signedUploadPath = new URL(sessionJson.data.uploadUrl).pathname + new URL(sessionJson.data.uploadUrl).search;
 
-    // Upload the file via local-upload
     const uploadRes = await mediaApp.inject({
       method: "PUT",
-      url: `/api/v1/media/local-upload?key=${encodeURIComponent(storageKey)}`,
+      url: signedUploadPath,
       headers: { "content-type": "image/png" },
       payload: testImageBuffer,
     });
     assert.equal(uploadRes.statusCode, 200);
 
-    // Complete upload
     const completeRes = await mediaApp.inject({
       method: "POST",
       url: `/api/v1/media/${mediaId}/complete`,
+      headers: { authorization: `Bearer ${authToken}` },
     });
     assert.equal(completeRes.statusCode, 200);
 
-    // 5c. Trigger on-demand OCR
+    // Trigger on-demand async OCR (202 Queued)
     const ocrRes = await mediaApp.inject({
       method: "POST",
       url: `/api/v1/media/${mediaId}/ocr`,
+      headers: { authorization: `Bearer ${authToken}` },
       payload: { language: "eng" },
     });
 
     if (ocrEngine.getStatus().isAvailable) {
-      assert.equal(ocrRes.statusCode, 200);
+      assert.equal(ocrRes.statusCode, 202);
       const ocrJson = JSON.parse(ocrRes.body);
       assert.equal(ocrJson.success, true);
-      assert.ok(ocrJson.data.transcripts.length > 0);
+      assert.equal(ocrJson.data.status, "queued");
 
-      // 5d. Retrieve OCR transcripts
-      const getOcrRes = await mediaApp.inject({
-        method: "GET",
-        url: `/api/v1/media/${mediaId}/ocr`,
-      });
-      assert.equal(getOcrRes.statusCode, 200);
-      const getOcrJson = JSON.parse(getOcrRes.body);
-      assert.ok(getOcrJson.data.length > 0);
+      // Wait for BullMQ/InMemory worker to save OCR transcripts
+      let transcripts: any[] = [];
+      for (let i = 0; i < 40; i++) {
+        const getOcrRes = await mediaApp.inject({
+          method: "GET",
+          url: `/api/v1/media/${mediaId}/ocr`,
+          headers: { authorization: `Bearer ${authToken}` },
+        });
+        assert.equal(getOcrRes.statusCode, 200);
+        transcripts = JSON.parse(getOcrRes.body).data;
+        if (transcripts.length > 0) break;
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      assert.ok(transcripts.length > 0, "Async OCR worker must persist transcripts");
 
-      // 5e. Search OCR Transcripts
       const searchRes = await mediaApp.inject({
         method: "GET",
         url: `/api/v1/media/ocr/search?spaceId=${testSpaceId}&q=Memoria`,
+        headers: { authorization: `Bearer ${authToken}` },
       });
       assert.equal(searchRes.statusCode, 200);
       const searchJson = JSON.parse(searchRes.body);
@@ -160,28 +188,24 @@ describe("Phase 5 — Tesseract OCR Media Processing Pipeline", () => {
   });
 
   test("6. PostgreSQL OCR table & Full-Text Search GIN Index (Live Database)", async () => {
-    const dbUrl = process.env.MEDIA_DATABASE_URL || "postgres://postgres:postgrespassword@127.0.0.1:5432/media_db";
-    let db: any;
+    const dbUrl = process.env.MEDIA_DATABASE_URL || process.env.DATABASE_URL;
+    assert.ok(dbUrl, "MEDIA_DATABASE_URL must be configured for live OCR database test");
+
+    const db = createDatabaseClient(dbUrl);
     try {
-      db = createDatabaseClient({ connectionString: dbUrl });
       const healthy = await db.healthCheck();
-      if (!healthy) return;
+      assert.equal(healthy, true, "Live media_db PostgreSQL connection must be healthy");
 
       const mediaRepo = new PostgresMediaRepository(db);
-      const testMediaId = "00000000-1111-2222-3333-444444444444";
-      const testSpaceId = "99999999-8888-7777-6666-555555555555";
+      const testMediaId = crypto.randomUUID();
+      const testSpaceId = crypto.randomUUID();
+      const transcriptId = crypto.randomUUID();
 
-      // Insert media record first to satisfy foreign key
       await db.query(
         `INSERT INTO media_assets (id, space_id, original_name, mime_type, size_bytes, status, storage_key, created_at, updated_at)
-         VALUES ($1, $2, 'test_scan.png', 'image/png', 1024, 'ready', 'test/scan.png', NOW(), NOW())
-         ON CONFLICT (id) DO NOTHING`,
+         VALUES ($1, $2, 'test_scan.png', 'image/png', 1024, 'ready', 'test/scan.png', NOW(), NOW())`,
         [testMediaId, testSpaceId]
       );
-
-      // Save OCR transcript
-      const transcriptId = "11111111-aaaa-bbbb-cccc-dddddddddddd";
-      await db.query(`DELETE FROM media_ocr_transcripts WHERE id = $1`, [transcriptId]);
 
       await mediaRepo.saveOcrTranscript({
         id: transcriptId,
@@ -196,24 +220,17 @@ describe("Phase 5 — Tesseract OCR Media Processing Pipeline", () => {
         metadata: { source: "tesseract-test" },
       });
 
-      // Find by mediaId
       const found = await mediaRepo.findOcrTranscriptByMediaId(testMediaId);
       assert.ok(found.some((t) => t.id === transcriptId));
 
-      // Full-text search with to_tsvector / plainto_tsquery
       const searchResults = await mediaRepo.searchTranscripts(testSpaceId, "Tuscany");
       assert.ok(searchResults.length > 0, "PostgreSQL GIN full-text search should match 'Tuscany'");
       assert.ok(searchResults[0].extractedText.includes("Tuscany"));
 
-      // Cleanup
       await db.query(`DELETE FROM media_ocr_transcripts WHERE id = $1`, [transcriptId]);
       await db.query(`DELETE FROM media_assets WHERE id = $1`, [testMediaId]);
-    } catch (err: any) {
-      if (process.env.NODE_ENV !== "test") {
-        throw err;
-      }
     } finally {
-      if (db) await db.close().catch(() => {});
+      await db.close();
     }
   });
 });

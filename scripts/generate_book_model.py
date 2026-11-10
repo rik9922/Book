@@ -57,7 +57,7 @@ CANONICAL_MATERIALS = {
     },
     "SilkRibbonSage": {
         "color": [0.518, 0.580, 0.514, 1.0], # #849483
-        "metallic": 0.35,
+        "metallic": 0.0,
         "roughness": 0.45,
         "description": "Archival satin ribbon page marker in Soft Sage"
     }

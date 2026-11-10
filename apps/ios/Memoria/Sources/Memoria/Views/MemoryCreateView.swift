@@ -79,6 +79,24 @@ public struct MemoryCreateView: View {
         }
     }
 
+    private static func detectImageFormat(data: Data) -> (mimeType: String, ext: String) {
+        let bytes = [UInt8](data.prefix(12))
+        if bytes.count >= 4 && bytes[0] == 0x89 && bytes[1] == 0x50 && bytes[2] == 0x4E && bytes[3] == 0x47 {
+            return ("image/png", "png")
+        }
+        if bytes.count >= 12 && bytes[0] == 0x52 && bytes[1] == 0x49 && bytes[2] == 0x46 && bytes[3] == 0x46 &&
+            bytes[8] == 0x57 && bytes[9] == 0x45 && bytes[10] == 0x42 && bytes[11] == 0x50 {
+            return ("image/webp", "webp")
+        }
+        if bytes.count >= 12 && bytes[4] == 0x66 && bytes[5] == 0x74 && bytes[6] == 0x79 && bytes[7] == 0x70 {
+            return ("image/heic", "heic")
+        }
+        if bytes.count >= 3 && bytes[0] == 0x47 && bytes[1] == 0x49 && bytes[2] == 0x46 {
+            return ("image/gif", "gif")
+        }
+        return ("image/jpeg", "jpg")
+    }
+
     private func saveMemory() async {
         isSaving = true
         errorMessage = nil
@@ -89,14 +107,28 @@ public struct MemoryCreateView: View {
             .filter { !$0.isEmpty }
 
         do {
+            var uploadedMediaIds: [String] = []
+            if let selectedItem,
+               let imageData = try await selectedItem.loadTransferable(type: Data.self) {
+                let detected = Self.detectImageFormat(data: imageData)
+                let mediaId = try await MemoriaAPIClient.shared.uploadMedia(
+                    spaceId: spaceId,
+                    fileName: "memory_\(UUID().uuidString.prefix(8)).\(detected.ext)",
+                    mimeType: detected.mimeType,
+                    data: imageData
+                )
+                uploadedMediaIds.append(mediaId)
+            }
+
+            let resolvedFormat = uploadedMediaIds.isEmpty ? "story" : "image"
             let memory = try await MemoriaAPIClient.shared.createMemory(
                 spaceId: spaceId,
                 title: title,
                 content: content.isEmpty ? nil : content,
-                format: "image",
+                format: resolvedFormat,
                 location: location.isEmpty ? nil : location,
                 tags: tags,
-                mediaIds: []
+                mediaIds: uploadedMediaIds
             )
             onCreated?(memory)
             dismiss()

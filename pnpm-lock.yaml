@@ -317,6 +317,80 @@ importers:
         specifier: ^7.0.2
         version: 7.0.2
 
+  services/collab-service:
+    dependencies:
+      '@fastify/cors':
+        specifier: ^10.0.2
+        version: 10.1.0
+      '@fastify/jwt':
+        specifier: ^9.0.4
+        version: 9.1.0
+      '@memory-capsule/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@memory-capsule/database':
+        specifier: workspace:*
+        version: link:../../packages/database
+      '@memory-capsule/events':
+        specifier: workspace:*
+        version: link:../../packages/events
+      '@memory-capsule/logger':
+        specifier: workspace:*
+        version: link:../../packages/logger
+      fastify:
+        specifier: ^5.2.1
+        version: 5.12.8
+      zod:
+        specifier: ^4.6.7
+        version: 4.6.7
+    devDependencies:
+      '@types/node':
+        specifier: ^26.6.6
+        version: 26.6.6
+      tsx:
+        specifier: ^4.19.3
+        version: 4.23.15
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+
+  services/commerce-service:
+    dependencies:
+      '@fastify/cors':
+        specifier: ^10.0.2
+        version: 10.1.0
+      '@fastify/jwt':
+        specifier: ^9.0.4
+        version: 9.1.0
+      '@memory-capsule/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@memory-capsule/database':
+        specifier: workspace:*
+        version: link:../../packages/database
+      '@memory-capsule/events':
+        specifier: workspace:*
+        version: link:../../packages/events
+      '@memory-capsule/logger':
+        specifier: workspace:*
+        version: link:../../packages/logger
+      fastify:
+        specifier: ^5.2.1
+        version: 5.12.8
+      zod:
+        specifier: ^4.6.7
+        version: 4.6.7
+    devDependencies:
+      '@types/node':
+        specifier: ^26.6.6
+        version: 26.6.6
+      tsx:
+        specifier: ^4.19.3
+        version: 4.23.15
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+
   services/identity-service:
     dependencies:
       '@fastify/cors':
@@ -423,6 +497,43 @@ importers:
       '@memory-capsule/proto':
         specifier: workspace:*
         version: link:../../packages/proto
+      fastify:
+        specifier: ^5.2.1
+        version: 5.12.8
+      zod:
+        specifier: ^4.6.7
+        version: 4.6.7
+    devDependencies:
+      '@types/node':
+        specifier: ^26.6.6
+        version: 26.6.6
+      tsx:
+        specifier: ^4.19.3
+        version: 4.23.15
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+
+  services/notification-service:
+    dependencies:
+      '@fastify/cors':
+        specifier: ^10.0.2
+        version: 10.1.0
+      '@fastify/jwt':
+        specifier: ^9.0.4
+        version: 9.1.0
+      '@memory-capsule/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@memory-capsule/database':
+        specifier: workspace:*
+        version: link:../../packages/database
+      '@memory-capsule/events':
+        specifier: workspace:*
+        version: link:../../packages/events
+      '@memory-capsule/logger':
+        specifier: workspace:*
+        version: link:../../packages/logger
       fastify:
         specifier: ^5.2.1
         version: 5.12.8

@@ -40,7 +40,11 @@ public final class BookStatePersistenceService: @unchecked Sendable {
         normalized.bookId = bookId
         all[bookId] = normalized
         let data = try JSONEncoder().encode(all)
+        #if os(iOS)
+        try data.write(to: stateFileURL, options: [.atomic, .completeFileProtection])
+        #else
         try data.write(to: stateFileURL, options: .atomic)
+        #endif
     }
 
     public func updateSpreadIndex(_ spreadIndex: Int, isOpen: Bool, for bookId: String, defaultConfig: Book3DConfiguration = Book3DConfiguration()) throws {
@@ -53,7 +57,11 @@ public final class BookStatePersistenceService: @unchecked Sendable {
         current.isOpen = isOpen
         all[bookId] = current
         let data = try JSONEncoder().encode(all)
+        #if os(iOS)
+        try data.write(to: stateFileURL, options: [.atomic, .completeFileProtection])
+        #else
         try data.write(to: stateFileURL, options: .atomic)
+        #endif
     }
 
     public func clearAll() {

@@ -3,8 +3,11 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
+import jwt from "jsonwebtoken";
 import { execFileSync } from "node:child_process";
 import {
+  BaseServiceConfigSchema,
+  validateServiceConfig,
   ARCHIVAL_PAPER_MATERIAL_SPEC,
   BOOK_3D_HIERARCHY,
   BOOK_3D_REQUIRED_NODES,
@@ -31,6 +34,7 @@ import {
   toThreeMaterialParams,
 } from "@memory-capsule/contracts";
 import { buildBookService } from "../services/book-service/src/server.ts";
+import { createDatabaseClient, PostgresSpaceRepository } from "@memory-capsule/database";
 
 function sha256File(filePath: string): string {
   const bytes = fs.readFileSync(filePath);
@@ -277,6 +281,28 @@ describe("Memoria Unified Cross-Platform 3D Book Engine Consistency Suite", () =
   });
 
   test("5. Book Service Versioned 3D Manifest & Binary Asset Delivery Endpoints", async () => {
+    const cfg = validateServiceConfig(BaseServiceConfigSchema);
+    const testUserId = crypto.randomUUID();
+    const testSpaceId = crypto.randomUUID();
+    const authToken = jwt.sign(
+      { sub: testUserId, email: "book3d-test@memoria.internal" },
+      cfg.JWT_SECRET,
+      { expiresIn: "1h" }
+    );
+    const memoryDbUrl = process.env.MEMORY_DATABASE_URL || process.env.DATABASE_URL;
+    if (memoryDbUrl) {
+      const memDb = createDatabaseClient(memoryDbUrl);
+      const spaceRepo = new PostgresSpaceRepository(memDb);
+      await spaceRepo.createSpace({
+        id: testSpaceId,
+        ownerId: testUserId,
+        name: "Book 3D Test Space",
+        type: "family",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+      await memDb.close();
+    }
     const app = await buildBookService();
 
     // Manifest endpoint
@@ -343,7 +369,7 @@ describe("Memoria Unified Cross-Platform 3D Book Engine Consistency Suite", () =
     });
     assert.equal(traversalRes.statusCode, 404);
 
-    // Sample book 3D model config
+    // Sample book 3D model config (public)
     const sampleRes = await app.inject({
       method: "GET",
       url: "/api/v1/books/sample/3d-model",
@@ -353,12 +379,24 @@ describe("Memoria Unified Cross-Platform 3D Book Engine Consistency Suite", () =
     assert.equal(sampleBody.data.configuration.leatherId, "plum");
     assert.equal(sampleBody.data.configuration.foilId, "gold");
 
-    // Created book 3D model config resolution
-    const createRes = await app.inject({
+    // Unauthenticated book creation rejected (401)
+    const unauthBookRes = await app.inject({
       method: "POST",
       url: "/api/v1/books",
       payload: {
         spaceId: "12345678-1234-4234-8234-123456789012",
+        title: "Unauthorized Book",
+      },
+    });
+    assert.equal(unauthBookRes.statusCode, 401);
+
+    // Created book 3D model config resolution
+    const createRes = await app.inject({
+      method: "POST",
+      url: "/api/v1/books",
+      headers: { authorization: `Bearer ${authToken}` },
+      payload: {
+        spaceId: testSpaceId,
         title: "Autumn Chronicle",
         coverColor: "#16233B",
         foilStamping: "silver",
@@ -370,6 +408,7 @@ describe("Memoria Unified Cross-Platform 3D Book Engine Consistency Suite", () =
     const book3dRes = await app.inject({
       method: "GET",
       url: `/api/v1/books/${createdBook.id}/3d-model`,
+      headers: { authorization: `Bearer ${authToken}` },
     });
     assert.equal(book3dRes.statusCode, 200);
     const book3dBody = JSON.parse(book3dRes.body);
@@ -380,8 +419,9 @@ describe("Memoria Unified Cross-Platform 3D Book Engine Consistency Suite", () =
     const longTitleRes = await app.inject({
       method: "POST",
       url: "/api/v1/books",
+      headers: { authorization: `Bearer ${authToken}` },
       payload: {
-        spaceId: "12345678-1234-4234-8234-123456789012",
+        spaceId: testSpaceId,
         title: "The Comprehensive Bennett Multi-Generational Family Chronicle & Heirloom Edition 2026",
         foilStamping: "none",
       },
@@ -392,6 +432,7 @@ describe("Memoria Unified Cross-Platform 3D Book Engine Consistency Suite", () =
     const longBook3dRes = await app.inject({
       method: "GET",
       url: `/api/v1/books/${longBook.id}/3d-model`,
+      headers: { authorization: `Bearer ${authToken}` },
     });
     assert.equal(longBook3dRes.statusCode, 200);
     const longBook3dBody = JSON.parse(longBook3dRes.body);

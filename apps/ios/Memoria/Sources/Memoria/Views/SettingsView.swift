@@ -1,8 +1,11 @@
 import SwiftUI
 import Photos
+import AVFoundation
 
 public struct SettingsView: View {
     @State private var photoStatus = "Checking..."
+    @State private var cameraStatus = "Checking..."
+    @State private var microphoneStatus = "Checking..."
     @State private var cacheCleared = false
 
     public init() {}
@@ -16,23 +19,23 @@ public struct SettingsView: View {
                             .foregroundStyle(MemoriaTheme.textPrimary)
                         Spacer()
                         Text(photoStatus)
-                            .foregroundStyle(photoStatus == "Authorized" ? MemoriaTheme.success : MemoriaTheme.warning)
+                            .foregroundStyle(statusColor(photoStatus))
                     }
 
                     HStack {
                         Label("Camera", systemImage: "camera")
                             .foregroundStyle(MemoriaTheme.textPrimary)
                         Spacer()
-                        Text("Configured")
-                            .foregroundStyle(MemoriaTheme.success)
+                        Text(cameraStatus)
+                            .foregroundStyle(statusColor(cameraStatus))
                     }
 
                     HStack {
                         Label("Microphone", systemImage: "mic")
                             .foregroundStyle(MemoriaTheme.textPrimary)
                         Spacer()
-                        Text("Configured")
-                            .foregroundStyle(MemoriaTheme.success)
+                        Text(microphoneStatus)
+                            .foregroundStyle(statusColor(microphoneStatus))
                     }
                 }
 
@@ -44,7 +47,7 @@ public struct SettingsView: View {
                     .foregroundStyle(MemoriaTheme.error)
 
                     if cacheCleared {
-                        Text("Cache cleared successfully.")
+                        Text("Disposable image & feed cache cleared. Pending offline memories and book states were preserved.")
                             .font(.caption)
                             .foregroundStyle(MemoriaTheme.textSecondary)
                     }
@@ -98,9 +101,13 @@ public struct SettingsView: View {
         }
     }
 
+    private func statusColor(_ status: String) -> Color {
+        status == "Authorized" ? MemoriaTheme.success : MemoriaTheme.warning
+    }
+
     private func checkPermissions() {
-        let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
-        switch status {
+        let photoAuth = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+        switch photoAuth {
         case .authorized, .limited:
             photoStatus = "Authorized"
         case .denied, .restricted:
@@ -109,6 +116,30 @@ public struct SettingsView: View {
             photoStatus = "Not Determined"
         @unknown default:
             photoStatus = "Unknown"
+        }
+
+        let videoAuth = AVCaptureDevice.authorizationStatus(for: .video)
+        switch videoAuth {
+        case .authorized:
+            cameraStatus = "Authorized"
+        case .denied, .restricted:
+            cameraStatus = "Denied"
+        case .notDetermined:
+            cameraStatus = "Not Determined"
+        @unknown default:
+            cameraStatus = "Unknown"
+        }
+
+        let audioAuth = AVCaptureDevice.authorizationStatus(for: .audio)
+        switch audioAuth {
+        case .authorized:
+            microphoneStatus = "Authorized"
+        case .denied, .restricted:
+            microphoneStatus = "Denied"
+        case .notDetermined:
+            microphoneStatus = "Not Determined"
+        @unknown default:
+            microphoneStatus = "Unknown"
         }
     }
 }

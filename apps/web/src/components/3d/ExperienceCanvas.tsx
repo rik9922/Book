@@ -49,6 +49,7 @@ import {
 } from "@memory-capsule/contracts/book-3d";
 import { CanvasErrorBoundary } from "./CanvasErrorBoundary";
 import { AccessibleSpreadReader } from "./AccessibleSpreadReader";
+import { getStoredSession } from "@/lib/api";
 
 const GLB_MODEL_URL = `/models/memoria_heirloom_book.glb?v=${CANONICAL_BOOK_3D_MANIFEST.version}`;
 
@@ -85,7 +86,10 @@ function createCoverLabelTexture(
   return texture;
 }
 
-function createSpreadPageTexture(spread: BookSpreadPreview): THREE.CanvasTexture | null {
+function createSpreadPageTexture(
+  spread: BookSpreadPreview,
+  side: "left" | "right" = "right"
+): THREE.CanvasTexture | null {
   if (typeof document === "undefined") return null;
   const canvas = document.createElement("canvas");
   canvas.width = 768;
@@ -93,9 +97,32 @@ function createSpreadPageTexture(spread: BookSpreadPreview): THREE.CanvasTexture
   const ctx = canvas.getContext("2d");
   if (!ctx) return null;
 
+  const pageNumber = side === "left" ? spread.leftPageNumber : spread.rightPageNumber;
+  const pageDate = side === "left" ? spread.leftDate : spread.rightDate;
+  const pageLocation = side === "left" ? spread.leftLocation : spread.rightLocation;
+  const pageHeading = side === "left" ? spread.leftHeading : spread.rightHeading;
+  const pageBody = side === "left" ? spread.leftBody : spread.rightBody;
+
   // Archival paper base
   ctx.fillStyle = "#FAF7F2";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Subtle spine gutter shading
+  const gutterGrad =
+    side === "left"
+      ? ctx.createLinearGradient(canvas.width - 48, 0, canvas.width, 0)
+      : ctx.createLinearGradient(0, 0, 48, 0);
+  if (side === "left") {
+    gutterGrad.addColorStop(0, "rgba(215, 206, 192, 0)");
+    gutterGrad.addColorStop(1, "rgba(180, 168, 150, 0.35)");
+    ctx.fillStyle = gutterGrad;
+    ctx.fillRect(canvas.width - 48, 0, 48, canvas.height);
+  } else {
+    gutterGrad.addColorStop(0, "rgba(180, 168, 150, 0.35)");
+    gutterGrad.addColorStop(1, "rgba(215, 206, 192, 0)");
+    ctx.fillStyle = gutterGrad;
+    ctx.fillRect(0, 0, 48, canvas.height);
+  }
 
   // Subtle archival frame border
   ctx.strokeStyle = "#E7E2DA";
@@ -112,12 +139,12 @@ function createSpreadPageTexture(spread: BookSpreadPreview): THREE.CanvasTexture
   // Date & Location
   ctx.fillStyle = "#5C5955";
   ctx.font = '500 20px system-ui, -apple-system, sans-serif';
-  ctx.fillText(`${spread.rightDate}  •  ${spread.rightLocation}`, canvas.width / 2, 118, canvas.width - 110);
+  ctx.fillText(`${pageDate}  •  ${pageLocation}`, canvas.width / 2, 118, canvas.width - 110);
 
   // Heading
   ctx.fillStyle = "#20242C";
   ctx.font = '700 38px Georgia, "Times New Roman", serif';
-  const headingWords = spread.rightHeading.split(" ");
+  const headingWords = pageHeading.split(" ");
   let headingLine = "";
   let y = 186;
   for (const word of headingWords) {
@@ -148,7 +175,7 @@ function createSpreadPageTexture(spread: BookSpreadPreview): THREE.CanvasTexture
   ctx.fillStyle = "#28272A";
   ctx.textAlign = "left";
   ctx.font = '400 27px Georgia, "Times New Roman", serif';
-  const words = spread.rightBody.split(" ");
+  const words = pageBody.split(" ");
   let line = "";
   const leftMargin = 72;
   const maxLineWidth = canvas.width - 144;
@@ -167,8 +194,8 @@ function createSpreadPageTexture(spread: BookSpreadPreview): THREE.CanvasTexture
     y += 56;
   }
 
-  // Optional OCR Inscription box
-  if (spread.ocrInscription) {
+  // Optional OCR Inscription box (right page)
+  if (side === "right" && spread.ocrInscription) {
     ctx.fillStyle = "#F0ECE1";
     ctx.fillRect(68, y, canvas.width - 136, 130);
     ctx.strokeStyle = "#E7E2DA";
@@ -184,9 +211,13 @@ function createSpreadPageTexture(spread: BookSpreadPreview): THREE.CanvasTexture
 
   // Footer page number
   ctx.fillStyle = "#78736E";
-  ctx.textAlign = "right";
+  ctx.textAlign = side === "left" ? "left" : "right";
   ctx.font = '500 20px monospace';
-  ctx.fillText(`p. ${spread.rightPageNumber}`, canvas.width - 72, canvas.height - 76);
+  ctx.fillText(
+    `p. ${pageNumber}`,
+    side === "left" ? 72 : canvas.width - 72,
+    canvas.height - 76
+  );
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
@@ -293,12 +324,14 @@ function Heirloom3DBook({
   const rootGroupRef = useRef<THREE.Group>(null);
   const frontHingeRef = useRef<THREE.Object3D | null>(null);
   const coverTextGroupRef = useRef<THREE.Group>(null);
+  const leftPageGroupRef = useRef<THREE.Group>(null);
   const turningPageHingeRef = useRef<THREE.Object3D | null>(null);
   const turningPageMeshRef = useRef<THREE.Mesh | null>(null);
   const openProgressRef = useRef<number>(isOpen ? 1 : 0);
   const turnProgressRef = useRef<number>(0);
   const lastTurnNonceRef = useRef<number>(pageTurnNonce);
   const basePagePositionsRef = useRef<Float32Array | null>(null);
+  const isPageFlatRef = useRef<boolean>(true);
   const [hovered, setHovered] = useState(false);
 
   const { scene } = useGLTF(GLB_MODEL_URL);
@@ -457,6 +490,10 @@ function Heirloom3DBook({
       coverTextGroupRef.current.rotation.z = coverAngle;
       coverTextGroupRef.current.visible = openProgressRef.current < 0.55;
     }
+    if (leftPageGroupRef.current) {
+      leftPageGroupRef.current.rotation.z = coverAngle;
+      leftPageGroupRef.current.visible = openProgressRef.current > 0.55;
+    }
 
     // 2. Turning Page Kinematics & Dynamic Conical Curl
     if (!isOpen) {
@@ -486,7 +523,7 @@ function Heirloom3DBook({
       turningPageHingeRef.current.rotation.z = turnAngle;
     }
 
-    // Apply subtle vertex curl modulation only when open/turning; lie flat inside textblock when closed
+    // Apply subtle vertex curl modulation only when open/turning; skip GPU re-uploads when closed and flat
     const pageMesh = turningPageMeshRef.current;
     const basePositions = basePagePositionsRef.current;
     if (pageMesh && basePositions && pageMesh.geometry.attributes.position) {
@@ -497,22 +534,31 @@ function Heirloom3DBook({
         turnProgressRef.current > 0 ? turnProgressRef.current : isOpen ? 0.15 : 0;
       const bookWidth = CANONICAL_BOOK_3D_MANIFEST.dimensions.bookWidth;
 
-      for (let i = 0; i < arr.length; i += 3) {
-        const bx = basePositions[i];
-        const by = basePositions[i + 1];
-        if (!isBookOpeningOrOpen) {
-          arr[i + 1] = by;
-          continue;
+      if (!isBookOpeningOrOpen) {
+        if (!isPageFlatRef.current) {
+          for (let i = 0; i < arr.length; i += 3) {
+            arr[i + 1] = basePositions[i + 1];
+          }
+          posAttr.needsUpdate = true;
+          pageMesh.geometry.computeVertexNormals();
+          isPageFlatRef.current = true;
         }
-        const normX = Math.max(0, Math.min(1, bx / bookWidth));
-        const curlLift = computePageCurlDisplacement(
-          normX,
-          BOOK_ANIMATION_CONTRACT.pageCurlAmplitude,
-          activeProgress
-        );
-        arr[i + 1] = by + curlLift;
+      } else {
+        for (let i = 0; i < arr.length; i += 3) {
+          const bx = basePositions[i];
+          const by = basePositions[i + 1];
+          const normX = Math.max(0, Math.min(1, bx / bookWidth));
+          const curlLift = computePageCurlDisplacement(
+            normX,
+            BOOK_ANIMATION_CONTRACT.pageCurlAmplitude,
+            activeProgress
+          );
+          arr[i + 1] = by + curlLift;
+        }
+        posAttr.needsUpdate = true;
+        pageMesh.geometry.computeVertexNormals();
+        isPageFlatRef.current = false;
       }
-      posAttr.needsUpdate = true;
     }
   });
 
@@ -542,8 +588,13 @@ function Heirloom3DBook({
     [subtitle, foilHex]
   );
 
-  const spreadTexture = useMemo(
-    () => createSpreadPageTexture(currentSpread),
+  const leftSpreadTexture = useMemo(
+    () => createSpreadPageTexture(currentSpread, "left"),
+    [currentSpread]
+  );
+
+  const rightSpreadTexture = useMemo(
+    () => createSpreadPageTexture(currentSpread, "right"),
     [currentSpread]
   );
 
@@ -561,9 +612,15 @@ function Heirloom3DBook({
 
   useEffect(() => {
     return () => {
-      spreadTexture?.dispose();
+      leftSpreadTexture?.dispose();
     };
-  }, [spreadTexture]);
+  }, [leftSpreadTexture]);
+
+  useEffect(() => {
+    return () => {
+      rightSpreadTexture?.dispose();
+    };
+  }, [rightSpreadTexture]);
 
   return (
     <Float
@@ -601,11 +658,21 @@ function Heirloom3DBook({
           )}
         </group>
 
-        {/* Active Open Spread Content on TextBlock Surface */}
-        {openSpreadVisible && spreadTexture && (
+        {/* Left Open Spread Content synced to FrontCoverHinge */}
+        <group ref={leftPageGroupRef}>
+          {openSpreadVisible && leftSpreadTexture && (
+            <mesh position={[0.10, 0.0085, 0]} rotation={[Math.PI / 2, 0, Math.PI]}>
+              <planeGeometry args={[0.184, 0.242]} />
+              <meshStandardMaterial map={leftSpreadTexture} roughness={0.92} metalness={0.0} />
+            </mesh>
+          )}
+        </group>
+
+        {/* Right Open Spread Content on TextBlock Surface */}
+        {openSpreadVisible && rightSpreadTexture && (
           <mesh position={[0.10, textBlockTopY, 0]} rotation={[-Math.PI / 2, 0, 0]}>
             <planeGeometry args={[0.184, 0.242]} />
-            <meshStandardMaterial map={spreadTexture} roughness={0.92} metalness={0.0} />
+            <meshStandardMaterial map={rightSpreadTexture} roughness={0.92} metalness={0.0} />
           </mesh>
         )}
       </group>
@@ -702,13 +769,62 @@ function LoadingProgressOverlay() {
 }
 
 export interface ExperienceCanvasProps {
+  bookId?: string;
+  refreshKey?: string | number;
   initialTitle?: string;
   initialSubtitle?: string;
   initialLeatherId?: BookLeatherSwatchId;
   initialFoilId?: BookFoilSwatchId;
 }
 
+function mapBookSpreadsToPreview(
+  rawSpreads: Array<{
+    id: string;
+    spreadIndex: number;
+    leftPage?: {
+      pageNumber?: number;
+      elements?: Array<{ type?: string; content?: string }>;
+    } | null;
+    rightPage?: {
+      pageNumber?: number;
+      elements?: Array<{ type?: string; content?: string }>;
+    } | null;
+  }>,
+  fallbackTitle: string
+): BookSpreadPreview[] {
+  return rawSpreads.map((sp, idx) => {
+    const leftHeading =
+      sp.leftPage?.elements?.find((e) => e.type === "heading")?.content ||
+      (sp.leftPage ? `Page ${sp.leftPage.pageNumber ?? idx * 2 + 1}` : "Inside Front Cover");
+    const leftBody =
+      sp.leftPage?.elements?.find((e) => e.type === "caption" || e.type === "text")?.content ||
+      "Preserved in your Memoria Living Archive.";
+    const rightHeading =
+      sp.rightPage?.elements?.find((e) => e.type === "heading")?.content || fallbackTitle;
+    const rightBody =
+      sp.rightPage?.elements?.find((e) => e.type === "caption" || e.type === "text")?.content ||
+      "Crafted for generational safekeeping.";
+
+    return {
+      spreadIndex: sp.spreadIndex ?? idx,
+      chapterTitle: fallbackTitle,
+      leftPageNumber: sp.leftPage?.pageNumber ?? idx * 2 + 1,
+      leftHeading,
+      leftDate: "Archival Edition",
+      leftLocation: "Memoria Vault",
+      leftBody,
+      rightPageNumber: sp.rightPage?.pageNumber ?? idx * 2 + 2,
+      rightHeading,
+      rightDate: "Archival Edition",
+      rightLocation: "Memoria Vault",
+      rightBody,
+    };
+  });
+}
+
 export default function ExperienceCanvas({
+  bookId = "sample",
+  refreshKey = 0,
   initialTitle = "The Bennett Heritage",
   initialSubtitle = "1948 — 2026 • Memoria Volume I",
   initialLeatherId = "plum",
@@ -722,7 +838,8 @@ export default function ExperienceCanvas({
   );
   const [isOpen, setIsOpen] = useState(false);
   const [title, setTitle] = useState(initialTitle);
-  const [subtitle] = useState(initialSubtitle);
+  const [subtitle, setSubtitle] = useState(initialSubtitle);
+  const [spreads, setSpreads] = useState<readonly BookSpreadPreview[]>(CANONICAL_SAMPLE_SPREADS);
   const [spreadIndex, setSpreadIndex] = useState(0);
   const [pageTurnNonce, setPageTurnNonce] = useState(0);
   const [pageTurnDirection, setPageTurnDirection] = useState<1 | -1>(1);
@@ -734,8 +851,52 @@ export default function ExperienceCanvas({
   const [reducedMotion, setReducedMotion] = useState(false);
 
   const pageDragStartXRef = useRef<number | null>(null);
-  const totalSpreads = CANONICAL_SAMPLE_SPREADS.length;
-  const activeSpread = CANONICAL_SAMPLE_SPREADS[spreadIndex];
+  const totalSpreads = spreads.length;
+  const activeSpread = spreads[Math.min(spreadIndex, Math.max(0, totalSpreads - 1))] || CANONICAL_SAMPLE_SPREADS[0];
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !bookId) return;
+    const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:4000/api/v1";
+    const controller = new AbortController();
+    const { accessToken } = getStoredSession();
+    const headers: Record<string, string> = {};
+    if (accessToken && bookId !== "sample") {
+      headers.Authorization = `Bearer ${accessToken}`;
+    }
+
+    fetch(`${apiBase}/books/${encodeURIComponent(bookId)}/3d-model`, {
+      signal: controller.signal,
+      headers,
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((json) => {
+        if (!json?.success || !json?.data) return;
+        const data = json.data;
+        if (data.configuration?.leatherId) {
+          setSelectedLeather(resolveLeatherSwatch(data.configuration.leatherId));
+        }
+        if (data.configuration?.foilId) {
+          setSelectedFoil(resolveFoilSwatch(data.configuration.foilId));
+        }
+        if (data.configuration?.coverTitle) {
+          setTitle(data.configuration.coverTitle);
+        }
+        if (data.configuration?.coverSubtitle) {
+          setSubtitle(data.configuration.coverSubtitle);
+        }
+        if (Array.isArray(data.spreads) && data.spreads.length > 0) {
+          setSpreads(
+            mapBookSpreadsToPreview(data.spreads, data.configuration?.coverTitle || data.title || "Memoria")
+          );
+        } else if (Array.isArray(data.sampleSpreads) && data.sampleSpreads.length > 0) {
+          setSpreads(data.sampleSpreads);
+        }
+      })
+      .catch(() => {
+        // Offline or gateway stopped: continue using canonical sample spreads seamlessly
+      });
+    return () => controller.abort();
+  }, [bookId, refreshKey]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -831,7 +992,7 @@ export default function ExperienceCanvas({
             subtitle={subtitle}
             coverHex={selectedLeather.hex}
             foilHex={effectiveFoilHex}
-            spreads={CANONICAL_SAMPLE_SPREADS}
+            spreads={spreads}
             currentSpreadIndex={spreadIndex}
             onChangeSpread={setSpreadIndex}
             onSwitchTo3D={webglError ? undefined : () => setIs2DMode(false)}
@@ -979,7 +1140,7 @@ export default function ExperienceCanvas({
                   subtitle={subtitle}
                   coverHex={selectedLeather.hex}
                   foilHex={effectiveFoilHex}
-                  spreads={CANONICAL_SAMPLE_SPREADS}
+                  spreads={spreads}
                   currentSpreadIndex={spreadIndex}
                   onChangeSpread={setSpreadIndex}
                   fallbackReason={
@@ -991,6 +1152,7 @@ export default function ExperienceCanvas({
               )}
             >
               <Canvas
+                frameloop={reducedMotion && !isOpen ? "demand" : "always"}
                 shadows
                 dpr={[1, 2]}
                 camera={{

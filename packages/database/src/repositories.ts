@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { DatabaseClient } from "./index.js";
 import {
   UserProfile,
@@ -30,6 +31,16 @@ export interface UserSessionRecord {
   createdAt: string;
 }
 
+export interface UserAuthTokenRecord {
+  id: string;
+  userId: string;
+  purpose: "email_verification" | "password_reset";
+  tokenHash: string;
+  expiresAt: string;
+  consumedAt?: string | null;
+  createdAt: string;
+}
+
 // ----------------------------------------------------------------------------
 // 1. User Repository
 // ----------------------------------------------------------------------------
@@ -37,9 +48,15 @@ export interface UserRepository {
   findByEmail(email: string): Promise<UserRecord | null>;
   findById(id: string): Promise<UserRecord | null>;
   create(user: Omit<UserRecord, "createdAt" | "updatedAt">): Promise<UserRecord>;
+  updatePassword?(userId: string, passwordHash: string): Promise<void>;
+  markEmailVerified?(userId: string): Promise<void>;
   createSession(session: UserSessionRecord): Promise<void>;
   findSessionByToken(refreshTokenHash: string): Promise<UserSessionRecord | null>;
   deleteSession(id: string): Promise<void>;
+  revokeSessionByTokenHash?(refreshTokenHash: string): Promise<boolean>;
+  revokeAllSessionsForUser?(userId: string): Promise<void>;
+  createAuthToken?(token: Omit<UserAuthTokenRecord, "createdAt" | "consumedAt">): Promise<void>;
+  consumeAuthToken?(tokenHash: string, purpose: "email_verification" | "password_reset"): Promise<UserAuthTokenRecord | null>;
 }
 
 export class PostgresUserRepository implements UserRepository {
@@ -90,6 +107,20 @@ export class PostgresUserRepository implements UserRepository {
     };
   }
 
+  async updatePassword(userId: string, passwordHash: string): Promise<void> {
+    await this.db.query(
+      `UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2`,
+      [passwordHash, userId]
+    );
+  }
+
+  async markEmailVerified(userId: string): Promise<void> {
+    await this.db.query(
+      `UPDATE users SET is_verified = TRUE, email_verified_at = NOW(), updated_at = NOW() WHERE id = $1`,
+      [userId]
+    );
+  }
+
   async createSession(session: UserSessionRecord): Promise<void> {
     await this.db.query(
       `INSERT INTO user_sessions (id, user_id, refresh_token_hash, user_agent, ip_address, expires_at, created_at)
@@ -111,7 +142,9 @@ export class PostgresUserRepository implements UserRepository {
       `SELECT id, user_id as "userId", refresh_token_hash as "refreshTokenHash",
               user_agent as "userAgent", ip_address as "ipAddress",
               expires_at::text as "expiresAt", created_at::text as "createdAt"
-       FROM user_sessions WHERE refresh_token_hash = $1 AND expires_at > NOW() LIMIT 1`,
+       FROM user_sessions
+       WHERE refresh_token_hash = $1 AND revoked_at IS NULL AND expires_at > NOW()
+       LIMIT 1`,
       [refreshTokenHash]
     );
     return res.rows[0] || null;
@@ -119,6 +152,45 @@ export class PostgresUserRepository implements UserRepository {
 
   async deleteSession(id: string): Promise<void> {
     await this.db.query(`DELETE FROM user_sessions WHERE id = $1`, [id]);
+  }
+
+  async revokeSessionByTokenHash(refreshTokenHash: string): Promise<boolean> {
+    const res = await this.db.query(
+      `UPDATE user_sessions SET revoked_at = NOW() WHERE refresh_token_hash = $1 AND revoked_at IS NULL`,
+      [refreshTokenHash]
+    );
+    return (res.rowCount || 0) > 0;
+  }
+
+  async revokeAllSessionsForUser(userId: string): Promise<void> {
+    await this.db.query(
+      `UPDATE user_sessions SET revoked_at = NOW() WHERE user_id = $1 AND revoked_at IS NULL`,
+      [userId]
+    );
+  }
+
+  async createAuthToken(token: Omit<UserAuthTokenRecord, "createdAt" | "consumedAt">): Promise<void> {
+    await this.db.query(
+      `INSERT INTO user_auth_tokens (id, user_id, purpose, token_hash, expires_at, created_at)
+       VALUES ($1, $2, $3, $4, $5, NOW())`,
+      [token.id, token.userId, token.purpose, token.tokenHash, token.expiresAt]
+    );
+  }
+
+  async consumeAuthToken(
+    tokenHash: string,
+    purpose: "email_verification" | "password_reset"
+  ): Promise<UserAuthTokenRecord | null> {
+    const res = await this.db.query(
+      `UPDATE user_auth_tokens
+       SET consumed_at = NOW()
+       WHERE token_hash = $1 AND purpose = $2 AND consumed_at IS NULL AND expires_at > NOW()
+       RETURNING id, user_id as "userId", purpose, token_hash as "tokenHash",
+                 expires_at::text as "expiresAt", consumed_at::text as "consumedAt",
+                 created_at::text as "createdAt"`,
+      [tokenHash, purpose]
+    );
+    return res.rows[0] || null;
   }
 }
 
@@ -278,51 +350,50 @@ export class PostgresMemoryRepository implements MemoryRepository {
         ]
       );
 
-      // Populate normalized relational junction tables
+      // Populate normalized relational junction tables in batches (zero N+1)
       if (memory.mediaIds && memory.mediaIds.length > 0) {
-        for (let i = 0; i < memory.mediaIds.length; i++) {
-          await client.query(
-            `INSERT INTO memory_media (memory_id, media_id, sort_order)
-             VALUES ($1, $2, $3)
-             ON CONFLICT (memory_id, media_id) DO NOTHING`,
-            [memory.id, memory.mediaIds[i], i]
-          );
-        }
+        const sortOrders = memory.mediaIds.map((_, idx) => idx);
+        await client.query(
+          `INSERT INTO memory_media (memory_id, media_id, sort_order)
+           SELECT $1, m_id, s_order
+           FROM UNNEST($2::uuid[], $3::int[]) AS t(m_id, s_order)
+           ON CONFLICT (memory_id, media_id) DO NOTHING`,
+          [memory.id, memory.mediaIds, sortOrders]
+        );
       }
 
       if (memory.associatedProfileIds && memory.associatedProfileIds.length > 0) {
-        for (const profileId of memory.associatedProfileIds) {
-          await client.query(
-            `INSERT INTO memory_profiles (memory_id, profile_id)
-             VALUES ($1, $2)
-             ON CONFLICT (memory_id, profile_id) DO NOTHING`,
-            [memory.id, profileId]
-          );
-        }
+        await client.query(
+          `INSERT INTO memory_profiles (memory_id, profile_id)
+           SELECT $1, p_id
+           FROM UNNEST($2::uuid[]) AS t(p_id)
+           ON CONFLICT (memory_id, profile_id) DO NOTHING`,
+          [memory.id, memory.associatedProfileIds]
+        );
       }
 
       if (memory.tags && memory.tags.length > 0) {
-        for (const tagName of memory.tags) {
-          const tagId = crypto.randomUUID();
+        const normalizedTags = Array.from(
+          new Set(memory.tags.map((t) => t.trim().toLowerCase()).filter((t) => t.length > 0))
+        );
+        if (normalizedTags.length > 0) {
+          const generatedIds = normalizedTags.map(() => crypto.randomUUID());
           await client.query(
             `INSERT INTO tags (id, space_id, name)
-             VALUES ($1, $2, $3)
+             SELECT t_id, $1, t_name
+             FROM UNNEST($2::uuid[], $3::text[]) AS t(t_id, t_name)
              ON CONFLICT (space_id, name) DO NOTHING`,
-            [tagId, memory.spaceId, tagName.trim().toLowerCase()]
+            [memory.spaceId, generatedIds, normalizedTags]
           );
 
-          const tagRes = await client.query(
-            `SELECT id FROM tags WHERE space_id = $1 AND name = $2 LIMIT 1`,
-            [memory.spaceId, tagName.trim().toLowerCase()]
+          await client.query(
+            `INSERT INTO memory_tags (memory_id, tag_id)
+             SELECT $1, id
+             FROM tags
+             WHERE space_id = $2 AND name = ANY($3::text[])
+             ON CONFLICT (memory_id, tag_id) DO NOTHING`,
+            [memory.id, memory.spaceId, normalizedTags]
           );
-          if (tagRes.rows[0]) {
-            await client.query(
-              `INSERT INTO memory_tags (memory_id, tag_id)
-               VALUES ($1, $2)
-               ON CONFLICT (memory_id, tag_id) DO NOTHING`,
-              [memory.id, tagRes.rows[0].id]
-            );
-          }
         }
       }
     });
@@ -693,7 +764,8 @@ export interface BookRepository {
   createBook(book: BookDocument): Promise<BookDocument>;
   findBookById(id: string): Promise<BookDocument | null>;
   listBooks(spaceId: string): Promise<BookDocument[]>;
-  saveSpread(bookId: string, spread: BookSpread): Promise<void>;
+  updateBook?(id: string, updates: Partial<Pick<BookDocument, "title" | "subtitle" | "format" | "coverColor" | "foilStamping" | "coverTitle" | "spineText">>): Promise<BookDocument | null>;
+  saveSpread(bookId: string, spread: BookSpread, client?: any): Promise<void>;
   freezeEdition(bookId: string, editionHash: string): Promise<void>;
 }
 
@@ -701,30 +773,32 @@ export class PostgresBookRepository implements BookRepository {
   constructor(private db: DatabaseClient) {}
 
   async createBook(book: BookDocument): Promise<BookDocument> {
-    await this.db.query(
-      `INSERT INTO books (id, space_id, title, subtitle, format, cover_color, foil_stamping, cover_title, spine_text, version, is_frozen_for_print, frozen_edition_hash, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
-      [
-        book.id,
-        book.spaceId,
-        book.title,
-        book.subtitle || null,
-        book.format,
-        book.coverColor,
-        book.foilStamping,
-        book.coverTitle,
-        book.spineText || null,
-        book.version,
-        book.isFrozenForPrint,
-        book.frozenEditionHash || null,
-        book.createdAt,
-        book.updatedAt,
-      ]
-    );
+    await this.db.transaction(async (client) => {
+      await client.query(
+        `INSERT INTO books (id, space_id, title, subtitle, format, cover_color, foil_stamping, cover_title, spine_text, version, is_frozen_for_print, frozen_edition_hash, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+        [
+          book.id,
+          book.spaceId,
+          book.title,
+          book.subtitle || null,
+          book.format,
+          book.coverColor,
+          book.foilStamping,
+          book.coverTitle,
+          book.spineText || null,
+          book.version,
+          book.isFrozenForPrint,
+          book.frozenEditionHash || null,
+          book.createdAt,
+          book.updatedAt,
+        ]
+      );
 
-    for (const spread of book.spreads) {
-      await this.saveSpread(book.id, spread);
-    }
+      for (const spread of book.spreads) {
+        await this.saveSpread(book.id, spread, client);
+      }
+    });
 
     return book;
   }
@@ -776,8 +850,42 @@ export class PostgresBookRepository implements BookRepository {
     return res.rows.map((b: any) => ({ ...b, spreads: [] }));
   }
 
-  async saveSpread(bookId: string, spread: BookSpread): Promise<void> {
+  async updateBook(
+    id: string,
+    updates: Partial<Pick<BookDocument, "title" | "subtitle" | "format" | "coverColor" | "foilStamping" | "coverTitle" | "spineText">>
+  ): Promise<BookDocument | null> {
+    const existing = await this.findBookById(id);
+    if (!existing) return null;
+    const merged: BookDocument = {
+      ...existing,
+      ...updates,
+      version: (existing.version || 1) + 1,
+      updatedAt: new Date().toISOString(),
+    };
     await this.db.query(
+      `UPDATE books
+       SET title = $1, subtitle = $2, format = $3, cover_color = $4, foil_stamping = $5,
+           cover_title = $6, spine_text = $7, version = $8, updated_at = $9
+       WHERE id = $10`,
+      [
+        merged.title,
+        merged.subtitle || null,
+        merged.format,
+        merged.coverColor,
+        merged.foilStamping,
+        merged.coverTitle,
+        merged.spineText || null,
+        merged.version,
+        merged.updatedAt,
+        id,
+      ]
+    );
+    return merged;
+  }
+
+  async saveSpread(bookId: string, spread: BookSpread, client?: any): Promise<void> {
+    const executor = client || this.db;
+    await executor.query(
       `INSERT INTO book_spreads (id, book_id, spread_index, left_page, right_page, created_at)
        VALUES ($1, $2, $3, $4, $5, NOW())
        ON CONFLICT (id)
@@ -824,6 +932,10 @@ export interface OutboxRepository {
     client?: any
   ): Promise<OutboxRecord>;
   fetchPending(limit?: number): Promise<OutboxRecord[]>;
+  relayPending?(
+    publisher: (event: OutboxRecord) => Promise<void>,
+    limit?: number
+  ): Promise<{ publishedCount: number; failedCount: number }>;
   markPublished(id: string): Promise<void>;
   markFailed(id: string, error: string): Promise<void>;
 }
@@ -887,6 +999,56 @@ export class PostgresOutboxRepository implements OutboxRepository {
        WHERE id = $2`,
       [error, id]
     );
+  }
+
+  async relayPending(
+    publisher: (event: OutboxRecord) => Promise<void>,
+    limit = 50
+  ): Promise<{ publishedCount: number; failedCount: number }> {
+    return this.db.transaction(async (client) => {
+      const res = await client.query(
+        `SELECT id, event_type as "eventType", aggregate_type as "aggregateType",
+                aggregate_id as "aggregateId", payload, status, retry_count as "retryCount",
+                error_message as "errorMessage", created_at::text as "createdAt",
+                processed_at::text as "processedAt"
+         FROM outbox_events
+         WHERE status = 'pending'
+         ORDER BY created_at ASC
+         LIMIT $1
+         FOR UPDATE SKIP LOCKED`,
+        [limit]
+      );
+
+      let publishedCount = 0;
+      let failedCount = 0;
+
+      for (const row of res.rows as OutboxRecord[]) {
+        const parsedRow: OutboxRecord = {
+          ...row,
+          payload: typeof row.payload === "string" ? JSON.parse(row.payload) : row.payload,
+        };
+        try {
+          await publisher(parsedRow);
+          await client.query(
+            `UPDATE outbox_events SET status = 'published', processed_at = NOW() WHERE id = $1`,
+            [row.id]
+          );
+          publishedCount++;
+        } catch (err: any) {
+          await client.query(
+            `UPDATE outbox_events
+             SET status = CASE WHEN retry_count + 1 >= 5 THEN 'failed' ELSE 'pending' END,
+                 retry_count = retry_count + 1,
+                 error_message = $1
+             WHERE id = $2`,
+            [err?.message || "Outbox publish failure", row.id]
+          );
+          failedCount++;
+        }
+      }
+
+      return { publishedCount, failedCount };
+    });
   }
 }
 
@@ -1091,6 +1253,92 @@ export class PostgresCommerceRepository implements CommerceRepository {
       `UPDATE print_orders SET status = $1, updated_at = NOW() WHERE id = $2`,
       [status, id]
     );
+  }
+}
+
+// ----------------------------------------------------------------------------
+// 9. Notification Repository
+// ----------------------------------------------------------------------------
+export interface NotificationRecord {
+  id: string;
+  userId: string;
+  spaceId?: string | null;
+  type: string;
+  title: string;
+  body: string;
+  data: Record<string, any>;
+  isRead: boolean;
+  readAt?: string | null;
+  createdAt: string;
+}
+
+export interface NotificationRepository {
+  createNotification(notification: Omit<NotificationRecord, "createdAt" | "isRead" | "readAt">): Promise<NotificationRecord>;
+  listNotifications(userId: string, unreadOnly?: boolean): Promise<NotificationRecord[]>;
+  markRead(id: string, userId: string): Promise<boolean>;
+  markAllRead(userId: string): Promise<number>;
+}
+
+export class PostgresNotificationRepository implements NotificationRepository {
+  constructor(private db: DatabaseClient) {}
+
+  async createNotification(
+    notification: Omit<NotificationRecord, "createdAt" | "isRead" | "readAt">
+  ): Promise<NotificationRecord> {
+    const now = new Date().toISOString();
+    await this.db.query(
+      `INSERT INTO notifications (id, user_id, space_id, type, title, body, data, is_read, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, FALSE, $8)`,
+      [
+        notification.id,
+        notification.userId,
+        notification.spaceId || null,
+        notification.type,
+        notification.title,
+        notification.body,
+        JSON.stringify(notification.data || {}),
+        now,
+      ]
+    );
+    return {
+      ...notification,
+      isRead: false,
+      readAt: null,
+      createdAt: now,
+    };
+  }
+
+  async listNotifications(userId: string, unreadOnly = false): Promise<NotificationRecord[]> {
+    const sql = unreadOnly
+      ? `SELECT id, user_id as "userId", space_id as "spaceId", type, title, body, data,
+                is_read as "isRead", read_at::text as "readAt", created_at::text as "createdAt"
+         FROM notifications WHERE user_id = $1 AND is_read = FALSE ORDER BY created_at DESC LIMIT 100`
+      : `SELECT id, user_id as "userId", space_id as "spaceId", type, title, body, data,
+                is_read as "isRead", read_at::text as "readAt", created_at::text as "createdAt"
+         FROM notifications WHERE user_id = $1 ORDER BY created_at DESC LIMIT 100`;
+    const res = await this.db.query(sql, [userId]);
+    return res.rows.map((r: any) => ({
+      ...r,
+      data: typeof r.data === "string" ? JSON.parse(r.data) : (r.data || {}),
+    }));
+  }
+
+  async markRead(id: string, userId: string): Promise<boolean> {
+    const res = await this.db.query(
+      `UPDATE notifications SET is_read = TRUE, read_at = NOW()
+       WHERE id = $1 AND user_id = $2 AND is_read = FALSE`,
+      [id, userId]
+    );
+    return (res.rowCount || 0) > 0;
+  }
+
+  async markAllRead(userId: string): Promise<number> {
+    const res = await this.db.query(
+      `UPDATE notifications SET is_read = TRUE, read_at = NOW()
+       WHERE user_id = $1 AND is_read = FALSE`,
+      [userId]
+    );
+    return res.rowCount || 0;
   }
 }
 

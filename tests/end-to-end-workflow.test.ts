@@ -7,9 +7,12 @@ import { buildMemoryService } from "../services/memory-service/src/server.ts";
 import { buildMediaService } from "../services/media-service/src/server.ts";
 
 describe("Phase 2 — Real End-to-End Workflow with PostgreSQL Persistence", () => {
-  const identityDbUrl = process.env.IDENTITY_DATABASE_URL || "postgres://ritik@localhost:5432/identity_db";
-  const memoryDbUrl = process.env.MEMORY_DATABASE_URL || "postgres://ritik@localhost:5432/memory_db";
-  const mediaDbUrl = process.env.MEDIA_DATABASE_URL || "postgres://ritik@localhost:5432/media_db";
+  const identityDbUrl = process.env.IDENTITY_DATABASE_URL || process.env.DATABASE_URL;
+  const memoryDbUrl = process.env.MEMORY_DATABASE_URL || process.env.DATABASE_URL;
+  const mediaDbUrl = process.env.MEDIA_DATABASE_URL || process.env.DATABASE_URL;
+  if (!identityDbUrl || !memoryDbUrl || !mediaDbUrl) {
+    throw new Error("IDENTITY_DATABASE_URL, MEMORY_DATABASE_URL, and MEDIA_DATABASE_URL must be set for E2E test");
+  }
 
   const identityPool = new Pool({ connectionString: identityDbUrl });
   const memoryPool = new Pool({ connectionString: memoryDbUrl });
@@ -182,10 +185,11 @@ describe("Phase 2 — Real End-to-End Workflow with PostgreSQL Persistence", () 
     assert.equal(assetRowRes.rows.length, 1);
     assert.equal(assetRowRes.rows[0].status, "pending_upload");
 
-    // 3. Stream binary image to local storage endpoint
+    // 3. Stream binary image to signed local storage endpoint
+    const signedUploadUrl = new URL(sessionData.uploadUrl);
     const uploadRes = await mediaApp.inject({
       method: "PUT",
-      url: `/api/v1/media/local-upload?key=${encodeURIComponent(storageKey)}&contentType=image/png`,
+      url: signedUploadUrl.pathname + signedUploadUrl.search,
       headers: {
         "content-type": "application/octet-stream",
       },
@@ -230,10 +234,13 @@ describe("Phase 2 — Real End-to-End Workflow with PostgreSQL Persistence", () 
     assert.equal(metadata.width, 400, "Sharp must correctly extract 400px width from uploaded binary");
     assert.equal(metadata.height, 300, "Sharp must correctly extract 300px height from uploaded binary");
 
-    // 7. Verify thumbnails can be fetched over HTTP
+    // 7. Verify thumbnails can be fetched over authenticated HTTP
     const thumbSmRes = await mediaApp.inject({
       method: "GET",
       url: `/api/v1/media/files/derivatives/${mediaId}/thumb_sm.webp`,
+      headers: {
+        authorization: `Bearer ${authToken}`,
+      },
     });
     assert.equal(thumbSmRes.statusCode, 200);
     assert.equal(thumbSmRes.headers["content-type"], "image/webp");

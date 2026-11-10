@@ -5,12 +5,14 @@ import crypto from "node:crypto";
 import { z } from "zod";
 import { createServiceLogger, Logger } from "@memory-capsule/logger";
 import {
+  BaseServiceConfigSchema,
+  validateServiceConfig,
+  createFastifyErrorHandler,
+  UnauthorizedError,
+  ForbiddenError,
   MemorySpace,
   SpaceProfile,
   Memory,
-  MemorySpaceSchema,
-  SpaceProfileSchema,
-  MemorySchema,
   createSuccessResponse,
   createErrorResponse,
   createDomainEvent,
@@ -23,8 +25,12 @@ import {
   DatabaseClient,
   PostgresSpaceRepository,
   PostgresMemoryRepository,
+  PostgresCollaborationRepository,
+  PostgresOutboxRepository,
   SpaceRepository,
   MemoryRepository,
+  CollaborationRepository,
+  OutboxRepository,
 } from "@memory-capsule/database";
 
 const logger: Logger = createServiceLogger("memory-service");
@@ -67,7 +73,10 @@ class InMemoryMemoryTestRepo implements MemoryRepository {
   async findMemoryById(id: string): Promise<Memory | null> {
     return this.memories.get(id) || null;
   }
-  async listMemories(spaceId: string, options?: { profileId?: string; isFavorite?: boolean }): Promise<Memory[]> {
+  async listMemories(
+    spaceId: string,
+    options?: { profileId?: string; isFavorite?: boolean }
+  ): Promise<Memory[]> {
     let list = Array.from(this.memories.values()).filter((m) => m.spaceId === spaceId);
     if (options?.profileId) {
       list = list.filter((m) => m.associatedProfileIds.includes(options.profileId!));
@@ -88,7 +97,11 @@ class InMemoryMemoryTestRepo implements MemoryRepository {
   async searchMemories(spaceId: string, queryText: string, limit = 20): Promise<Memory[]> {
     const q = queryText.toLowerCase();
     return Array.from(this.memories.values())
-      .filter((m) => m.spaceId === spaceId && (m.title.toLowerCase().includes(q) || (m.content && m.content.toLowerCase().includes(q))))
+      .filter(
+        (m) =>
+          m.spaceId === spaceId &&
+          (m.title.toLowerCase().includes(q) || (m.content && m.content.toLowerCase().includes(q)))
+      )
       .slice(0, limit);
   }
   async updateMemory(id: string, updates: Partial<Memory>): Promise<Memory | null> {
@@ -104,19 +117,26 @@ class InMemoryMemoryTestRepo implements MemoryRepository {
 }
 
 export async function buildMemoryService(): Promise<FastifyInstance> {
+  const cfg = validateServiceConfig(BaseServiceConfigSchema);
   const app = Fastify({ logger: false });
-  const dbUrl = process.env.MEMORY_DATABASE_URL || process.env.DATABASE_URL;
-  if (!dbUrl && process.env.NODE_ENV !== "test") {
-    throw new Error("[memory-service] Database connection string required in non-test mode. Set MEMORY_DATABASE_URL or DATABASE_URL.");
+  app.setErrorHandler(createFastifyErrorHandler(logger));
+
+  const dbUrl = cfg.MEMORY_DATABASE_URL || cfg.DATABASE_URL;
+  if (!dbUrl && cfg.NODE_ENV !== "test") {
+    throw new Error(
+      "[memory-service] Database connection string required in non-test mode. Set MEMORY_DATABASE_URL or DATABASE_URL."
+    );
   }
   const db: DatabaseClient = createDatabaseClient(dbUrl);
-  if (process.env.NODE_ENV !== "test") {
+  if (cfg.NODE_ENV !== "test") {
     const isHealthy = await db.healthCheck();
     if (!isHealthy) {
-      throw new Error("[memory-service] PostgreSQL database health check failed during service initialization.");
+      throw new Error(
+        "[memory-service] PostgreSQL database health check failed during service initialization."
+      );
     }
   }
-  const eventBus: EventBus = await createEventBus();
+  const eventBus: EventBus = await createEventBus(cfg.NATS_URL);
 
   const spaceRepo: SpaceRepository = dbUrl
     ? new PostgresSpaceRepository(db)
@@ -125,6 +145,40 @@ export async function buildMemoryService(): Promise<FastifyInstance> {
   const memoryRepo: MemoryRepository = dbUrl
     ? new PostgresMemoryRepository(db)
     : new InMemoryMemoryTestRepo();
+
+  const collabDb: DatabaseClient | null = cfg.COLLAB_DATABASE_URL
+    ? createDatabaseClient(cfg.COLLAB_DATABASE_URL)
+    : null;
+  const collabRepo: CollaborationRepository | null = collabDb
+    ? new PostgresCollaborationRepository(collabDb)
+    : null;
+
+  const outboxRepo: OutboxRepository | null = dbUrl ? new PostgresOutboxRepository(db) : null;
+  let outboxTimer: NodeJS.Timeout | null = null;
+  if (outboxRepo && outboxRepo.relayPending) {
+    outboxTimer = setInterval(() => {
+      outboxRepo
+        .relayPending!(async (evt) => {
+          await eventBus.publish(
+            evt.eventType,
+            createDomainEvent(evt.eventType, "memory-service", evt.payload)
+          );
+        })
+        .catch((err) => {
+          logger.warn({ err }, "[Memory Outbox] Relay cycle warning");
+        });
+    }, 1000);
+    outboxTimer.unref();
+  }
+
+  app.addHook("onClose", async () => {
+    if (outboxTimer) clearInterval(outboxTimer);
+    await eventBus.close().catch((err) => logger.warn({ err }, "[Memory] EventBus close warning"));
+    if (collabDb) {
+      await collabDb.close().catch((err) => logger.warn({ err }, "[Memory] Collab DB close warning"));
+    }
+    await db.close().catch((err) => logger.warn({ err }, "[Memory] DB close warning"));
+  });
 
   const allowedOrigins = [
     "http://localhost:3000",
@@ -144,8 +198,7 @@ export async function buildMemoryService(): Promise<FastifyInstance> {
     credentials: true,
   });
 
-  const jwtSecret = process.env.JWT_SECRET || "dev-jwt-insecure-secret-change-in-production-min32chars";
-  await app.register(fastifyJwt, { secret: jwtSecret });
+  await app.register(fastifyJwt, { secret: cfg.JWT_SECRET });
 
   // Health check
   app.get("/health", async (req, reply) => {
@@ -159,20 +212,67 @@ export async function buildMemoryService(): Promise<FastifyInstance> {
     );
   });
 
-  // Helper: require authenticated user (no anonymous fallbacks)
+  // Strict authenticated user extraction (zero test bypasses)
   async function requireAuthUser(req: FastifyRequest): Promise<string> {
     try {
       const claims: any = await req.jwtVerify();
-      if (!claims || !claims.sub) {
-        throw new Error("Missing sub in JWT");
+      const userId = claims?.sub || claims?.userId;
+      if (!userId || typeof userId !== "string") {
+        throw new UnauthorizedError("Missing subject in JWT");
       }
-      return claims.sub;
+      return userId;
     } catch {
-      // In isolated tests without JWT token provided in headers, allow test user
-      if (process.env.NODE_ENV === "test") {
-        return "12345678-1234-4234-8234-123456789012";
+      throw new UnauthorizedError("Valid authentication token required");
+    }
+  }
+
+  async function assertSpaceAccess(
+    spaceId: string,
+    userId: string,
+    requireWrite = false
+  ): Promise<MemorySpace> {
+    const space = await spaceRepo.findSpaceById(spaceId);
+    if (!space) {
+      throw new ForbiddenError("Space not found or access denied");
+    }
+    if (space.ownerId === userId) {
+      return space;
+    }
+    if (collabRepo) {
+      const member = await collabRepo.getMember(spaceId, userId);
+      if (member) {
+        if (requireWrite && member.role === "viewer") {
+          throw new ForbiddenError("Viewer role does not permit write operations");
+        }
+        return space;
       }
-      throw new Error("UNAUTHORIZED");
+    }
+    throw new ForbiddenError("You do not have access to this memory space");
+  }
+
+  async function publishDomainEvent(
+    subject: string,
+    eventType: string,
+    aggregateId: string,
+    payload: Record<string, any>
+  ): Promise<void> {
+    if (outboxRepo) {
+      await outboxRepo.stageEvent({
+        eventType: subject,
+        aggregateType: "memory",
+        aggregateId,
+        payload,
+      });
+      if (outboxRepo.relayPending) {
+        await outboxRepo.relayPending(async (evt) => {
+          await eventBus.publish(
+            evt.eventType,
+            createDomainEvent(eventType, "memory-service", evt.payload)
+          );
+        });
+      }
+    } else {
+      await eventBus.publish(subject, createDomainEvent(eventType, "memory-service", payload));
     }
   }
 
@@ -184,13 +284,7 @@ export async function buildMemoryService(): Promise<FastifyInstance> {
   });
 
   app.post("/api/v1/spaces", async (req: FastifyRequest, reply: FastifyReply) => {
-    let userId: string;
-    try {
-      userId = await requireAuthUser(req);
-    } catch {
-      return reply.status(401).send(createErrorResponse("UNAUTHORIZED", "Valid authentication token required"));
-    }
-
+    const userId = await requireAuthUser(req);
     const parseResult = CreateSpaceSchema.safeParse(req.body);
     if (!parseResult.success) {
       return reply.status(400).send(createErrorResponse("VALIDATION_ERROR", "Invalid space payload"));
@@ -210,39 +304,56 @@ export async function buildMemoryService(): Promise<FastifyInstance> {
     };
 
     await spaceRepo.createSpace(space);
-
-    await eventBus.publish(
-      "memory.space.created",
-      createDomainEvent("space.created", "memory-service", { spaceId, ownerId: userId, name: space.name })
-    );
+    await publishDomainEvent("memory.space.created", "space.created", spaceId, {
+      spaceId,
+      ownerId: userId,
+      name: space.name,
+    });
 
     return reply.status(201).send(createSuccessResponse(space));
   });
 
-  // List Spaces for current user
+  // List Spaces for current user (owned + collaborated via collab_db)
   app.get("/api/v1/spaces", async (req: FastifyRequest, reply: FastifyReply) => {
-    let userId: string | undefined;
-    try {
-      userId = await requireAuthUser(req);
-    } catch {
-      // If unauthenticated, return 401
-      return reply.status(401).send(createErrorResponse("UNAUTHORIZED", "Valid authentication token required"));
+    const userId = await requireAuthUser(req);
+    const ownedSpaces = await spaceRepo.listSpaces(userId);
+    if (!collabDb) {
+      return reply.status(200).send(createSuccessResponse(ownedSpaces));
     }
 
-    const spaces = await spaceRepo.listSpaces(userId);
-    return reply.status(200).send(createSuccessResponse(spaces));
-  });
-
-  // Get Space by ID
-  app.get("/api/v1/spaces/:spaceId", async (req: FastifyRequest<{ Params: { spaceId: string } }>, reply) => {
-    const space = await spaceRepo.findSpaceById(req.params.spaceId);
-    if (!space) {
-      return reply.status(404).send(createErrorResponse("SPACE_NOT_FOUND", "Space does not exist"));
+    const memberRes = await collabDb.query<{ space_id: string }>(
+      `SELECT space_id FROM space_members WHERE user_id = $1`,
+      [userId]
+    );
+    const seen = new Set(ownedSpaces.map((s) => s.id));
+    const combined = [...ownedSpaces];
+    for (const row of memberRes.rows) {
+      if (!seen.has(row.space_id)) {
+        const memberSpace = await spaceRepo.findSpaceById(row.space_id);
+        if (memberSpace) {
+          seen.add(memberSpace.id);
+          combined.push(memberSpace);
+        }
+      }
     }
-    return reply.status(200).send(createSuccessResponse(space));
+    return reply.status(200).send(createSuccessResponse(combined));
   });
 
-  // 2. Create Profile inside Space (Child, Parent, Pet, etc.)
+  // Get Space by ID (requires membership/ownership)
+  app.get(
+    "/api/v1/spaces/:spaceId",
+    async (req: FastifyRequest<{ Params: { spaceId: string } }>, reply) => {
+      const userId = await requireAuthUser(req);
+      const space = await spaceRepo.findSpaceById(req.params.spaceId);
+      if (!space) {
+        return reply.status(404).send(createErrorResponse("SPACE_NOT_FOUND", "Space does not exist"));
+      }
+      await assertSpaceAccess(space.id, userId, false);
+      return reply.status(200).send(createSuccessResponse(space));
+    }
+  );
+
+  // 2. Create Profile inside Space
   const CreateProfileSchema = z.object({
     name: z.string().min(1),
     relationship: z.string().optional(),
@@ -250,121 +361,123 @@ export async function buildMemoryService(): Promise<FastifyInstance> {
     birthDate: z.string().optional(),
   });
 
-  app.post("/api/v1/spaces/:spaceId/profiles", async (req: FastifyRequest<{ Params: { spaceId: string } }>, reply) => {
-    const space = await spaceRepo.findSpaceById(req.params.spaceId);
-    if (!space) {
-      return reply.status(404).send(createErrorResponse("SPACE_NOT_FOUND", "Space does not exist"));
+  app.post(
+    "/api/v1/spaces/:spaceId/profiles",
+    async (req: FastifyRequest<{ Params: { spaceId: string } }>, reply) => {
+      const userId = await requireAuthUser(req);
+      const space = await spaceRepo.findSpaceById(req.params.spaceId);
+      if (!space) {
+        return reply.status(404).send(createErrorResponse("SPACE_NOT_FOUND", "Space does not exist"));
+      }
+      await assertSpaceAccess(space.id, userId, true);
+
+      const parseResult = CreateProfileSchema.safeParse(req.body);
+      if (!parseResult.success) {
+        return reply.status(400).send(createErrorResponse("VALIDATION_ERROR", "Invalid profile payload"));
+      }
+
+      const profileId = crypto.randomUUID();
+      const now = new Date().toISOString();
+
+      const profile: SpaceProfile = {
+        id: profileId,
+        spaceId: req.params.spaceId,
+        name: parseResult.data.name,
+        relationship: parseResult.data.relationship,
+        type: parseResult.data.type,
+        birthDate: parseResult.data.birthDate,
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      await spaceRepo.createProfile(profile);
+      await publishDomainEvent("memory.profile.created", "profile.created", profileId, {
+        profileId,
+        spaceId: req.params.spaceId,
+        name: profile.name,
+      });
+
+      return reply.status(201).send(createSuccessResponse(profile));
     }
-
-    const parseResult = CreateProfileSchema.safeParse(req.body);
-    if (!parseResult.success) {
-      return reply.status(400).send(createErrorResponse("VALIDATION_ERROR", "Invalid profile payload"));
-    }
-
-    const profileId = crypto.randomUUID();
-    const now = new Date().toISOString();
-
-    const profile: SpaceProfile = {
-      id: profileId,
-      spaceId: req.params.spaceId,
-      name: parseResult.data.name,
-      relationship: parseResult.data.relationship,
-      type: parseResult.data.type,
-      birthDate: parseResult.data.birthDate,
-      createdAt: now,
-      updatedAt: now,
-    };
-
-    await spaceRepo.createProfile(profile);
-
-    await eventBus.publish(
-      "memory.profile.created",
-      createDomainEvent("profile.created", "memory-service", { profileId, spaceId: req.params.spaceId, name: profile.name })
-    );
-
-    return reply.status(201).send(createSuccessResponse(profile));
-  });
+  );
 
   // List Profiles in Space
-  app.get("/api/v1/spaces/:spaceId/profiles", async (req: FastifyRequest<{ Params: { spaceId: string } }>, reply) => {
-    const list = await spaceRepo.listProfiles(req.params.spaceId);
-    return reply.status(200).send(createSuccessResponse(list));
-  });
+  app.get(
+    "/api/v1/spaces/:spaceId/profiles",
+    async (req: FastifyRequest<{ Params: { spaceId: string } }>, reply) => {
+      const userId = await requireAuthUser(req);
+      const space = await spaceRepo.findSpaceById(req.params.spaceId);
+      if (!space) {
+        return reply.status(404).send(createErrorResponse("SPACE_NOT_FOUND", "Space does not exist"));
+      }
+      await assertSpaceAccess(space.id, userId, false);
+      const list = await spaceRepo.listProfiles(req.params.spaceId);
+      return reply.status(200).send(createSuccessResponse(list));
+    }
+  );
 
   // 3. Create Memory (Story, Photo, Audio Note, Video)
   const CreateMemoryPayloadSchema = z.object({
     title: z.string().min(1),
-    content: z.string().optional(),
+    content: z.string().optional().nullable(),
     format: z.enum(["image", "video", "audio", "story", "document", "mixed"]).default("image"),
     capturedAt: z.string().optional(),
-    location: z.string().optional(),
+    location: z.string().optional().nullable(),
     associatedProfileIds: z.array(z.string().uuid()).optional(),
     mediaIds: z.array(z.string().uuid()).optional(),
     tags: z.array(z.string()).optional(),
   });
 
-  app.post("/api/v1/spaces/:spaceId/memories", async (req: FastifyRequest<{ Params: { spaceId: string } }>, reply) => {
-    let userId: string;
-    try {
-      userId = await requireAuthUser(req);
-    } catch {
-      return reply.status(401).send(createErrorResponse("UNAUTHORIZED", "Valid authentication token required"));
-    }
+  app.post(
+    "/api/v1/spaces/:spaceId/memories",
+    async (req: FastifyRequest<{ Params: { spaceId: string } }>, reply) => {
+      const userId = await requireAuthUser(req);
+      const space = await spaceRepo.findSpaceById(req.params.spaceId);
+      if (!space) {
+        return reply.status(404).send(createErrorResponse("SPACE_NOT_FOUND", "Space does not exist"));
+      }
+      await assertSpaceAccess(space.id, userId, true);
 
-    const space = await spaceRepo.findSpaceById(req.params.spaceId);
-    if (!space) {
-      return reply.status(404).send(createErrorResponse("SPACE_NOT_FOUND", "Space does not exist"));
-    }
+      const parseResult = CreateMemoryPayloadSchema.safeParse(req.body);
+      if (!parseResult.success) {
+        return reply.status(400).send(createErrorResponse("VALIDATION_ERROR", "Invalid memory payload"));
+      }
 
-    const parseResult = CreateMemoryPayloadSchema.safeParse(req.body);
-    if (!parseResult.success) {
-      return reply.status(400).send(createErrorResponse("VALIDATION_ERROR", "Invalid memory payload"));
-    }
+      const memoryId = crypto.randomUUID();
+      const now = new Date().toISOString();
 
-    const memoryId = crypto.randomUUID();
-    const now = new Date().toISOString();
+      const memory: Memory = {
+        id: memoryId,
+        spaceId: req.params.spaceId,
+        authorId: userId,
+        title: parseResult.data.title,
+        content: parseResult.data.content || undefined,
+        format: parseResult.data.format,
+        capturedAt: parseResult.data.capturedAt || now,
+        location: parseResult.data.location || undefined,
+        isFavorite: false,
+        associatedProfileIds: parseResult.data.associatedProfileIds || [],
+        mediaIds: parseResult.data.mediaIds || [],
+        tags: parseResult.data.tags || [],
+        createdAt: now,
+        updatedAt: now,
+      };
 
-    const memory: Memory = {
-      id: memoryId,
-      spaceId: req.params.spaceId,
-      authorId: userId,
-      title: parseResult.data.title,
-      content: parseResult.data.content,
-      format: parseResult.data.format,
-      capturedAt: parseResult.data.capturedAt || now,
-      location: parseResult.data.location,
-      isFavorite: false,
-      associatedProfileIds: parseResult.data.associatedProfileIds || [],
-      mediaIds: parseResult.data.mediaIds || [],
-      tags: parseResult.data.tags || [],
-      createdAt: now,
-      updatedAt: now,
-    };
-
-    await memoryRepo.createMemory(memory);
-
-    await eventBus.publish(
-      "memory.memory.created",
-      createDomainEvent("memory.created", "memory-service", {
+      await memoryRepo.createMemory(memory);
+      await publishDomainEvent("memory.memory.created", "memory.created", memoryId, {
         memoryId,
         spaceId: req.params.spaceId,
         authorId: userId,
         format: memory.format,
-      })
-    );
+      });
 
-    return reply.status(201).send(createSuccessResponse(memory));
-  });
+      return reply.status(201).send(createSuccessResponse(memory));
+    }
+  );
 
   // POST /api/v1/memories (alias accepting spaceId in body)
   app.post("/api/v1/memories", async (req: FastifyRequest<{ Body: any }>, reply: FastifyReply) => {
-    let userId: string;
-    try {
-      userId = await requireAuthUser(req);
-    } catch {
-      return reply.status(401).send(createErrorResponse("UNAUTHORIZED", "Valid authentication token required"));
-    }
-
+    const userId = await requireAuthUser(req);
     const body = (req.body as any) || {};
     const spaceId = body.spaceId;
     if (!spaceId) {
@@ -375,6 +488,7 @@ export async function buildMemoryService(): Promise<FastifyInstance> {
     if (!space) {
       return reply.status(404).send(createErrorResponse("SPACE_NOT_FOUND", "Space does not exist"));
     }
+    await assertSpaceAccess(space.id, userId, true);
 
     const parseResult = CreateMemoryPayloadSchema.safeParse(req.body);
     if (!parseResult.success) {
@@ -389,10 +503,10 @@ export async function buildMemoryService(): Promise<FastifyInstance> {
       spaceId,
       authorId: userId,
       title: parseResult.data.title,
-      content: parseResult.data.content,
+      content: parseResult.data.content || undefined,
       format: parseResult.data.format,
       capturedAt: parseResult.data.capturedAt || now,
-      location: parseResult.data.location,
+      location: parseResult.data.location || undefined,
       isFavorite: false,
       associatedProfileIds: parseResult.data.associatedProfileIds || [],
       mediaIds: parseResult.data.mediaIds || [],
@@ -402,50 +516,151 @@ export async function buildMemoryService(): Promise<FastifyInstance> {
     };
 
     await memoryRepo.createMemory(memory);
-
-    await eventBus.publish(
-      "memory.memory.created",
-      createDomainEvent("memory.created", "memory-service", {
-        memoryId,
-        spaceId,
-        authorId: userId,
-        format: memory.format,
-      })
-    );
+    await publishDomainEvent("memory.memory.created", "memory.created", memoryId, {
+      memoryId,
+      spaceId,
+      authorId: userId,
+      format: memory.format,
+    });
 
     return reply.status(201).send(createSuccessResponse(memory));
   });
 
   // GET /api/v1/memories?spaceId=... (alias)
-  app.get("/api/v1/memories", async (req: FastifyRequest<{ Querystring: { spaceId?: string; profileId?: string; isFavorite?: string } }>, reply) => {
-    const spaceId = req.query.spaceId;
-    if (!spaceId) {
-      return reply.status(400).send(createErrorResponse("MISSING_SPACE_ID", "spaceId query parameter required"));
+  app.get(
+    "/api/v1/memories",
+    async (
+      req: FastifyRequest<{ Querystring: { spaceId?: string; profileId?: string; isFavorite?: string } }>,
+      reply
+    ) => {
+      const userId = await requireAuthUser(req);
+      const spaceId = req.query.spaceId;
+      if (!spaceId) {
+        return reply
+          .status(400)
+          .send(createErrorResponse("MISSING_SPACE_ID", "spaceId query parameter required"));
+      }
+      await assertSpaceAccess(spaceId, userId, false);
+      const list = await memoryRepo.listMemories(spaceId, {
+        profileId: req.query.profileId,
+        isFavorite: req.query.isFavorite !== undefined ? req.query.isFavorite === "true" : undefined,
+      });
+      return reply.status(200).send(createSuccessResponse(list));
     }
-    const list = await memoryRepo.listMemories(spaceId, {
-      profileId: req.query.profileId,
-      isFavorite: req.query.isFavorite !== undefined ? req.query.isFavorite === "true" : undefined,
-    });
-    return reply.status(200).send(createSuccessResponse(list));
-  });
+  );
 
   // Query Memories (Chronological Timeline or Filtered)
-  app.get("/api/v1/spaces/:spaceId/memories", async (req: FastifyRequest<{ Params: { spaceId: string }; Querystring: { profileId?: string; isFavorite?: string } }>, reply) => {
-    const list = await memoryRepo.listMemories(req.params.spaceId, {
-      profileId: req.query.profileId,
-      isFavorite: req.query.isFavorite !== undefined ? req.query.isFavorite === "true" : undefined,
-    });
-    return reply.status(200).send(createSuccessResponse(list));
-  });
+  app.get(
+    "/api/v1/spaces/:spaceId/memories",
+    async (
+      req: FastifyRequest<{
+        Params: { spaceId: string };
+        Querystring: { profileId?: string; isFavorite?: string };
+      }>,
+      reply
+    ) => {
+      const userId = await requireAuthUser(req);
+      await assertSpaceAccess(req.params.spaceId, userId, false);
+      const list = await memoryRepo.listMemories(req.params.spaceId, {
+        profileId: req.query.profileId,
+        isFavorite: req.query.isFavorite !== undefined ? req.query.isFavorite === "true" : undefined,
+      });
+      return reply.status(200).send(createSuccessResponse(list));
+    }
+  );
+
+  // Search Memories in Space (FTS)
+  app.get(
+    "/api/v1/spaces/:spaceId/memories/search",
+    async (
+      req: FastifyRequest<{ Params: { spaceId: string }; Querystring: { q?: string; limit?: string } }>,
+      reply
+    ) => {
+      const userId = await requireAuthUser(req);
+      await assertSpaceAccess(req.params.spaceId, userId, false);
+      const q = req.query.q?.trim();
+      if (!q) {
+        return reply.status(400).send(createErrorResponse("INVALID_QUERY", "q query parameter required"));
+      }
+      const limit = req.query.limit ? Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 100) : 20;
+      const results = await memoryRepo.searchMemories(req.params.spaceId, q, limit);
+      return reply.status(200).send(createSuccessResponse(results));
+    }
+  );
 
   // Get Single Memory
-  app.get("/api/v1/memories/:memoryId", async (req: FastifyRequest<{ Params: { memoryId: string } }>, reply) => {
-    const memory = await memoryRepo.findMemoryById(req.params.memoryId);
-    if (!memory) {
-      return reply.status(404).send(createErrorResponse("MEMORY_NOT_FOUND", "Memory not found"));
+  app.get(
+    "/api/v1/memories/:memoryId",
+    async (req: FastifyRequest<{ Params: { memoryId: string } }>, reply) => {
+      const userId = await requireAuthUser(req);
+      const memory = await memoryRepo.findMemoryById(req.params.memoryId);
+      if (!memory) {
+        return reply.status(404).send(createErrorResponse("MEMORY_NOT_FOUND", "Memory not found"));
+      }
+      await assertSpaceAccess(memory.spaceId, userId, false);
+      return reply.status(200).send(createSuccessResponse(memory));
     }
-    return reply.status(200).send(createSuccessResponse(memory));
+  );
+
+  // Update Memory
+  const UpdateMemoryPayloadSchema = z.object({
+    title: z.string().min(1).optional(),
+    content: z.string().optional().nullable(),
+    capturedAt: z.string().optional(),
+    location: z.string().optional().nullable(),
+    isFavorite: z.boolean().optional(),
+    tags: z.array(z.string()).optional(),
+    associatedProfileIds: z.array(z.string().uuid()).optional(),
+    mediaIds: z.array(z.string().uuid()).optional(),
   });
+
+  app.patch(
+    "/api/v1/memories/:memoryId",
+    async (req: FastifyRequest<{ Params: { memoryId: string } }>, reply) => {
+      const userId = await requireAuthUser(req);
+      const memory = await memoryRepo.findMemoryById(req.params.memoryId);
+      if (!memory) {
+        return reply.status(404).send(createErrorResponse("MEMORY_NOT_FOUND", "Memory not found"));
+      }
+      await assertSpaceAccess(memory.spaceId, userId, true);
+
+      const parseResult = UpdateMemoryPayloadSchema.safeParse(req.body);
+      if (!parseResult.success) {
+        return reply.status(400).send(createErrorResponse("VALIDATION_ERROR", "Invalid memory update payload"));
+      }
+
+      const updated = await memoryRepo.updateMemory(memory.id, {
+        ...parseResult.data,
+        content: parseResult.data.content === null ? undefined : parseResult.data.content,
+        location: parseResult.data.location === null ? undefined : parseResult.data.location,
+      });
+
+      return reply.status(200).send(createSuccessResponse(updated));
+    }
+  );
+
+  // Soft-Delete Memory
+  app.delete(
+    "/api/v1/memories/:memoryId",
+    async (req: FastifyRequest<{ Params: { memoryId: string } }>, reply) => {
+      const userId = await requireAuthUser(req);
+      const memory = await memoryRepo.findMemoryById(req.params.memoryId);
+      if (!memory) {
+        return reply.status(404).send(createErrorResponse("MEMORY_NOT_FOUND", "Memory not found"));
+      }
+      await assertSpaceAccess(memory.spaceId, userId, true);
+
+      const deleted = await memoryRepo.softDeleteMemory(memory.id);
+      if (deleted) {
+        await publishDomainEvent("memory.memory.deleted", "memory.deleted", memory.id, {
+          memoryId: memory.id,
+          spaceId: memory.spaceId,
+          deletedBy: userId,
+        });
+      }
+      return reply.status(200).send(createSuccessResponse({ deleted, memoryId: memory.id }));
+    }
+  );
 
   return app;
 }
@@ -469,4 +684,3 @@ if (process.env.NODE_ENV !== "test") {
     }
   })();
 }
-

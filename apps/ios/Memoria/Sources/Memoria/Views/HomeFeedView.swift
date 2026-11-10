@@ -5,6 +5,7 @@ public struct HomeFeedView: View {
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var isCreatingMemory = false
+    @State private var isShowingAuth = false
 
     public let spaceId: String
 
@@ -43,7 +44,12 @@ public struct HomeFeedView: View {
                     ScrollView {
                         LazyVStack(spacing: 16) {
                             ForEach(memories) { memory in
-                                MemoryCardView(memory: memory)
+                                NavigationLink {
+                                    MemoryDetailView(memory: memory)
+                                } label: {
+                                    MemoryCardView(memory: memory)
+                                }
+                                .buttonStyle(.plain)
                             }
                         }
                         .padding()
@@ -52,6 +58,14 @@ public struct HomeFeedView: View {
             }
             .navigationTitle("Memoria")
             .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button {
+                        isShowingAuth = true
+                    } label: {
+                        Image(systemName: "person.crop.circle")
+                            .foregroundStyle(MemoriaTheme.plum)
+                    }
+                }
                 ToolbarItem(placement: .primaryAction) {
                     Button {
                         isCreatingMemory = true
@@ -65,6 +79,11 @@ public struct HomeFeedView: View {
             .sheet(isPresented: $isCreatingMemory) {
                 MemoryCreateView(spaceId: spaceId) { newMemory in
                     memories.insert(newMemory, at: 0)
+                }
+            }
+            .sheet(isPresented: $isShowingAuth) {
+                AuthSheetView { _ in
+                    Task { await loadMemories() }
                 }
             }
             .task {
@@ -118,10 +137,12 @@ public struct MemoryCardView: View {
                 }
             }
 
-            Text(memory.content)
-                .font(.body)
-                .foregroundStyle(MemoriaTheme.textPrimary)
-                .lineLimit(3)
+            if let content = memory.content, !content.isEmpty {
+                Text(content)
+                    .font(.body)
+                    .foregroundStyle(MemoriaTheme.textPrimary)
+                    .lineLimit(3)
+            }
 
             HStack {
                 Text(memory.capturedAt.prefix(10))

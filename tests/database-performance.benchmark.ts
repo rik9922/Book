@@ -8,7 +8,8 @@ import {
 } from "@memory-capsule/database";
 
 test("Database Performance & Architecture Benchmark Suite", async (t) => {
-  const dbUrl = process.env.MEMORY_DATABASE_URL || "postgres://ritik@localhost:5432/memory_db";
+  const dbUrl = process.env.MEMORY_DATABASE_URL || process.env.DATABASE_URL;
+  assert.ok(dbUrl, "MEMORY_DATABASE_URL or DATABASE_URL must be configured");
   const db = createDatabaseClient(dbUrl);
   const memoryRepo = new PostgresMemoryRepository(db);
   const outboxRepo = new PostgresOutboxRepository(db);

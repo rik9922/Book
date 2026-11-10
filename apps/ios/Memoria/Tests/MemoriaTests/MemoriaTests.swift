@@ -41,6 +41,60 @@ struct MemoriaTests {
 
         #expect(loaded.count == 1)
         #expect(loaded.first?.title == "Offline Test Memory")
+
+        // Enqueue durable mutation and verify clearCache() preserves pending_mutations.json
+        let mutation = PendingMutation(
+            entityType: "memory",
+            action: "create",
+            payload: Data("{\"title\":\"Pending\"}".utf8)
+        )
+        try LocalStorageService.shared.enqueueMutation(mutation)
+        LocalStorageService.shared.clearCache()
+
+        #expect(LocalStorageService.shared.loadLocalMemories(forSpaceId: spaceId).isEmpty)
+        let pendingAfterClear = LocalStorageService.shared.loadPendingMutations()
+        #expect(pendingAfterClear.contains(where: { $0.id == mutation.id }))
+        try LocalStorageService.shared.removeMutation(id: mutation.id)
+    }
+
+    @Test("Verify MemoryFormat & Gateway Envelope Contract Parity")
+    func testMemoryBackendContractParity() throws {
+        // Backend sends format: "image" | "audio" and optional/null content inside { items, hasMore }
+        let json = """
+        {
+          "success": true,
+          "data": {
+            "items": [
+              {
+                "id": "11111111-1111-4111-8111-111111111111",
+                "spaceId": "22222222-2222-4222-8222-222222222222",
+                "authorId": "33333333-3333-4333-8333-333333333333",
+                "title": "Silent Photograph",
+                "content": null,
+                "format": "image",
+                "capturedAt": "2026-11-10T10:00:00Z",
+                "isFavorite": false,
+                "associatedProfileIds": [],
+                "mediaIds": ["44444444-4444-4444-8444-444444444444"],
+                "tags": ["heirloom"],
+                "createdAt": "2026-11-10T10:00:00Z"
+              }
+            ],
+            "hasMore": false,
+            "nextCursor": null
+          }
+        }
+        """
+        struct GatewayEnvelope: Decodable {
+            let success: Bool
+            let data: MemoryPageDTO
+        }
+        let decoded = try JSONDecoder().decode(GatewayEnvelope.self, from: Data(json.utf8))
+        #expect(decoded.success == true)
+        #expect(decoded.data.items.count == 1)
+        #expect(decoded.data.items[0].format == .image)
+        #expect(decoded.data.items[0].content == nil)
+        #expect(decoded.data.items[0].mediaIds.count == 1)
     }
 
     @Test("Verify Synthetic User Authentication")
@@ -90,6 +144,17 @@ struct Book3DEngineTests {
         let pageEnd = BookAnimationContract.computePageTurnAngle(turnProgress: 1.0)
         #expect(pageStart == 0.0)
         #expect(abs(pageEnd - 2.88) < 0.0001)
+    }
+
+    @Test("Verify MemoriaAPIClient Query URL Composition Avoids Percent-Encoded Question Marks")
+    func testAPIClientQueryComposition() async throws {
+        let client = MemoriaAPIClient(baseURL: URL(string: "http://127.0.0.1:4000/api/v1")!)
+        let url = await client.buildURL(
+            path: "notifications",
+            queryItems: [URLQueryItem(name: "unreadOnly", value: "true")]
+        )
+        #expect(url.absoluteString == "http://127.0.0.1:4000/api/v1/notifications?unreadOnly=true")
+        #expect(!url.absoluteString.contains("%3F"))
     }
 
     @Test("Verify Book3DManifestDTO Decoding Matches Book Service JSON")

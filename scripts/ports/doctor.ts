@@ -79,36 +79,45 @@ export async function runDoctor(): Promise<boolean> {
   });
 
   // 5. PostgreSQL 17 Local Cluster Check
-  const dbUrl = process.env.MEMORY_DATABASE_URL || "postgres://ritik@localhost:5432/memory_db";
-  try {
-    const db = createDatabaseClient(dbUrl);
-    const isHealthy = await db.healthCheck();
-    await db.close();
-    checks.push({
-      category: "Infrastructure",
-      name: "PostgreSQL Primary Cluster (Port 5432)",
-      passed: isHealthy,
-      message: isHealthy ? "Online & responding to ping" : "Database connection failed",
-    });
-  } catch (err: any) {
+  const dbUrl = process.env.MEMORY_DATABASE_URL || process.env.DATABASE_URL;
+  if (!dbUrl) {
     checks.push({
       category: "Infrastructure",
       name: "PostgreSQL Primary Cluster (Port 5432)",
       passed: false,
-      message: `Connection error: ${err.message}`,
+      message: "MEMORY_DATABASE_URL or DATABASE_URL is not set",
     });
+  } else {
+    try {
+      const db = createDatabaseClient(dbUrl);
+      const isHealthy = await db.healthCheck();
+      await db.close();
+      checks.push({
+        category: "Infrastructure",
+        name: "PostgreSQL Primary Cluster (Port 5432)",
+        passed: isHealthy,
+        message: isHealthy ? "Online & responding to ping" : "Database connection failed",
+      });
+    } catch (err: any) {
+      checks.push({
+        category: "Infrastructure",
+        name: "PostgreSQL Primary Cluster (Port 5432)",
+        passed: false,
+        message: `Connection error: ${err.message}`,
+      });
+    }
   }
 
   // 6. Local Storage Directory ($0 Zero-Budget Policy)
   try {
-    const storagePath = path.resolve(process.cwd(), "storage/local");
+    const storagePath = path.resolve(process.cwd(), process.env.LOCAL_STORAGE_PATH || "storage_data");
     await fs.mkdir(path.join(storagePath, "originals"), { recursive: true });
     await fs.mkdir(path.join(storagePath, "derivatives"), { recursive: true });
     checks.push({
       category: "Storage",
       name: "LocalDiskStorageDriver ($0 Budget)",
       passed: true,
-      message: "Verified 'storage/local/originals' and 'derivatives' exist",
+      message: `Verified '${path.basename(storagePath)}/originals' and 'derivatives' exist`,
     });
   } catch (err: any) {
     checks.push({

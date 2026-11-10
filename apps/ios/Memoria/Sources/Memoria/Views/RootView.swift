@@ -13,17 +13,23 @@ public struct RootView: View {
                 }
                 .tag(0)
 
+            FamilyCirclesView()
+                .tabItem {
+                    Label("Circles", systemImage: "person.2.fill")
+                }
+                .tag(1)
+
             BookshelfView()
                 .tabItem {
                     Label("Bookshelf", systemImage: "books.vertical.fill")
                 }
-                .tag(1)
+                .tag(2)
 
             SettingsView()
                 .tabItem {
                     Label("Settings", systemImage: "gearshape.fill")
                 }
-                .tag(2)
+                .tag(3)
         }
         .tint(MemoriaTheme.plum)
     }

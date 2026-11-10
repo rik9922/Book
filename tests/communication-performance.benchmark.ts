@@ -1,6 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
+import jwt from "jsonwebtoken";
+import {
+  BaseServiceConfigSchema,
+  validateServiceConfig,
+} from "@memory-capsule/contracts";
 import {
   createMemoryClient,
   createClientMetadata,
@@ -23,26 +28,35 @@ function calculatePercentiles(latencies: number[]): { p50: number; p95: number; 
 }
 
 test("Communication Performance Benchmark: Internal HTTP/REST vs gRPC/HTTP2", async (t) => {
+  const cfg = validateServiceConfig(BaseServiceConfigSchema);
   const SERVICE_KEY = "test-internal-benchmark-key";
   process.env.INTERNAL_SERVICE_KEY = SERVICE_KEY;
 
-  const dbMemory = createDatabaseClient(process.env.MEMORY_DATABASE_URL || "postgres://ritik@localhost:5432/memory_db");
+  const memoryDbUrl = process.env.MEMORY_DATABASE_URL || process.env.DATABASE_URL;
+  assert.ok(memoryDbUrl, "MEMORY_DATABASE_URL or DATABASE_URL must be configured");
+  const dbMemory = createDatabaseClient(memoryDbUrl);
   const memoryRepo = new PostgresMemoryRepository(dbMemory);
 
   const testSpaceId = crypto.randomUUID();
+  const ownerId = crypto.randomUUID();
   const testMemoryId = crypto.randomUUID();
+  const restAuthToken = jwt.sign(
+    { sub: ownerId, email: "benchmark@memoria.internal" },
+    cfg.JWT_SECRET,
+    { expiresIn: "1h" }
+  );
 
   // Seed benchmark space & memory
   await dbMemory.query(
     `INSERT INTO memory_spaces (id, owner_id, name, description, space_type)
      VALUES ($1, $2, 'Benchmark Space', 'Benchmarking REST vs gRPC', 'family')`,
-    [testSpaceId, crypto.randomUUID()]
+    [testSpaceId, ownerId]
   );
 
   await memoryRepo.createMemory({
     id: testMemoryId,
     spaceId: testSpaceId,
-    authorId: crypto.randomUUID(),
+    authorId: ownerId,
     title: "Benchmark Autumn Sunset in the Bavarian Alps",
     content: "Golden light casting long silhouettes across the mountain ridgeline with fresh pine fragrance.",
     format: "image",
@@ -82,7 +96,11 @@ test("Communication Performance Benchmark: Internal HTTP/REST vs gRPC/HTTP2", as
 
     // --- Warmup ---
     for (let i = 0; i < 20; i++) {
-      await restApp.inject({ method: "GET", url: `/api/v1/memories/${testMemoryId}` });
+      await restApp.inject({
+        method: "GET",
+        url: `/api/v1/memories/${testMemoryId}`,
+        headers: { authorization: `Bearer ${restAuthToken}` },
+      });
       await new Promise((resolve) => {
         grpcClient.getMemory({ memory_id: testMemoryId, space_id: testSpaceId }, meta, resolve);
       });
@@ -96,6 +114,7 @@ test("Communication Performance Benchmark: Internal HTTP/REST vs gRPC/HTTP2", as
       const res = await restApp.inject({
         method: "GET",
         url: `/api/v1/memories/${testMemoryId}`,
+        headers: { authorization: `Bearer ${restAuthToken}` },
       });
       assert.equal(res.statusCode, 200);
       restLatencies.push(performance.now() - t0);

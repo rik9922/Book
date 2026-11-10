@@ -15,12 +15,18 @@ export interface JobManager {
 
 class InMemoryJobManager implements JobManager {
   private workers = new Map<string, Array<(job: any) => Promise<any>>>();
+  private timers = new Set<NodeJS.Timeout>();
+  private closed = false;
 
   async addJob<T>(queueName: string, jobName: string, data: T): Promise<void> {
+    if (this.closed) return;
     logger.debug({ queueName, jobName }, "[InMemoryJobManager] Enqueued job");
     const registered = this.workers.get(queueName) || [];
-    setTimeout(async () => {
+    const timer = setTimeout(async () => {
+      this.timers.delete(timer);
+      if (this.closed) return;
       for (const worker of registered) {
+        if (this.closed) break;
         try {
           await worker({ name: jobName, data, id: `job-${Date.now()}` });
         } catch (err) {
@@ -28,6 +34,7 @@ class InMemoryJobManager implements JobManager {
         }
       }
     }, 10);
+    this.timers.add(timer);
   }
 
   registerWorker<T>(queueName: string, processor: (job: { name: string; data: T; id?: string }) => Promise<any>): void {
@@ -38,24 +45,30 @@ class InMemoryJobManager implements JobManager {
   }
 
   async close(): Promise<void> {
+    this.closed = true;
+    for (const timer of this.timers) {
+      clearTimeout(timer);
+    }
+    this.timers.clear();
     this.workers.clear();
   }
 }
 
 class BullMQJobManager implements JobManager {
-  private redis: Redis;
+  private queueRedis: Redis;
+  private workerConnections: Redis[] = [];
   private queues = new Map<string, Queue>();
   private activeWorkers: Worker[] = [];
 
-  constructor(redis: Redis) {
-    this.redis = redis;
+  constructor(queueRedis: Redis) {
+    this.queueRedis = queueRedis;
   }
 
   private getQueue(name: string): Queue {
     let q = this.queues.get(name);
     if (!q) {
       q = new Queue(name, {
-        connection: this.redis,
+        connection: this.queueRedis,
         defaultJobOptions: {
           attempts: 3,
           backoff: {
@@ -81,13 +94,20 @@ class BullMQJobManager implements JobManager {
     queueName: string,
     processor: (job: { name: string; data: T; id?: string }) => Promise<any>
   ): void {
+    // BullMQ Workers issue blocking BRPOPLPUSH/BZPOPMIN commands and MUST own a dedicated connection
+    const workerRedis = this.queueRedis.duplicate({ maxRetriesPerRequest: null });
+    workerRedis.on("error", (err) => {
+      logger.error({ err: err.message, queueName }, "[BullMQ Worker] Redis connection error");
+    });
+    this.workerConnections.push(workerRedis);
+
     const worker = new Worker(
       queueName,
       async (job: Job) => {
         logger.info({ queueName, jobId: job.id, jobName: job.name }, "[BullMQ] Processing job");
         return processor({ name: job.name, data: job.data, id: job.id });
       },
-      { connection: this.redis }
+      { connection: workerRedis }
     );
 
     worker.on("failed", (job, err) => {
@@ -104,7 +124,10 @@ class BullMQJobManager implements JobManager {
     for (const q of this.queues.values()) {
       await q.close();
     }
-    await this.redis.quit();
+    for (const conn of this.workerConnections) {
+      await conn.quit().catch(() => conn.disconnect());
+    }
+    await this.queueRedis.quit().catch(() => this.queueRedis.disconnect());
   }
 }
 

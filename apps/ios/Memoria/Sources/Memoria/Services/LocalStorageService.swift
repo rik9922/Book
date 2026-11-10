@@ -24,40 +24,55 @@ public final class LocalStorageService: @unchecked Sendable {
     public static let shared = LocalStorageService()
 
     private let fileManager = FileManager.default
-    private let storageDirectory: URL
+    /// Durable user state & pending offline mutations (never wiped by clearCache)
+    private let archiveDirectory: URL
+    /// Disposable read cache (feed snapshots, thumbnails) safely cleared by clearCache()
+    private let cacheDirectory: URL
     private let queueFileURL: URL
     private let lock = NSLock()
 
     private init() {
-        // Use Application Support for durable, non-ephemeral offline storage
-        let paths = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)
-        self.storageDirectory = paths[0].appendingPathComponent("MemoriaArchive", isDirectory: true)
-        self.queueFileURL = storageDirectory.appendingPathComponent("pending_mutations.json")
-        try? fileManager.createDirectory(at: storageDirectory, withIntermediateDirectories: true)
+        let appSupportPaths = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)
+        self.archiveDirectory = appSupportPaths[0].appendingPathComponent("MemoriaArchive", isDirectory: true)
+        self.queueFileURL = archiveDirectory.appendingPathComponent("pending_mutations.json")
+
+        let cachePaths = fileManager.urls(for: .cachesDirectory, in: .userDomainMask)
+        self.cacheDirectory = cachePaths[0].appendingPathComponent("MemoriaCache", isDirectory: true)
+
+        try? fileManager.createDirectory(at: archiveDirectory, withIntermediateDirectories: true)
+        try? fileManager.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
     }
 
-    // MARK: - Memories Persistence
+    private func writeProtected(_ data: Data, to url: URL) throws {
+        #if os(iOS)
+        try data.write(to: url, options: [.atomic, .completeFileProtection])
+        #else
+        try data.write(to: url, options: .atomic)
+        #endif
+    }
+
+    // MARK: - Memories Cache (Disposable)
 
     public func saveMemoriesLocally(_ memories: [Memory], forSpaceId spaceId: String) throws {
         lock.lock()
         defer { lock.unlock() }
-        let fileURL = storageDirectory.appendingPathComponent("memories_\(spaceId).json")
+        let fileURL = cacheDirectory.appendingPathComponent("memories_\(spaceId).json")
         let data = try JSONEncoder().encode(memories)
-        try data.write(to: fileURL, options: .atomic)
+        try writeProtected(data, to: fileURL)
     }
 
     public func loadLocalMemories(forSpaceId spaceId: String) -> [Memory] {
         lock.lock()
         defer { lock.unlock() }
-        let fileURL = storageDirectory.appendingPathComponent("memories_\(spaceId).json")
-        guard let data = try? Data(contentsOf: fileURL),
-              let memories = try? JSONDecoder().decode([Memory].self, from: data) else {
-            return []
+        let cacheURL = cacheDirectory.appendingPathComponent("memories_\(spaceId).json")
+        if let data = try? Data(contentsOf: cacheURL),
+           let memories = try? JSONDecoder().decode([Memory].self, from: data) {
+            return memories
         }
-        return memories
+        return []
     }
 
-    // MARK: - Durable Offline Pending Mutation Queue
+    // MARK: - Durable Offline Pending Mutation Queue (Never deleted by clearCache)
 
     public func enqueueMutation(_ mutation: PendingMutation) throws {
         lock.lock()
@@ -65,7 +80,7 @@ public final class LocalStorageService: @unchecked Sendable {
         var queue = loadPendingMutationsInternal()
         queue.append(mutation)
         let data = try JSONEncoder().encode(queue)
-        try data.write(to: queueFileURL, options: .atomic)
+        try writeProtected(data, to: queueFileURL)
     }
 
     public func loadPendingMutations() -> [PendingMutation] {
@@ -88,17 +103,24 @@ public final class LocalStorageService: @unchecked Sendable {
         var queue = loadPendingMutationsInternal()
         queue.removeAll { $0.id == id }
         let data = try JSONEncoder().encode(queue)
-        try data.write(to: queueFileURL, options: .atomic)
+        try writeProtected(data, to: queueFileURL)
     }
 
+    /// Clears only disposable read caches; preserves durable pending_mutations.json and book_states.json.
+    public func clearCache() {
+        lock.lock()
+        defer { lock.unlock() }
+        try? fileManager.removeItem(at: cacheDirectory)
+        try? fileManager.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
+    }
+
+    /// Destructive full reset (e.g. account sign-out / delete account).
     public func clearArchive() {
         lock.lock()
         defer { lock.unlock() }
-        try? fileManager.removeItem(at: storageDirectory)
-        try? fileManager.createDirectory(at: storageDirectory, withIntermediateDirectories: true)
-    }
-
-    public func clearCache() {
-        clearArchive()
+        try? fileManager.removeItem(at: cacheDirectory)
+        try? fileManager.removeItem(at: archiveDirectory)
+        try? fileManager.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
+        try? fileManager.createDirectory(at: archiveDirectory, withIntermediateDirectories: true)
     }
 }

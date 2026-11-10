@@ -59,6 +59,7 @@ public final class BookSceneCoordinator: ObservableObject {
     private var activeTurnBackMaterial: PhysicallyBasedMaterial?
     private var activeTurnMaterialsKey: String?
     private var isSceneDetached = false
+    private let hapticGenerator = UIImpactFeedbackGenerator(style: .light)
 
     public init(
         presentationMode: BookPresentationMode = .reading,
@@ -325,6 +326,22 @@ public final class BookSceneCoordinator: ObservableObject {
         )
         leftPageSurface?.model?.materials = [leftMat]
         rightPageSurface?.model?.materials = [rightMat]
+
+        // Prewarm adjacent spread textures off @MainActor so upcoming page turns are instant
+        if presentationMode.allowsSpreadPreloading {
+            if safeRight + 1 < spreads.count {
+                renderingManager.textureManager.prewarmSpreadPages(
+                    for: spreads[safeRight + 1],
+                    paperStock: paperStock
+                )
+            }
+            if safeLeft - 1 >= 0 {
+                renderingManager.textureManager.prewarmSpreadPages(
+                    for: spreads[safeLeft - 1],
+                    paperStock: paperStock
+                )
+            }
+        }
     }
 
     public func applyLightingConfiguration(_ renderConfig: RenderingConfiguration) {
@@ -440,8 +457,7 @@ public final class BookSceneCoordinator: ObservableObject {
 
     public func triggerHapticFeedback() {
         guard effectiveRenderingConfiguration.enableHaptics else { return }
-        let generator = UIImpactFeedbackGenerator(style: .light)
-        generator.impactOccurred()
+        hapticGenerator.impactOccurred()
     }
 
     public func attachLoadedRoot(_ root: Entity, variant: Book3DAssetVariant) {

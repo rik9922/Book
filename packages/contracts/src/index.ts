@@ -69,6 +69,27 @@ export const LoginRequestSchema = z.object({
 });
 export type LoginRequest = z.infer<typeof LoginRequestSchema>;
 
+export const RefreshTokenRequestSchema = z.object({
+  refreshToken: z.string().min(10),
+});
+export type RefreshTokenRequest = z.infer<typeof RefreshTokenRequestSchema>;
+
+export const ForgotPasswordRequestSchema = z.object({
+  email: z.string().email(),
+});
+export type ForgotPasswordRequest = z.infer<typeof ForgotPasswordRequestSchema>;
+
+export const ResetPasswordRequestSchema = z.object({
+  token: z.string().min(16),
+  newPassword: z.string().min(8),
+});
+export type ResetPasswordRequest = z.infer<typeof ResetPasswordRequestSchema>;
+
+export const VerifyEmailRequestSchema = z.object({
+  token: z.string().min(16),
+});
+export type VerifyEmailRequest = z.infer<typeof VerifyEmailRequestSchema>;
+
 export const UserProfileSchema = z.object({
   id: z.string().uuid(),
   email: z.string().email(),
@@ -282,6 +303,7 @@ export function createDomainEvent<T>(
 
 export * from "./errors.js";
 export * from "./config.js";
+export * from "./security.js";
 export * from "./ports.js";
 export * from "./server-launcher.js";
 export * from "./design-tokens.js";

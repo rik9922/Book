@@ -3,10 +3,13 @@ import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import jwt from "jsonwebtoken";
 import {
+  BaseServiceConfigSchema,
+  validateServiceConfig,
+} from "@memory-capsule/contracts";
+import {
   createIdentityClient,
   createMemoryClient,
   createClientMetadata,
-  createDeadline,
   grpc,
 } from "@memory-capsule/proto";
 import {
@@ -20,22 +23,24 @@ import { createMemoryGrpcServer } from "../services/memory-service/src/grpc-serv
 import { buildGateway } from "../services/api-gateway/src/server.js";
 
 test("Hybrid Microservice Communication Suite: REST + gRPC + JetStream", async (t) => {
-  const JWT_SECRET = "test-jwt-secret-communication-2026";
+  const cfg = validateServiceConfig(BaseServiceConfigSchema);
+  const JWT_SECRET = cfg.JWT_SECRET;
   const SERVICE_KEY = "test-internal-service-secret-key";
 
-  const dbIdentity = createDatabaseClient(process.env.IDENTITY_DATABASE_URL || "postgres://ritik@localhost:5432/identity_db");
-  const dbMemory = createDatabaseClient(process.env.MEMORY_DATABASE_URL || "postgres://ritik@localhost:5432/memory_db");
+  const identityDbUrl = process.env.IDENTITY_DATABASE_URL || process.env.DATABASE_URL;
+  const memoryDbUrl = process.env.MEMORY_DATABASE_URL || process.env.DATABASE_URL;
+  assert.ok(identityDbUrl && memoryDbUrl, "IDENTITY_DATABASE_URL and MEMORY_DATABASE_URL must be set");
+
+  const dbIdentity = createDatabaseClient(identityDbUrl);
+  const dbMemory = createDatabaseClient(memoryDbUrl);
 
   const userRepo = new PostgresUserRepository(dbIdentity);
   const memoryRepo = new PostgresMemoryRepository(dbMemory);
   const spaceRepo = new PostgresSpaceRepository(dbMemory);
 
-  const IDENTITY_PORT = 50151;
-  const MEMORY_PORT = 50152;
-
-  // 1. Initialize and start gRPC Servers
   const identityGrpcServer = createIdentityGrpcServer({
     userRepo,
+    spaceRepo,
     jwtSecret: JWT_SECRET,
     expectedServiceKey: SERVICE_KEY,
   });
@@ -62,18 +67,26 @@ test("Hybrid Microservice Communication Suite: REST + gRPC + JetStream", async (
   const identityClient = createIdentityClient(`127.0.0.1:${identityBoundPort}`);
   const memoryClient = createMemoryClient(`127.0.0.1:${memoryBoundPort}`);
 
-  // Test Entities
   const testUserId = crypto.randomUUID();
+  const otherUserId = crypto.randomUUID();
   const testEmail = `grpc-user-${Date.now()}@capsule.test`;
+  const otherEmail = `grpc-other-${Date.now()}@capsule.test`;
   const testSpaceId = crypto.randomUUID();
 
-  // Seed user & space in PostgreSQL
   await userRepo.create({
     id: testUserId,
     email: testEmail,
     fullName: "Elena Rostova",
     passwordHash: "dummy:hash",
     avatarUrl: "https://capsule.local/avatars/elena.jpg",
+    isVerified: true,
+  });
+
+  await userRepo.create({
+    id: otherUserId,
+    email: otherEmail,
+    fullName: "Outsider User",
+    passwordHash: "dummy:hash",
     isVerified: true,
   });
 
@@ -86,13 +99,19 @@ test("Hybrid Microservice Communication Suite: REST + gRPC + JetStream", async (
     updatedAt: new Date().toISOString(),
   });
 
+  // Note: REST signs { sub: userId } without userId field; gRPC ValidateSession must handle { sub }
   const validJwtToken = jwt.sign(
-    { sub: testUserId, userId: testUserId, email: testEmail },
+    { sub: testUserId, email: testEmail },
+    JWT_SECRET,
+    { expiresIn: "1h" }
+  );
+  const outsiderJwtToken = jwt.sign(
+    { sub: otherUserId, email: otherEmail },
     JWT_SECRET,
     { expiresIn: "1h" }
   );
 
-  await t.test("1. Identity gRPC: ValidateSession with Valid Token", async () => {
+  await t.test("1. Identity gRPC: ValidateSession with { sub } JWT & CheckMembership", async () => {
     const meta = createClientMetadata({ serviceToken: SERVICE_KEY, correlationId: "test-corr-1" });
     const response: any = await new Promise((resolve, reject) => {
       identityClient.validateSession({ token: validJwtToken }, meta, (err: any, res: any) => {
@@ -106,6 +125,33 @@ test("Hybrid Microservice Communication Suite: REST + gRPC + JetStream", async (
     assert.equal(response.email, testEmail);
     assert.equal(response.full_name, "Elena Rostova");
     assert.equal(response.is_verified, true);
+
+    // Owner membership passes
+    const ownerMem: any = await new Promise((resolve, reject) => {
+      identityClient.checkMembership(
+        { user_id: testUserId, space_id: testSpaceId, required_role: "viewer" },
+        meta,
+        (err: any, res: any) => {
+          if (err) return reject(err);
+          resolve(res);
+        }
+      );
+    });
+    assert.equal(ownerMem.is_member, true);
+    assert.equal(ownerMem.role, "owner");
+
+    // Non-member fails checkMembership (not stubbed)
+    const outsiderMem: any = await new Promise((resolve, reject) => {
+      identityClient.checkMembership(
+        { user_id: otherUserId, space_id: testSpaceId, required_role: "viewer" },
+        meta,
+        (err: any, res: any) => {
+          if (err) return reject(err);
+          resolve(res);
+        }
+      );
+    });
+    assert.equal(outsiderMem.is_member, false);
   });
 
   await t.test("2. Identity gRPC: Rejection on Missing or Invalid Internal Service Key", async () => {
@@ -131,7 +177,6 @@ test("Hybrid Microservice Communication Suite: REST + gRPC + JetStream", async (
   await t.test("3. Memory gRPC: Create, Get, and List Memories over HTTP/2", async () => {
     const meta = createClientMetadata({ serviceToken: SERVICE_KEY, correlationId: "test-corr-3" });
 
-    // A. Create Memory via gRPC
     const createRes: any = await new Promise((resolve, reject) => {
       memoryClient.createMemory(
         {
@@ -159,7 +204,6 @@ test("Hybrid Microservice Communication Suite: REST + gRPC + JetStream", async (
     assert.equal(createRes.success, true);
     assert.equal(createRes.memory.title, "Walking along Lake Geneva");
 
-    // B. Get Memory via gRPC
     const getRes: any = await new Promise((resolve, reject) => {
       memoryClient.getMemory({ memory_id: memoryId, space_id: testSpaceId }, meta, (err: any, res: any) => {
         if (err) return reject(err);
@@ -171,7 +215,6 @@ test("Hybrid Microservice Communication Suite: REST + gRPC + JetStream", async (
     assert.equal(getRes.memory.id, memoryId);
     assert.equal(getRes.memory.location, "Geneva, Switzerland");
 
-    // C. List Memories with Keyset Pagination via gRPC
     const listRes: any = await new Promise((resolve, reject) => {
       memoryClient.listMemoriesKeyset(
         { space_id: testSpaceId, limit: 10 },
@@ -187,7 +230,8 @@ test("Hybrid Microservice Communication Suite: REST + gRPC + JetStream", async (
     assert.equal(listRes.items[0].id, memoryId);
   });
 
-  await t.test("4. Hybrid Gateway: Translating Public REST Requests to Internal gRPC", async () => {
+  await t.test("4. Hybrid Gateway: Authenticated & RBAC-Protected REST -> Internal gRPC", async () => {
+    const prevServiceKey = process.env.INTERNAL_SERVICE_KEY;
     process.env.INTERNAL_SERVICE_KEY = SERVICE_KEY;
     const gateway = buildGateway({
       identityGrpcAddress: `127.0.0.1:${identityBoundPort}`,
@@ -195,56 +239,76 @@ test("Hybrid Microservice Communication Suite: REST + gRPC + JetStream", async (
       enableGrpcRouting: true,
     });
 
-    // A. REST GET /api/v1/auth/me (Gateway -> Identity gRPC ValidateSession)
-    const authMeRes = await gateway.inject({
-      method: "GET",
-      url: "/api/v1/auth/me",
-      headers: {
-        authorization: `Bearer ${validJwtToken}`,
-      },
-    });
+    try {
+      // A. REST GET /api/v1/auth/me
+      const authMeRes = await gateway.inject({
+        method: "GET",
+        url: "/api/v1/auth/me",
+        headers: { authorization: `Bearer ${validJwtToken}` },
+      });
 
-    assert.equal(authMeRes.statusCode, 200);
-    const authMeBody = JSON.parse(authMeRes.body);
-    assert.equal(authMeBody.success, true);
-    assert.equal(authMeBody.data.user.id, testUserId);
-    assert.equal(authMeBody.data.user.fullName, "Elena Rostova");
+      assert.equal(authMeRes.statusCode, 200);
+      const authMeBody = JSON.parse(authMeRes.body);
+      assert.equal(authMeBody.success, true);
+      assert.equal(authMeBody.data.user.id, testUserId);
+      assert.equal(authMeBody.data.user.fullName, "Elena Rostova");
 
-    // B. REST GET /api/v1/memories/:memoryId (Gateway -> Memory gRPC GetMemory)
-    const getMemRes = await gateway.inject({
-      method: "GET",
-      url: `/api/v1/memories/${memoryId}`,
-    });
+      // B. Unauthenticated Memory Lookup Rejected (401)
+      const unauthMemRes = await gateway.inject({
+        method: "GET",
+        url: `/api/v1/memories/${memoryId}`,
+      });
+      assert.equal(unauthMemRes.statusCode, 401);
 
-    assert.equal(getMemRes.statusCode, 200);
-    const getMemBody = JSON.parse(getMemRes.body);
-    assert.equal(getMemBody.success, true);
-    assert.equal(getMemBody.data.id, memoryId);
-    assert.equal(getMemBody.data.title, "Walking along Lake Geneva");
+      // C. Outsider Memory Lookup Rejected (403)
+      const forbiddenMemRes = await gateway.inject({
+        method: "GET",
+        url: `/api/v1/memories/${memoryId}`,
+        headers: { authorization: `Bearer ${outsiderJwtToken}` },
+      });
+      assert.equal(forbiddenMemRes.statusCode, 403);
 
-    // C. REST GET /api/v1/spaces/:spaceId/memories (Gateway -> Memory gRPC ListMemoriesKeyset)
-    const listMemRes = await gateway.inject({
-      method: "GET",
-      url: `/api/v1/spaces/${testSpaceId}/memories?limit=10`,
-    });
+      // D. Authenticated Owner REST GET /api/v1/memories/:memoryId
+      const getMemRes = await gateway.inject({
+        method: "GET",
+        url: `/api/v1/memories/${memoryId}`,
+        headers: { authorization: `Bearer ${validJwtToken}` },
+      });
 
-    assert.equal(listMemRes.statusCode, 200);
-    const listMemBody = JSON.parse(listMemRes.body);
-    assert.equal(listMemBody.success, true);
-    assert.equal(listMemBody.data.items.length, 1);
-    assert.equal(listMemBody.data.items[0].id, memoryId);
+      assert.equal(getMemRes.statusCode, 200);
+      const getMemBody = JSON.parse(getMemRes.body);
+      assert.equal(getMemBody.success, true);
+      assert.equal(getMemBody.data.id, memoryId);
+      assert.equal(getMemBody.data.title, "Walking along Lake Geneva");
 
-    // D. REST Invalid Token Rejection
-    const invalidTokenRes = await gateway.inject({
-      method: "GET",
-      url: "/api/v1/auth/me",
-      headers: {
-        authorization: "Bearer invalid.fake.token",
-      },
-    });
-    assert.equal(invalidTokenRes.statusCode, 401);
+      // E. Authenticated Owner REST GET /api/v1/spaces/:spaceId/memories
+      const listMemRes = await gateway.inject({
+        method: "GET",
+        url: `/api/v1/spaces/${testSpaceId}/memories?limit=10`,
+        headers: { authorization: `Bearer ${validJwtToken}` },
+      });
 
-    await gateway.close();
+      assert.equal(listMemRes.statusCode, 200);
+      const listMemBody = JSON.parse(listMemRes.body);
+      assert.equal(listMemBody.success, true);
+      assert.equal(listMemBody.data.items.length, 1);
+      assert.equal(listMemBody.data.items[0].id, memoryId);
+
+      // F. REST Invalid Token Rejection
+      const invalidTokenRes = await gateway.inject({
+        method: "GET",
+        url: "/api/v1/auth/me",
+        headers: { authorization: "Bearer invalid.fake.token" },
+      });
+      assert.equal(invalidTokenRes.statusCode, 401);
+    } finally {
+      await gateway.close();
+      if (prevServiceKey !== undefined) {
+        process.env.INTERNAL_SERVICE_KEY = prevServiceKey;
+      } else {
+        delete process.env.INTERNAL_SERVICE_KEY;
+      }
+    }
   });
 
   // Teardown
@@ -253,9 +317,8 @@ test("Hybrid Microservice Communication Suite: REST + gRPC + JetStream", async (
   identityGrpcServer.forceShutdown();
   memoryGrpcServer.forceShutdown();
 
-  // Cleanup DB records
   await dbMemory.query(`DELETE FROM memory_spaces WHERE id = $1`, [testSpaceId]);
-  await dbIdentity.query(`DELETE FROM users WHERE id = $1`, [testUserId]);
+  await dbIdentity.query(`DELETE FROM users WHERE id IN ($1, $2)`, [testUserId, otherUserId]);
   await dbMemory.close();
   await dbIdentity.close();
 });

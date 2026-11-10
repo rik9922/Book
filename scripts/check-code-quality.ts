@@ -6,7 +6,10 @@ const SCAN_DIRS = [
   "services/identity-service/src",
   "services/memory-service/src",
   "services/media-service/src",
+  "services/collab-service/src",
   "services/book-service/src",
+  "services/commerce-service/src",
+  "services/notification-service/src",
   "packages/contracts/src",
   "packages/database/src",
   "packages/events/src",
@@ -17,8 +20,8 @@ const SCAN_DIRS = [
   "apps/web/src",
 ];
 
-const FORBIDDEN_CONSOLE_REGEX = /\bconsole\.(log|error|warn|debug|info)\s*\(/;
-const EMPTY_CATCH_REGEX = /catch\s*\([^)]*\)\s*\{\s*\}/;
+const FORBIDDEN_CONSOLE_REGEX = /\bconsole\.(log|error|warn|debug|info)\s*\(/g;
+const EMPTY_CATCH_REGEX = /\bcatch\s*(?:\([^)]*\))?\s*\{\s*(?:\/\/[^\n]*\s*|\/\*[\s\S]*?\*\/\s*)*\}/g;
 
 interface Violation {
   file: string;
@@ -29,17 +32,37 @@ interface Violation {
 
 const violations: Violation[] = [];
 
+function lineNumberAtOffset(content: string, offset: number): number {
+  let line = 1;
+  for (let i = 0; i < offset && i < content.length; i++) {
+    if (content.charCodeAt(i) === 10) line++;
+  }
+  return line;
+}
+
 function scanFile(filePath: string): void {
   const content = fs.readFileSync(filePath, "utf-8");
-  const lines = content.split("\n");
 
+  // 1. Line-level scan for console.* outside single/block comments
+  const lines = content.split("\n");
+  let inBlockComment = false;
   lines.forEach((lineText, index) => {
     const trimmed = lineText.trim();
-    if (trimmed.startsWith("//") || trimmed.startsWith("/*") || trimmed.startsWith("*")) {
+    if (inBlockComment) {
+      if (trimmed.includes("*/")) inBlockComment = false;
       return;
     }
-
-    if (FORBIDDEN_CONSOLE_REGEX.test(lineText)) {
+    if (trimmed.startsWith("/*")) {
+      if (!trimmed.includes("*/")) inBlockComment = true;
+      return;
+    }
+    if (trimmed.startsWith("//") || trimmed.startsWith("*")) {
+      return;
+    }
+    // Strip trailing inline comment before testing
+    const codePart = lineText.replace(/\/\/.*$/, "");
+    FORBIDDEN_CONSOLE_REGEX.lastIndex = 0;
+    if (FORBIDDEN_CONSOLE_REGEX.test(codePart)) {
       violations.push({
         file: filePath,
         line: index + 1,
@@ -47,16 +70,19 @@ function scanFile(filePath: string): void {
         code: trimmed,
       });
     }
-
-    if (EMPTY_CATCH_REGEX.test(lineText)) {
-      violations.push({
-        file: filePath,
-        line: index + 1,
-        type: "EMPTY_CATCH_BLOCK",
-        code: trimmed,
-      });
-    }
   });
+
+  // 2. Multi-line scan for empty catch blocks (including comment-only catches)
+  EMPTY_CATCH_REGEX.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = EMPTY_CATCH_REGEX.exec(content)) !== null) {
+    violations.push({
+      file: filePath,
+      line: lineNumberAtOffset(content, match.index),
+      type: "EMPTY_CATCH_BLOCK",
+      code: match[0].replace(/\s+/g, " ").trim(),
+    });
+  }
 }
 
 function walkDir(dirPath: string): void {
@@ -90,4 +116,3 @@ if (violations.length > 0) {
   console.log("✅ [Memoria Quality Gate] All production services clean! Zero console.* calls or empty catch blocks.");
   process.exit(0);
 }
-

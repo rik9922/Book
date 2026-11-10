@@ -9,17 +9,20 @@ import { createDatabaseClient } from "@memory-capsule/database";
 const execFileAsync = promisify(execFile);
 
 const BACKUPS_ROOT = path.resolve(process.cwd(), "backups");
-const STORAGE_LOCAL = path.resolve(process.cwd(), "storage/local");
+const STORAGE_LOCAL = path.resolve(
+  process.cwd(),
+  process.env.LOCAL_STORAGE_PATH || "storage_data"
+);
 
 const DATABASES = [
-  "identity_db",
-  "memory_db",
-  "media_db",
-  "collab_db",
-  "book_db",
-  "commerce_db",
-  "notification_db",
-];
+  { name: "identity_db", envVar: "IDENTITY_DATABASE_URL" },
+  { name: "memory_db", envVar: "MEMORY_DATABASE_URL" },
+  { name: "media_db", envVar: "MEDIA_DATABASE_URL" },
+  { name: "collab_db", envVar: "COLLAB_DATABASE_URL" },
+  { name: "book_db", envVar: "BOOK_DATABASE_URL" },
+  { name: "commerce_db", envVar: "COMMERCE_DATABASE_URL" },
+  { name: "notification_db", envVar: "NOTIFICATION_DATABASE_URL" },
+] as const;
 
 async function calculateFileSha256(filePath: string): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -51,8 +54,38 @@ export interface BackupManifest {
   status: "COMPLETE" | "VERIFIED" | "FAILED";
 }
 
-async function getRecordCount(dbName: string, tableName: string): Promise<number> {
-  const dbUrl = `postgres://postgres:postgrespassword@localhost:5432/${dbName}`;
+function resolvePgConnectionDefaults(): {
+  pgUser: string;
+  pgPass: string;
+  pgHost: string;
+  pgPort: string;
+} {
+  const sampleUrl = process.env.IDENTITY_DATABASE_URL || process.env.DATABASE_URL;
+  if (sampleUrl) {
+    try {
+      const parsed = new URL(sampleUrl);
+      return {
+        pgUser: process.env.PGUSER || process.env.DB_USER || parsed.username || "postgres",
+        pgPass: process.env.PGPASSWORD || process.env.DB_PASSWORD || parsed.password || "",
+        pgHost: process.env.PGHOST || parsed.hostname || "localhost",
+        pgPort: process.env.PGPORT || parsed.port || "5432",
+      };
+    } catch {
+      // Fallback to env defaults
+    }
+  }
+  return {
+    pgUser: process.env.PGUSER || process.env.DB_USER || "postgres",
+    pgPass: process.env.PGPASSWORD || process.env.DB_PASSWORD || "",
+    pgHost: process.env.PGHOST || "localhost",
+    pgPort: process.env.PGPORT || "5432",
+  };
+}
+
+async function getRecordCount(dbName: string, envVar: string, tableName: string): Promise<number> {
+  const { pgUser, pgPass, pgHost, pgPort } = resolvePgConnectionDefaults();
+  const auth = pgPass ? `${pgUser}:${pgPass}` : pgUser;
+  const dbUrl = process.env[envVar] || `postgres://${auth}@${pgHost}:${pgPort}/${dbName}`;
   const client = createDatabaseClient(dbUrl);
   try {
     const result = await client.query<{ count: string }>(`SELECT count(*) as count FROM ${tableName}`);
@@ -92,17 +125,19 @@ export async function createBackup(): Promise<string> {
   };
 
   // 2. Dump each microservice database
-  for (const dbName of DATABASES) {
+  const { pgUser, pgPass, pgHost, pgPort } = resolvePgConnectionDefaults();
+
+  for (const dbEntry of DATABASES) {
+    const dbName = dbEntry.name;
     const dumpFileName = `${dbName}.sql`;
     const dumpFilePath = path.join(dbDumpsDir, dumpFileName);
     process.stdout.write(`  ⏳ Dumping database '${dbName}'... `);
 
     try {
-      // Use pg_dump (with host and user)
       await execFileAsync("pg_dump", [
-        "-h", "localhost",
-        "-p", "5432",
-        "-U", "postgres",
+        "-h", pgHost,
+        "-p", pgPort,
+        "-U", pgUser,
         "--clean",
         "--if-exists",
         "--no-owner",
@@ -110,7 +145,7 @@ export async function createBackup(): Promise<string> {
         "-f", dumpFilePath,
         dbName,
       ], {
-        env: { ...process.env, PGPASSWORD: process.env.DB_PASSWORD || "postgrespassword" },
+        env: { ...process.env, ...(pgPass ? { PGPASSWORD: pgPass } : {}) },
       });
 
       const stats = await fs.stat(dumpFilePath);
@@ -119,14 +154,14 @@ export async function createBackup(): Promise<string> {
       // Collect table counts
       const counts: Record<string, number> = {};
       if (dbName === "identity_db") {
-        counts.users = await getRecordCount(dbName, "users");
+        counts.users = await getRecordCount(dbName, dbEntry.envVar, "users");
       } else if (dbName === "memory_db") {
-        counts.memory_spaces = await getRecordCount(dbName, "memory_spaces");
-        counts.memories = await getRecordCount(dbName, "memories");
+        counts.memory_spaces = await getRecordCount(dbName, dbEntry.envVar, "memory_spaces");
+        counts.memories = await getRecordCount(dbName, dbEntry.envVar, "memories");
       } else if (dbName === "media_db") {
-        counts.media_assets = await getRecordCount(dbName, "media_assets");
+        counts.media_assets = await getRecordCount(dbName, dbEntry.envVar, "media_assets");
       } else if (dbName === "book_db") {
-        counts.books = await getRecordCount(dbName, "books");
+        counts.books = await getRecordCount(dbName, dbEntry.envVar, "books");
       }
 
       manifest.databases.push({
@@ -148,7 +183,7 @@ export async function createBackup(): Promise<string> {
 
   // 3. Backup local media storage
   if (existsSync(STORAGE_LOCAL)) {
-    process.stdout.write(`  ⏳ Archiving media storage directory (storage/local)... `);
+    process.stdout.write(`  ⏳ Archiving media storage directory (${path.basename(STORAGE_LOCAL)})... `);
     const mediaTarName = "media-storage.tar.gz";
     const mediaTarPath = path.join(backupDir, mediaTarName);
 

@@ -319,6 +319,55 @@ public final class TextureResourceManager {
         return texture
     }
 
+    public func prewarmSpreadPages(
+        for spread: BookSpreadPreview,
+        paperStock: BookPaperStock = .warmCotton
+    ) {
+        guard budgetBytes > 0 else { return }
+        let targetWidth = max(256, min(1024, maxTextureDimension))
+        let targetHeight = max(256, Int(Double(targetWidth) * 1.3))
+        let contentSig = "\(spread.leftPageNumber)-\(spread.rightPageNumber)-\(spread.leftHeading.hashValue)-\(spread.rightHeading.hashValue)"
+
+        for side in [BookPageSide.left, BookPageSide.right] {
+            let key = PageTextureCacheKey(
+                spreadIndex: spread.spreadIndex,
+                side: side,
+                paperStock: paperStock,
+                dimension: targetWidth,
+                contentSignature: contentSig
+            )
+            if pageTextureCache[key] != nil { continue }
+
+            Task.detached(priority: .userInitiated) {
+                guard let cgImage = TextureResourceManager.renderSinglePageCGImage(
+                    spread: spread,
+                    side: side,
+                    paperStock: paperStock,
+                    width: targetWidth,
+                    height: targetHeight
+                ) else { return }
+
+                await MainActor.run { [weak self] in
+                    guard let self, self.budgetBytes > 0, self.pageTextureCache[key] == nil else { return }
+                    let texture: TextureResource?
+                    if #available(iOS 18.0, *) {
+                        texture = try? TextureResource(image: cgImage, options: .init(semantic: .color))
+                    } else {
+                        texture = try? TextureResource.generate(from: cgImage, options: .init(semantic: .color))
+                    }
+                    if let texture {
+                        while self.pageTextureCache.count >= 18, let oldest = self.pageTextureOrder.first {
+                            self.pageTextureOrder.removeFirst()
+                            self.pageTextureCache.removeValue(forKey: oldest)
+                        }
+                        self.pageTextureCache[key] = texture
+                        self.pageTextureOrder.append(key)
+                    }
+                }
+            }
+        }
+    }
+
     public func pageMaterial(
         for spread: BookSpreadPreview,
         side: BookPageSide,
@@ -557,7 +606,7 @@ public final class TextureResourceManager {
                 endpaper: endpaperMat,
                 ribbon: Self.makePBRMaterial(
                     hex: ribbonColor.hexUInt,
-                    metallic: 0.35,
+                    metallic: 0.0,
                     roughness: 0.45,
                     clearcoat: enableClearcoat ? 0.12 : 0.0
                 )
@@ -581,7 +630,7 @@ public final class TextureResourceManager {
         )
     }
 
-    private static func uiColor(hex: UInt) -> UIColor {
+    private nonisolated static func uiColor(hex: UInt) -> UIColor {
         UIColor(
             red: CGFloat((hex >> 16) & 0xff) / 255.0,
             green: CGFloat((hex >> 08) & 0xff) / 255.0,
@@ -619,31 +668,26 @@ public final class TextureResourceManager {
         return mat
     }
 
-    private static func renderLeatherGrainCGImage(dimension: Int) -> CGImage? {
+    private nonisolated static func renderLeatherGrainCGImage(dimension: Int) -> CGImage? {
         let size = max(64, dimension)
-        var bytes = [UInt8](repeating: 215, count: size * size * 4)
+        var bytes = [UInt8](repeating: 215, count: size * size)
         for y in 0..<size {
             for x in 0..<size {
-                // Deterministic pseudo-pebble leather grain hash
+                // Deterministic pseudo-pebble leather grain hash (1-byte DeviceGray saves 4x VRAM vs RGBA8)
                 let h = UInt32(truncatingIfNeeded: (x &* 73856093) ^ (y &* 19349663))
-                let grain = UInt8(185 + (h % 60))
-                let idx = (y * size + x) * 4
-                bytes[idx] = grain
-                bytes[idx + 1] = grain
-                bytes[idx + 2] = grain
-                bytes[idx + 3] = 255
+                bytes[y * size + x] = UInt8(185 + (h % 60))
             }
         }
-        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let colorSpace = CGColorSpaceCreateDeviceGray()
         guard let provider = CGDataProvider(data: Data(bytes) as CFData) else { return nil }
         return CGImage(
             width: size,
             height: size,
             bitsPerComponent: 8,
-            bitsPerPixel: 32,
-            bytesPerRow: size * 4,
+            bitsPerPixel: 8,
+            bytesPerRow: size,
             space: colorSpace,
-            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+            bitmapInfo: CGBitmapInfo(rawValue: 0),
             provider: provider,
             decode: nil,
             shouldInterpolate: true,
@@ -651,7 +695,7 @@ public final class TextureResourceManager {
         )
     }
 
-    private static func renderSpreadCGImage(spread: BookSpreadPreview, width: Int, height: Int) -> CGImage? {
+    private nonisolated static func renderSpreadCGImage(spread: BookSpreadPreview, width: Int, height: Int) -> CGImage? {
         let rendererFormat = UIGraphicsImageRendererFormat()
         rendererFormat.scale = 1.0
         rendererFormat.opaque = true
@@ -754,7 +798,7 @@ public final class TextureResourceManager {
         return uiImage.cgImage
     }
 
-    private static func renderSinglePageCGImage(
+    private nonisolated static func renderSinglePageCGImage(
         spread: BookSpreadPreview,
         side: BookPageSide,
         paperStock: BookPaperStock,
