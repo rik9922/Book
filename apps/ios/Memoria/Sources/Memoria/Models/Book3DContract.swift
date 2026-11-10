@@ -19,6 +19,15 @@ public enum Book3DHierarchy {
     public static let turningPageHinge = "TurningPageHinge"
     public static let turningPageLeaf = "TurningPageLeaf"
 
+    // Runtime physical reading hierarchy (attached by BookSceneCoordinator)
+    public static let leftPageStack = "LeftPageStack"
+    public static let rightPageStack = "RightPageStack"
+    public static let leftPageSurface = "LeftPageSurface"
+    public static let rightPageSurface = "RightPageSurface"
+    public static let activeTurningPage = "ActiveTurningPage"
+    public static let frontEndpaper = "FrontEndpaper"
+    public static let backEndpaper = "BackEndpaper"
+
     public static let requiredNodes: [String] = [
         root,
         spine,
@@ -314,12 +323,105 @@ public enum BookAnimationContract {
 }
 
 // ==============================================================================
-// 6. CONFIGURATION, SPREAD CONTENT & USDZ BUNDLE LOCATOR
+// 6. PRESENTATION MODES, PAPER STOCKS, RIBBON & PERSISTENT CONFIGURATION
 // ==============================================================================
 
-public struct Book3DConfiguration: Sendable, Equatable {
+public enum BookPresentationMode: String, CaseIterable, Identifiable, Sendable, Codable {
+    case library
+    case preview
+    case studio
+    case reading
+
+    public var id: String { rawValue }
+
+    public var displayName: String {
+        switch self {
+        case .library: return "Library (2D)"
+        case .preview: return "Book Preview"
+        case .studio: return "Book Studio"
+        case .reading: return "Reading"
+        }
+    }
+
+    public var allowsSpreadPreloading: Bool {
+        switch self {
+        case .library, .preview:
+            return false
+        case .studio, .reading:
+            return true
+        }
+    }
+}
+
+public enum BookPaperStock: String, CaseIterable, Identifiable, Sendable, Codable {
+    case warmCotton = "warm_cotton"
+    case archivalCream = "archival_cream"
+    case deckleLinen = "deckle_linen"
+
+    public var id: String { rawValue }
+
+    public var displayName: String {
+        switch self {
+        case .warmCotton: return "Warm Cotton Rag"
+        case .archivalCream: return "Archival Cream"
+        case .deckleLinen: return "Deckle Linen"
+        }
+    }
+
+    public var hexUInt: UInt {
+        switch self {
+        case .warmCotton: return 0xF7F4EE
+        case .archivalCream: return 0xF4ECD8
+        case .deckleLinen: return 0xEFE8DC
+        }
+    }
+
+    public var roughness: Float {
+        switch self {
+        case .warmCotton: return 0.95
+        case .archivalCream: return 0.92
+        case .deckleLinen: return 0.97
+        }
+    }
+}
+
+public enum BookRibbonColor: String, CaseIterable, Identifiable, Sendable, Codable {
+    case sage
+    case plum
+    case gold
+    case burgundy
+
+    public var id: String { rawValue }
+
+    public var displayName: String {
+        switch self {
+        case .sage: return "Soft Sage"
+        case .plum: return "Muted Plum"
+        case .gold: return "Antique Gold"
+        case .burgundy: return "Vintage Claret"
+        }
+    }
+
+    public var hexUInt: UInt {
+        switch self {
+        case .sage: return 0x849483
+        case .plum: return 0x76556F
+        case .gold: return 0xB89242
+        case .burgundy: return 0x5C202C
+        }
+    }
+
+    public var swiftUIColor: Color {
+        Color(hex: hexUInt)
+    }
+}
+
+public struct Book3DConfiguration: Sendable, Equatable, Codable {
+    public var bookId: String
     public var leather: BookLeatherSwatch
     public var foil: BookFoilSwatch
+    public var paperStock: BookPaperStock
+    public var ribbonColor: BookRibbonColor
     public var coverTitle: String
     public var coverSubtitle: String
     public var spineText: String
@@ -329,8 +431,11 @@ public struct Book3DConfiguration: Sendable, Equatable {
     public var reducedMotion: Bool
 
     public init(
+        bookId: String = "bennett-heritage-vol-1",
         leather: BookLeatherSwatch = .plum,
         foil: BookFoilSwatch = .gold,
+        paperStock: BookPaperStock = .warmCotton,
+        ribbonColor: BookRibbonColor = .sage,
         coverTitle: String = "The Bennett Heritage",
         coverSubtitle: String = "1948 — 2026 • Memoria Volume I",
         spineText: String = "MEMORIA VOL. I",
@@ -339,8 +444,11 @@ public struct Book3DConfiguration: Sendable, Equatable {
         cameraPreset: BookCameraPreset = .hero,
         reducedMotion: Bool = false
     ) {
+        self.bookId = bookId
         self.leather = leather
         self.foil = foil
+        self.paperStock = paperStock
+        self.ribbonColor = ribbonColor
         self.coverTitle = coverTitle
         self.coverSubtitle = coverSubtitle
         self.spineText = spineText
@@ -351,7 +459,77 @@ public struct Book3DConfiguration: Sendable, Equatable {
     }
 }
 
-public struct BookSpreadPreview: Identifiable, Sendable, Equatable {
+public struct BookVolumeRecord: Identifiable, Sendable, Equatable, Codable {
+    public let id: String
+    public let editionBadge: String
+    public let totalPageCount: Int
+    public let isFrozenForPrint: Bool
+    public let defaultConfiguration: Book3DConfiguration
+    public let spreads: [BookSpreadPreview]
+
+    public init(
+        id: String,
+        editionBadge: String,
+        totalPageCount: Int,
+        isFrozenForPrint: Bool,
+        defaultConfiguration: Book3DConfiguration,
+        spreads: [BookSpreadPreview]
+    ) {
+        self.id = id
+        self.editionBadge = editionBadge
+        self.totalPageCount = totalPageCount
+        self.isFrozenForPrint = isFrozenForPrint
+        self.defaultConfiguration = defaultConfiguration
+        self.spreads = spreads
+    }
+
+    public static let libraryVolumes: [BookVolumeRecord] = [
+        BookVolumeRecord(
+            id: "bennett-heritage-vol-1",
+            editionBadge: "Edition Frozen • SHA-256 Verified",
+            totalPageCount: 240,
+            isFrozenForPrint: true,
+            defaultConfiguration: Book3DConfiguration(),
+            spreads: Book3DSampleData.sampleSpreads
+        ),
+        BookVolumeRecord(
+            id: "sonoma-orchard-chronicle",
+            editionBadge: "Family Circle Draft",
+            totalPageCount: 164,
+            isFrozenForPrint: false,
+            defaultConfiguration: Book3DConfiguration(
+                bookId: "sonoma-orchard-chronicle",
+                leather: .emerald,
+                foil: .gold,
+                paperStock: .archivalCream,
+                ribbonColor: .gold,
+                coverTitle: "Sonoma Orchard Years",
+                coverSubtitle: "1990 — 2012 • Harvest & Hearth",
+                spineText: "SONOMA ORCHARD"
+            ),
+            spreads: Book3DSampleData.sampleSpreads
+        ),
+        BookVolumeRecord(
+            id: "letters-across-oceans",
+            editionBadge: "Archival Reprint",
+            totalPageCount: 128,
+            isFrozenForPrint: true,
+            defaultConfiguration: Book3DConfiguration(
+                bookId: "letters-across-oceans",
+                leather: .navy,
+                foil: .silver,
+                paperStock: .deckleLinen,
+                ribbonColor: .plum,
+                coverTitle: "Letters Across Oceans",
+                coverSubtitle: "1942 — 1954 • Correspondence Vault",
+                spineText: "CORRESPONDENCE"
+            ),
+            spreads: Book3DSampleData.sampleSpreads
+        ),
+    ]
+}
+
+public struct BookSpreadPreview: Identifiable, Sendable, Equatable, Codable {
     public var id: Int { spreadIndex }
     public let spreadIndex: Int
     public let chapterTitle: String

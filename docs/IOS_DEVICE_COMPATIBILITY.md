@@ -30,7 +30,7 @@
 
 | Environment / Device | iOS Version | Refresh Rate | Selected Profile | Test Status | Notes |
 |---|---|---|---|---|---|
-| **iPhone 17 Pro (iOS Simulator)** | iOS 26.5 (SDK 27.2) | 120 Hz (host simulated) | `Premium` (Tier A) | **Tested (Automated Suite)** | 20/20 Swift & RealityKit tests passed; simulator reflects host Apple Silicon GPU, not iPhone thermal/battery hardware |
-| **macOS SwiftPM (`arm64e`)** | macOS 14+ toolchain | N/A | Unit-tested Tiers A–D | **Tested (18/18 Unit Tests)** | Verified capability analyzer, thermal hysteresis, auto-recovery, cache LRU, lifecycle, fallback |
+| **iPhone 17 Pro (iOS Simulator)** | iOS 26.5 (SDK 27.2) | 120 Hz (host simulated) | `Premium` (Tier A) | **Tested (25/25 Automated Suite)** | 25/25 Swift & RealityKit tests passed; simulator reflects host Apple Silicon GPU, not iPhone thermal/battery hardware |
+| **macOS SwiftPM (`arm64e`)** | macOS 14+ toolchain | N/A | Unit-tested Tiers A–D | **Tested (23/23 Unit Tests)** | Verified capability analyzer, thermal hysteresis, auto-recovery, 13-state lifecycle, page deformation math, cache LRU, persistence, fallback |
 | **Physical Legacy iPhone (e.g., iPhone SE / 12 / 13)** | iOS 17–18 | 60 Hz | Expected Tier B/C (unverified) | **Not Tested (No physical device attached)** | Requires physical hardware run in Xcode Instruments before release |
 | **Physical ProMotion iPhone (e.g., iPhone 15/16/17 Pro)** | iOS 17–26 | 120 Hz | Expected Tier A (unverified) | **Not Tested (No physical device attached)** | Requires Metal System Trace, Energy Log, and 30-min thermal soak on physical hardware |

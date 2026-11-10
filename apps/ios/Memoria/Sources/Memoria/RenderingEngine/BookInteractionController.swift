@@ -3,11 +3,29 @@ import simd
 
 @MainActor
 public final class BookInteractionController {
-    public var currentOpenProgress: Float = 0
-    public var targetOpenProgress: Float = 0
-    public var currentTurnProgress: Float = 0
-    public var isAnimatingTurn: Bool = false
-    public var turnDirection: Float = 1
+    public let animationController = BookAnimationController()
+
+    public var currentOpenProgress: Float {
+        get { animationController.currentOpenProgress }
+        set { animationController.currentOpenProgress = newValue }
+    }
+    public var targetOpenProgress: Float {
+        get { animationController.targetOpenProgress }
+        set { animationController.targetOpenProgress = newValue }
+    }
+    public var currentTurnProgress: Float {
+        get { animationController.currentTurnProgress }
+        set { animationController.currentTurnProgress = newValue }
+    }
+    public var isAnimatingTurn: Bool {
+        get { animationController.isAnimatingTurn }
+        set { animationController.isAnimatingTurn = newValue }
+    }
+    public var turnDirection: Float {
+        get { animationController.turnDirection }
+        set { animationController.turnDirection = newValue }
+    }
+
     public var reducedMotion: Bool = false
     public var highDetailPageCurl: Bool = true
 
@@ -20,6 +38,7 @@ public final class BookInteractionController {
     public var currentCameraTarget: SIMD3<Float> = BookCameraPreset.hero.target
 
     private var lastTurnNonce: Int = 0
+    private var lastSpreadIndex: Int = 0
     private var accumulatedStepDelta: Double = 0
     private var needsInitialCameraSync: Bool = true
     private var needsInitialHingeSync: Bool = true
@@ -58,22 +77,32 @@ public final class BookInteractionController {
 
         if turnNonce != lastTurnNonce {
             lastTurnNonce = turnNonce
-            self.turnDirection = turnDirection >= 0 ? 1 : -1
-            if config.isOpen && !config.reducedMotion {
-                isAnimatingTurn = true
-                currentTurnProgress = turnDirection >= 0 ? 0.02 : 0.98
+            let dir = turnDirection >= 0 ? 1 : -1
+            let fromSpread = lastSpreadIndex
+            let toSpread = config.currentSpreadIndex
+            if animationController.consumePendingInteractiveCommit(for: toSpread) {
+                // Interactive drag commit already set up the active turn progress & target;
+                // do not reset currentTurnProgress back to the beginning.
+                needsInitialHingeSync = true
+            } else if config.isOpen && !config.reducedMotion {
+                animationController.beginTriggeredTurn(
+                    direction: dir,
+                    fromSpread: fromSpread,
+                    toSpread: toSpread,
+                    reduceMotion: false
+                )
                 lifecycle.beginPageTurn()
             } else {
-                isAnimatingTurn = false
-                currentTurnProgress = 0
+                animationController.cancelActiveTurn()
             }
             needsInitialHingeSync = true
         }
 
+        lastSpreadIndex = config.currentSpreadIndex
+
         if config.reducedMotion {
             currentOpenProgress = targetOpenProgress
-            isAnimatingTurn = false
-            currentTurnProgress = 0
+            animationController.cancelActiveTurn()
             needsInitialHingeSync = true
             needsInitialCameraSync = true
         }
@@ -85,10 +114,7 @@ public final class BookInteractionController {
         if needsInitialCameraSync || needsInitialHingeSync {
             return true
         }
-        if isDraggingOrbit || isAnimatingTurn {
-            return true
-        }
-        if abs(targetOpenProgress - currentOpenProgress) > settleEpsilon {
+        if isDraggingOrbit || animationController.hasPendingAnimation {
             return true
         }
         let desired = desiredCameraTransform()
@@ -102,6 +128,11 @@ public final class BookInteractionController {
         public let coverAngleRadians: Float
         public let pageAngleRadians: Float
         public let pageCurlLift: Float
+        public let turnProgress: Float
+        public let curlIntensity: Float
+        public let isTurnVisible: Bool
+        public let didCompleteTurn: Bool
+        public let ribbonSwayRadians: Float
         public let openProgress: Float
         public let cameraPosition: SIMD3<Float>
         public let cameraTarget: SIMD3<Float>
@@ -136,54 +167,25 @@ public final class BookInteractionController {
 
         lifecycle.recordTick(wasActive: true)
 
-        // 1. Cover Hinge Kinematics
-        if reducedMotion {
-            currentOpenProgress = targetOpenProgress
-        } else {
-            let delta = targetOpenProgress - currentOpenProgress
-            if abs(delta) <= settleEpsilon {
-                currentOpenProgress = targetOpenProgress
-            } else {
-                currentOpenProgress += delta * min(1.0, effectiveDt * BookAnimationContract.coverLerpSpeed)
-            }
-        }
-
-        let coverAngle = BookAnimationContract.computeCoverHingeAngle(openProgress: currentOpenProgress)
-
-        // 2. Page Turn Kinematics
-        if targetOpenProgress < 0.1 {
-            isAnimatingTurn = false
-            currentTurnProgress = 0
-        } else if isAnimatingTurn {
-            let step = effectiveDt * (1000.0 / Float(BookAnimationContract.pageTurnDurationMs))
-            if turnDirection > 0 {
-                currentTurnProgress += step
-                if currentTurnProgress >= 1.0 {
-                    currentTurnProgress = 0
-                    isAnimatingTurn = false
-                }
-            } else {
-                currentTurnProgress -= step
-                if currentTurnProgress <= 0.0 {
-                    currentTurnProgress = 0
-                    isAnimatingTurn = false
-                }
-            }
-        }
+        let anim = animationController.step(
+            dt: effectiveDt,
+            reducedMotion: reducedMotion,
+            highDetailPageCurl: highDetailPageCurl
+        )
 
         let pageAngle: Float
         let pageCurlLift: Float
-        if isAnimatingTurn {
-            let base = BookAnimationContract.computePageTurnAngle(turnProgress: currentTurnProgress)
+        if anim.isTurnVisible {
+            let base = BookAnimationContract.computePageTurnAngle(turnProgress: anim.turnProgress)
             pageAngle = highDetailPageCurl ? base : base * 0.96
-            let arch = sin(Float.pi * BookAnimationContract.clamp01(currentTurnProgress))
+            let arch = sin(Float.pi * BookAnimationContract.clamp01(anim.turnProgress))
             pageCurlLift = arch * (highDetailPageCurl ? 1.0 : 0.35)
         } else {
             pageAngle = targetOpenProgress > 0.5 ? 0.04 : 0.0
             pageCurlLift = 0.0
         }
 
-        // 3. Camera Preset & Orbit Interpolation
+        // Camera Preset & Orbit Interpolation
         let desired = desiredCameraTransform()
         if reducedMotion {
             currentCameraPosition = desired.position
@@ -211,9 +213,14 @@ public final class BookInteractionController {
 
         return KinematicStepResult(
             didUpdateTransforms: true,
-            coverAngleRadians: coverAngle,
+            coverAngleRadians: anim.coverAngleRadians,
             pageAngleRadians: pageAngle,
             pageCurlLift: pageCurlLift,
+            turnProgress: anim.turnProgress,
+            curlIntensity: anim.curlIntensity,
+            isTurnVisible: anim.isTurnVisible,
+            didCompleteTurn: anim.didCompleteTurn,
+            ribbonSwayRadians: anim.ribbonSwayRadians,
             openProgress: currentOpenProgress,
             cameraPosition: currentCameraPosition,
             cameraTarget: currentCameraTarget,
@@ -225,11 +232,14 @@ public final class BookInteractionController {
         needsInitialCameraSync = true
     }
 
+    public func markDirtyForGeometrySync() {
+        needsInitialHingeSync = true
+    }
+
     public func resetStateAfterBackground() {
         accumulatedStepDelta = 0
         isDraggingOrbit = false
-        isAnimatingTurn = false
-        currentTurnProgress = 0
+        animationController.cancelActiveTurn()
         needsInitialCameraSync = true
         needsInitialHingeSync = true
     }

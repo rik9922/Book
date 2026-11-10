@@ -104,6 +104,9 @@ public struct RenderingConfiguration: Sendable, Equatable {
     public let allowPreloading: Bool
     public let enableHaptics: Bool
     public let enableAntialiasingHint: Bool
+    public let pageMeshSubdivisionsX: Int
+    public let pageMeshSubdivisionsZ: Int
+    public let enableInteractivePageDeformation: Bool
 
     public init(
         profile: RenderingQualityProfile,
@@ -118,7 +121,10 @@ public struct RenderingConfiguration: Sendable, Equatable {
         assetCacheBudgetBytes: Int,
         allowPreloading: Bool,
         enableHaptics: Bool,
-        enableAntialiasingHint: Bool
+        enableAntialiasingHint: Bool,
+        pageMeshSubdivisionsX: Int = 12,
+        pageMeshSubdivisionsZ: Int = 4,
+        enableInteractivePageDeformation: Bool = true
     ) {
         self.profile = profile
         self.assetVariant = assetVariant
@@ -133,6 +139,9 @@ public struct RenderingConfiguration: Sendable, Equatable {
         self.allowPreloading = allowPreloading
         self.enableHaptics = enableHaptics
         self.enableAntialiasingHint = enableAntialiasingHint
+        self.pageMeshSubdivisionsX = pageMeshSubdivisionsX
+        self.pageMeshSubdivisionsZ = pageMeshSubdivisionsZ
+        self.enableInteractivePageDeformation = enableInteractivePageDeformation
     }
 
     public static func make(
@@ -160,7 +169,10 @@ public struct RenderingConfiguration: Sendable, Equatable {
                 assetCacheBudgetBytes: 12 * 1024 * 1024,
                 allowPreloading: true,
                 enableHaptics: true,
-                enableAntialiasingHint: true
+                enableAntialiasingHint: true,
+                pageMeshSubdivisionsX: 16,
+                pageMeshSubdivisionsZ: 6,
+                enableInteractivePageDeformation: !reduceMotion
             )
         case .balanced:
             return RenderingConfiguration(
@@ -176,7 +188,10 @@ public struct RenderingConfiguration: Sendable, Equatable {
                 assetCacheBudgetBytes: 6 * 1024 * 1024,
                 allowPreloading: true,
                 enableHaptics: true,
-                enableAntialiasingHint: true
+                enableAntialiasingHint: true,
+                pageMeshSubdivisionsX: 10,
+                pageMeshSubdivisionsZ: 4,
+                enableInteractivePageDeformation: !reduceMotion
             )
         case .efficient:
             return RenderingConfiguration(
@@ -192,7 +207,10 @@ public struct RenderingConfiguration: Sendable, Equatable {
                 assetCacheBudgetBytes: 2 * 1024 * 1024,
                 allowPreloading: false,
                 enableHaptics: false,
-                enableAntialiasingHint: false
+                enableAntialiasingHint: false,
+                pageMeshSubdivisionsX: 6,
+                pageMeshSubdivisionsZ: 2,
+                enableInteractivePageDeformation: !reduceMotion
             )
         case .fallback:
             return RenderingConfiguration(
@@ -208,8 +226,56 @@ public struct RenderingConfiguration: Sendable, Equatable {
                 assetCacheBudgetBytes: 0,
                 allowPreloading: false,
                 enableHaptics: false,
-                enableAntialiasingHint: false
+                enableAntialiasingHint: false,
+                pageMeshSubdivisionsX: 0,
+                pageMeshSubdivisionsZ: 0,
+                enableInteractivePageDeformation: false
             )
+        }
+    }
+
+    public func adjusted(for mode: BookPresentationMode) -> RenderingConfiguration {
+        switch mode {
+        case .library:
+            return RenderingConfiguration(
+                profile: .fallback,
+                assetVariant: .efficient,
+                shadowMode: .disabled,
+                lightingMode: .twoPointMinimal,
+                enableClearcoat: false,
+                enableHighDetailPageCurl: false,
+                targetFrameRate: 0,
+                maxTextureDimension: 256,
+                textureMemoryBudgetBytes: 0,
+                assetCacheBudgetBytes: assetCacheBudgetBytes,
+                allowPreloading: false,
+                enableHaptics: false,
+                enableAntialiasingHint: false,
+                pageMeshSubdivisionsX: 0,
+                pageMeshSubdivisionsZ: 0,
+                enableInteractivePageDeformation: false
+            )
+        case .preview:
+            return RenderingConfiguration(
+                profile: profile,
+                assetVariant: assetVariant == .premium ? .balanced : assetVariant,
+                shadowMode: shadowMode == .full ? .reduced : shadowMode,
+                lightingMode: lightingMode == .fourPointStudio ? .threePointBalanced : lightingMode,
+                enableClearcoat: enableClearcoat,
+                enableHighDetailPageCurl: false,
+                targetFrameRate: targetFrameRate,
+                maxTextureDimension: min(512, maxTextureDimension),
+                textureMemoryBudgetBytes: min(2 * 1024 * 1024, textureMemoryBudgetBytes),
+                assetCacheBudgetBytes: assetCacheBudgetBytes,
+                allowPreloading: false,
+                enableHaptics: enableHaptics,
+                enableAntialiasingHint: enableAntialiasingHint,
+                pageMeshSubdivisionsX: 6,
+                pageMeshSubdivisionsZ: 2,
+                enableInteractivePageDeformation: false
+            )
+        case .studio, .reading:
+            return self
         }
     }
 

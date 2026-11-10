@@ -573,6 +573,291 @@ struct Adaptive3DEngineTests {
         }
         #expect(controller.lifecycleManager.activeSimulationTicks == activeBeforeIdle)
         #expect(controller.lifecycleManager.suspendedIdleTicks >= 60)
+
+        // Verify deformable turning page mesh, dual-sided materials, left/right page surfaces, and clean detach
+        let openTurnCfg = Book3DConfiguration(leather: .emerald, foil: .gold, paperStock: .archivalCream, ribbonColor: .plum, isOpen: true, currentSpreadIndex: 1)
+        controller.syncConfiguration(openTurnCfg, turnNonce: 99, turnDirection: 1)
+        var sawDeformableMeshActive = false
+        for _ in 0..<25 {
+            controller.tick(deltaTime: 0.016)
+            if let deformable = controller.deformableTurningPage,
+               deformable.entity.isEnabled,
+               let model = deformable.entity.model,
+               model.materials.count == 2 {
+                sawDeformableMeshActive = true
+            }
+        }
+        #expect(sawDeformableMeshActive)
+        #expect(controller.leftPageSurface?.isEnabled == true)
+        #expect(controller.rightPageSurface?.isEnabled == true)
+        #expect(controller.frontEndpaper != nil)
+        #expect(controller.backEndpaper != nil)
+
+        // Mode A 2D thumbnail renders cleanly without creating RealityKit scenes
+        let thumb = texMgr.coverThumbnailImage(for: openTurnCfg)
+        #expect(thumb != nil)
+
+        controller.detachScene()
+        #expect(controller.bookRoot == nil)
+        #expect(controller.deformableTurningPage == nil)
+    }
+    #endif
+
+    @Test("Explicit 13-state SceneLifecycleManager validates transitions and fires task cancellation")
+    @MainActor
+    func testExplicit13StateLifecycleMachine() {
+        #expect(SceneLifecycleState.allCases.count == 13)
+        let lifecycle = SceneLifecycleManager(presentationMode: .reading)
+        #expect(lifecycle.lifecycleState == .notLoaded)
+
+        var cancelledCount = 0
+        lifecycle.onCancelObsoleteTasks = { cancelledCount += 1 }
+
+        // Invalid jump directly from notLoaded -> turningPage must be rejected
+        #expect(!lifecycle.transition(to: .turningPage, reason: "Invalid premature turn"))
+        #expect(lifecycle.lifecycleState == .notLoaded)
+
+        lifecycle.beginLoading()
+        #expect(lifecycle.lifecycleState == .loading)
+
+        // Suspending while loading triggers task cancellation hook
+        lifecycle.enterBackground(isBookOpen: false)
+        #expect(lifecycle.lifecycleState == .suspended)
+        #expect(cancelledCount == 1)
+
+        // Recovering -> loading -> ready -> reading -> turningPage -> failed -> recovering
+        lifecycle.enterForeground(isBookOpen: false)
+        lifecycle.beginLoading()
+        lifecycle.markSceneReady(isOpen: true)
+        #expect(lifecycle.lifecycleState == .reading)
+
+        lifecycle.beginPageTurn()
+        #expect(lifecycle.lifecycleState == .turningPage)
+
+        lifecycle.markFailed("Simulated load error")
+        #expect(lifecycle.lifecycleState == .failed)
+        #expect(cancelledCount >= 2)
+
+        lifecycle.beginRecovery()
+        #expect(lifecycle.lifecycleState == .recovering)
+        lifecycle.setFallbackActive(true, isBookOpen: true)
+        #expect(lifecycle.lifecycleState == .fallback)
+    }
+
+    @Test("PageDeformationController maintains non-intersecting elevation, curl arch, and mirrored back UVs")
+    func testPageDeformationPhysicsAndUVs() {
+        let controller = PageDeformationController(
+            parameters: PageDeformationParameters(subdivisionsX: 12, subdivisionsZ: 4)
+        )
+
+        var midTurnMaxY: Float = 0
+        for step in stride(from: Float(0.0), through: Float(1.0), by: 0.125) {
+            let geom = controller.evaluateGeometry(turnProgress: step, curlIntensity: 1.0, turnDirection: 1.0)
+            #expect(geom.vertexCountPerSide == 13 * 5)
+            #expect(geom.triangleCountPerSide == 12 * 4 * 2)
+
+            let minY = controller.minimumElevationY(for: geom)
+            #expect(minY >= 0.0, "Sheet dipped below stack plane at t=\(step): minY=\(minY)")
+
+            let maxY = geom.positions.map(\.y).max() ?? 0
+            if abs(step - 0.5) < 0.01 {
+                midTurnMaxY = maxY
+            }
+
+            // Verify mirrored horizontal UV on back face so text reads left-to-right when flipped
+            for i in 0..<geom.uvsFront.count {
+                #expect(abs((geom.uvsFront[i].x + geom.uvsBack[i].x) - 1.0) < 0.0001)
+                #expect(abs(geom.uvsFront[i].y - geom.uvsBack[i].y) < 0.0001)
+                let normalLen = sqrt(
+                    geom.normals[i].x * geom.normals[i].x +
+                    geom.normals[i].y * geom.normals[i].y +
+                    geom.normals[i].z * geom.normals[i].z
+                )
+                #expect(abs(normalLen - 1.0) < 0.01)
+            }
+        }
+        #expect(midTurnMaxY > 0.02)
+
+        // Reduced motion (curlIntensity = 0) produces valid unit normals with zero curl arch
+        let flatGeom = controller.evaluateGeometry(turnProgress: 0.5, curlIntensity: 0.0, turnDirection: 1.0)
+        #expect(controller.minimumElevationY(for: flatGeom) >= 0.0)
+    }
+
+    @Test("BookAnimationController handles interactive drag commit/cancel and interruptible cover reversal")
+    @MainActor
+    func testBookAnimationControllerInterruptionsAndInteractiveDrag() {
+        let anim = BookAnimationController()
+        anim.targetOpenProgress = 1.0
+
+        // Step partially open, then reverse mid-flight
+        for _ in 0..<8 {
+            _ = anim.step(dt: 0.016, reducedMotion: false, highDetailPageCurl: true)
+        }
+        #expect(anim.currentOpenProgress > 0.1 && anim.currentOpenProgress < 0.9)
+        anim.targetOpenProgress = 0.0
+        for _ in 0..<180 {
+            _ = anim.step(dt: 0.016, reducedMotion: false, highDetailPageCurl: true)
+        }
+        #expect(anim.currentOpenProgress < 0.001)
+
+        // Re-open and test interactive drag cancellation vs commit
+        anim.currentOpenProgress = 1.0
+        anim.targetOpenProgress = 1.0
+
+        anim.beginInteractiveTurn(direction: 1, fromSpread: 0, toSpread: 1)
+        anim.updateInteractiveTurn(normalizedProgress: 0.20)
+        let shouldCancel = !anim.finishInteractiveTurn(projectedVelocityX: 0)
+        #expect(shouldCancel)
+        #expect(anim.targetTurnProgress == 0.0)
+
+        anim.beginInteractiveTurn(direction: 1, fromSpread: 0, toSpread: 1)
+        anim.updateInteractiveTurn(normalizedProgress: 0.60)
+        let shouldCommit = anim.finishInteractiveTurn(projectedVelocityX: 0)
+        #expect(shouldCommit)
+        #expect(anim.targetTurnProgress == 1.0)
+    }
+
+    @Test("BookStatePersistenceService durably preserves customization and reading position outside renderer state")
+    func testBookStateDurablePersistence() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MemoriaBookStateTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let service = BookStatePersistenceService(directoryURL: tempDir)
+        let custom = Book3DConfiguration(
+            bookId: "vol-custom-test",
+            leather: .burgundy,
+            foil: .rose,
+            paperStock: .deckleLinen,
+            ribbonColor: .burgundy,
+            coverTitle: "Family Letters",
+            coverSubtitle: "1920 — 2026",
+            spineText: "LETTERS",
+            isOpen: true,
+            currentSpreadIndex: 3
+        )
+        try service.saveConfiguration(custom, for: "vol-custom-test")
+
+        let reloaded = service.loadConfiguration(for: "vol-custom-test")
+        #expect(reloaded == custom)
+        #expect(reloaded.currentSpreadIndex == 3)
+        #expect(reloaded.paperStock == .deckleLinen)
+        #expect(reloaded.ribbonColor == .burgundy)
+    }
+
+    @Test("Presentation mode configuration overrides enforce Mode A zero-3D and Mode B lightweight preview budgets")
+    func testPresentationModeBudgetOverrides() {
+        let basePremium = RenderingConfiguration.make(for: .premium, displayMaxRefreshRate: 120, reduceMotion: false)
+        #expect(basePremium.pageMeshSubdivisionsX == 16)
+        #expect(basePremium.pageMeshSubdivisionsZ == 6)
+
+        let libraryMode = basePremium.adjusted(for: .library)
+        #expect(libraryMode.targetFrameRate == 0)
+        #expect(libraryMode.textureMemoryBudgetBytes == 0)
+        #expect(!libraryMode.allowPreloading)
+
+        let previewMode = basePremium.adjusted(for: .preview)
+        #expect(previewMode.assetVariant == .balanced)
+        #expect(!previewMode.allowPreloading)
+        #expect(previewMode.textureMemoryBudgetBytes <= 2 * 1024 * 1024)
+
+        let readingMode = basePremium.adjusted(for: .reading)
+        #expect(readingMode == basePremium)
+    }
+
+    @Test("Interactive drag commit preserves mid-turn progress across turnNonce sync without snapping back")
+    @MainActor
+    func testInteractiveDragCommitPreservesProgress() {
+        let lifecycle = SceneLifecycleManager(presentationMode: .reading)
+        let interaction = BookInteractionController()
+        var config = Book3DConfiguration(isOpen: true, currentSpreadIndex: 0)
+        _ = interaction.syncConfiguration(config, turnNonce: 0, turnDirection: 1, highDetailPageCurl: true, lifecycle: lifecycle)
+        interaction.currentOpenProgress = 1.0
+        interaction.targetOpenProgress = 1.0
+
+        // User starts horizontal drag at spread 0 -> 1 and drags to 62%
+        interaction.animationController.beginInteractiveTurn(direction: 1, fromSpread: 0, toSpread: 1)
+        interaction.animationController.updateInteractiveTurn(normalizedProgress: 0.62)
+        lifecycle.beginPageTurn()
+
+        let committed = interaction.animationController.finishInteractiveTurn(projectedVelocityX: -300)
+        #expect(committed)
+        #expect(interaction.animationController.currentTurnProgress >= 0.61)
+
+        // SwiftUI emits turnNonce increment + updated spreadIndex 1; must NOT reset progress to 0.02
+        config.currentSpreadIndex = 1
+        _ = interaction.syncConfiguration(config, turnNonce: 1, turnDirection: 1, highDetailPageCurl: true, lifecycle: lifecycle)
+        #expect(interaction.animationController.currentTurnProgress >= 0.61)
+        #expect(interaction.animationController.targetTurnProgress == 1.0)
+        #expect(interaction.animationController.pendingInteractiveCommitSpread == nil)
+
+        // Variant reload transition from .reading -> .loading -> .ready -> .reading is valid
+        lifecycle.settleToIdleOrReading(isOpen: true)
+        #expect(lifecycle.lifecycleState == .reading)
+        lifecycle.beginLoading()
+        #expect(lifecycle.lifecycleState == .loading)
+        lifecycle.markSceneReady(isOpen: true)
+        #expect(lifecycle.lifecycleState == .reading)
+    }
+
+    #if os(iOS) && canImport(RealityKit)
+    @Test("Interactive coordinator turn prepares deformable mesh immediately, isolates spread cache keys, updates LeftPageStack, and guards detached attach")
+    @MainActor
+    func testInteractiveCoordinatorAndCacheIsolation() async throws {
+        let texMgr = TextureResourceManager()
+        let renderingMgr = BookRenderingManager(
+            environmentSnapshot: makeSnapshot(memoryGB: 8.0, cores: 6),
+            assetManager: BookAssetManager(budgetBytes: 12 * 1024 * 1024),
+            textureManager: texMgr,
+            observeAppLifecycle: false
+        )
+        let coordinator = BookSceneCoordinator(presentationMode: .reading, renderingManager: renderingMgr)
+        let loaded = try await renderingMgr.assetManager.loadBookSceneRoot(variant: .balanced)
+        coordinator.attachLoadedRoot(loaded.entity, variant: .balanced)
+        coordinator.isModelLoaded = true
+
+        var openCfg = Book3DConfiguration(leather: .plum, foil: .gold, paperStock: .warmCotton, isOpen: true, currentSpreadIndex: 0)
+        openCfg.reducedMotion = false
+        coordinator.syncConfiguration(openCfg, turnNonce: 0, turnDirection: 1)
+        coordinator.interactionController.currentOpenProgress = 1.0
+        coordinator.interactionController.targetOpenProgress = 1.0
+
+        // Begin interactive page turn directly before spreadIndex changes
+        coordinator.beginInteractivePageTurn(direction: 1, fromSpread: 0, toSpread: 1)
+        coordinator.interactionController.animationController.updateInteractiveTurn(normalizedProgress: 0.52)
+        coordinator.tick(deltaTime: 0.016)
+        #expect(coordinator.deformableTurningPage?.entity.isEnabled == true)
+        #expect(coordinator.interactionController.currentTurnProgress >= 0.51)
+
+        // Verify distinct spread content at spreadIndex 0 produces distinct cached page textures
+        let customSpread = BookSpreadPreview(
+            spreadIndex: 0,
+            chapterTitle: "Custom Volume",
+            leftPageNumber: 101,
+            rightPageNumber: 102,
+            leftHeading: "Distinct Left Heading",
+            leftDate: "2026",
+            leftLocation: "Kyoto",
+            leftBody: "Different content at spread 0.",
+            rightHeading: "Distinct Right Heading",
+            rightDate: "2026",
+            rightLocation: "Kyoto",
+            rightBody: "Different right content.",
+            ocrInscription: nil
+        )
+        let countBefore = texMgr.cachedPageTextureCount()
+        _ = texMgr.pageMaterial(for: customSpread, side: .left, paperStock: .warmCotton)
+        #expect(texMgr.cachedPageTextureCount() == countBefore + 1)
+
+        // Changing paper stock updates LeftPageStack material tint too
+        openCfg.paperStock = .deckleLinen
+        coordinator.syncConfiguration(openCfg, turnNonce: 0, turnDirection: 1)
+        #expect(coordinator.leftPageStack?.model?.materials.count == 1)
+
+        // Detach scene prevents stale late attachLoadedRoot from re-populating bookRoot
+        coordinator.detachScene()
+        coordinator.attachLoadedRoot(loaded.entity, variant: .balanced)
+        #expect(coordinator.bookRoot == nil)
     }
     #endif
 }

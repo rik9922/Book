@@ -1,5 +1,8 @@
 import SwiftUI
 
+/// Mode D — Long-session interactive reading view.
+/// Persists reading position and book customization independently of transient
+/// RealityKit state, respects Reduce Motion, and provides a non-3D fallback route.
 public struct Book3DReaderView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
@@ -13,13 +16,20 @@ public struct Book3DReaderView: View {
     @State private var showMaterialCustomizer: Bool = false
     @State private var fallbackReason: String?
 
-    private let spreads = Book3DSampleData.sampleSpreads
+    private let volume: BookVolumeRecord
+    private var spreads: [BookSpreadPreview] { volume.spreads }
 
     public init(
-        initialConfiguration: Book3DConfiguration = Book3DConfiguration(),
+        volume: BookVolumeRecord = BookVolumeRecord.libraryVolumes[0],
+        initialConfiguration: Book3DConfiguration? = nil,
         renderingManager: BookRenderingManager = .shared
     ) {
-        _configuration = State(initialValue: initialConfiguration)
+        self.volume = volume
+        let resolvedInitial = initialConfiguration ?? BookStatePersistenceService.shared.loadConfiguration(
+            for: volume.id,
+            fallback: volume.defaultConfiguration
+        )
+        _configuration = State(initialValue: resolvedInitial)
         self._renderingManager = ObservedObject(wrappedValue: renderingManager)
     }
 
@@ -49,6 +59,7 @@ public struct Book3DReaderView: View {
                             fallbackReason: effectiveFallbackReason,
                             onSelectSpread: { nextIndex in
                                 configuration.currentSpreadIndex = nextIndex
+                                persistConfiguration()
                                 renderingManager.updateInteractionContext(
                                     state: .fallback,
                                     spreadIndex: nextIndex,
@@ -56,13 +67,18 @@ public struct Book3DReaderView: View {
                                     reduceMotion: effectiveConfiguration.reducedMotion
                                 )
                             },
-                            onReturnTo3D: effectiveFallbackReason == nil ? { is2DMode = false } : nil
+                            onReturnTo3D: renderingManager.fallbackController.isFallbackActive ? nil : {
+                                fallbackReason = nil
+                                is2DMode = false
+                            }
                         )
                     } else {
                         #if canImport(RealityKit) && os(iOS)
                         ZStack(alignment: .bottom) {
                             Book3DRealityView(
                                 configuration: effectiveConfiguration,
+                                spreads: spreads,
+                                presentationMode: .reading,
                                 pageTurnNonce: pageTurnNonce,
                                 pageTurnDirection: pageTurnDirection,
                                 allowGestures: true,
@@ -88,6 +104,7 @@ public struct Book3DReaderView: View {
                             fallbackReason: "Interactive 3D preview is available on supported iOS devices. Showing the accessible heirloom book reader.",
                             onSelectSpread: { nextIndex in
                                 configuration.currentSpreadIndex = nextIndex
+                                persistConfiguration()
                             }
                         )
                         #endif
@@ -101,6 +118,7 @@ public struct Book3DReaderView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Close") {
+                        persistConfiguration()
                         dismiss()
                     }
                     .foregroundStyle(MemoriaTheme.plum)
@@ -110,7 +128,7 @@ public struct Book3DReaderView: View {
                     Button {
                         showMaterialCustomizer = true
                     } label: {
-                        Label("Materials", systemImage: "swatchpalette")
+                        Label("Studio", systemImage: "swatchpalette")
                     }
                     .tint(MemoriaTheme.plum)
 
@@ -120,14 +138,23 @@ public struct Book3DReaderView: View {
                         Label(shouldShow2DFallback ? "3D" : "2D", systemImage: shouldShow2DFallback ? "cube" : "book.pages")
                     }
                     .tint(MemoriaTheme.sageFunc)
-                    .disabled(effectiveFallbackReason != nil)
+                    .disabled(renderingManager.fallbackController.isFallbackActive)
                 }
             }
-            .sheet(isPresented: $showMaterialCustomizer) {
-                materialCustomizerSheet
+            .sheet(isPresented: $showMaterialCustomizer, onDismiss: {
+                configuration = BookStatePersistenceService.shared.loadConfiguration(
+                    for: volume.id,
+                    fallback: configuration
+                )
+            }) {
+                BookStudioView(volume: volume, initialConfiguration: configuration)
+            }
+            .onChange(of: configuration) { _, _ in
+                persistConfiguration()
             }
             .onChange(of: scenePhase) { _, nextPhase in
                 if nextPhase == .background {
+                    persistConfiguration()
                     renderingManager.handleAppBackgrounded()
                 } else if nextPhase == .active {
                     renderingManager.handleAppForegrounded()
@@ -136,9 +163,6 @@ public struct Book3DReaderView: View {
             .onChange(of: renderingManager.activeProfile) { _, nextProfile in
                 if nextProfile != .fallback && !renderingManager.fallbackController.isFallbackActive {
                     fallbackReason = nil
-                    if !is2DMode {
-                        // Already in 3D mode; nothing to reset
-                    }
                 }
             }
         }
@@ -152,7 +176,6 @@ public struct Book3DReaderView: View {
 
     private var floatingControlsOverlay: some View {
         VStack(spacing: 12) {
-            // Active Spread Context Pill when Book is Open
             if configuration.isOpen {
                 HStack(spacing: 10) {
                     VStack(alignment: .leading, spacing: 2) {
@@ -179,7 +202,6 @@ public struct Book3DReaderView: View {
                 )
             }
 
-            // Camera Preset Selector Strip
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     ForEach(BookCameraPreset.allCases) { preset in
@@ -208,7 +230,6 @@ public struct Book3DReaderView: View {
                 }
             }
 
-            // Primary Action Bar: Previous Page, Open/Close Cover, Next Page
             HStack(spacing: 10) {
                 Button {
                     turnPage(-1)
@@ -254,79 +275,10 @@ public struct Book3DReaderView: View {
         }
     }
 
-    private var materialCustomizerSheet: some View {
-        NavigationStack {
-            Form {
-                Section("Archival Leather Binding") {
-                    ForEach(BookLeatherSwatch.allCases) { swatch in
-                        Button {
-                            configuration.leather = swatch
-                        } label: {
-                            HStack(spacing: 12) {
-                                Circle()
-                                    .fill(swatch.swiftUIColor)
-                                    .frame(width: 24, height: 24)
-                                    .overlay(Circle().stroke(Color.black.opacity(0.15), lineWidth: 1))
-                                Text(swatch.displayName)
-                                    .foregroundStyle(MemoriaTheme.ink)
-                                Spacer()
-                                if configuration.leather == swatch {
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .foregroundStyle(MemoriaTheme.plum)
-                                }
-                            }
-                            .frame(minHeight: 44)
-                        }
-                    }
-                }
-
-                Section("Hot Foil Stamping") {
-                    ForEach(BookFoilSwatch.allCases) { foil in
-                        Button {
-                            configuration.foil = foil
-                        } label: {
-                            HStack(spacing: 12) {
-                                Circle()
-                                    .fill(Color(hex: foil.effectiveHexUInt(for: configuration.leather)))
-                                    .frame(width: 24, height: 24)
-                                    .overlay(Circle().stroke(Color.black.opacity(0.15), lineWidth: 1))
-                                Text(foil.displayName)
-                                    .foregroundStyle(MemoriaTheme.ink)
-                                Spacer()
-                                if configuration.foil == foil {
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .foregroundStyle(MemoriaTheme.plum)
-                                }
-                            }
-                            .frame(minHeight: 44)
-                        }
-                    }
-                }
-
-                Section("Cover Typography & Motion") {
-                    TextField("Cover Title", text: $configuration.coverTitle)
-                    Toggle("Reduced Motion", isOn: $configuration.reducedMotion)
-                }
-            }
-            .navigationTitle("Heirloom Material Studio")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") {
-                        showMaterialCustomizer = false
-                    }
-                    .foregroundStyle(MemoriaTheme.plum)
-                }
-            }
-        }
-        .presentationDetents([.medium, .large])
-    }
-
     private func toggleCover() {
         configuration.isOpen.toggle()
         configuration.cameraPreset = configuration.isOpen ? .openSpread : .hero
+        persistConfiguration()
     }
 
     private func turnPage(_ direction: Int) {
@@ -339,6 +291,11 @@ public struct Book3DReaderView: View {
             pageTurnDirection = direction
             configuration.currentSpreadIndex = nextIndex
             pageTurnNonce += 1
+            persistConfiguration()
         }
+    }
+
+    private func persistConfiguration() {
+        try? BookStatePersistenceService.shared.saveConfiguration(configuration, for: volume.id)
     }
 }

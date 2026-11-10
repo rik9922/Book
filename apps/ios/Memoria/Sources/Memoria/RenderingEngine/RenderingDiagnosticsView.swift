@@ -2,6 +2,7 @@ import SwiftUI
 
 public struct RenderingDiagnosticsView: View {
     @ObservedObject private var manager: BookRenderingManager
+    @ObservedObject private var metricKit = MetricKitDiagnosticsCollector.shared
     @State private var refreshCounter = 0
 
     public init(manager: BookRenderingManager = .shared) {
@@ -22,6 +23,17 @@ public struct RenderingDiagnosticsView: View {
                 row("Lighting Mode", value: config.lightingMode.rawValue)
                 row("Shadow Mode", value: config.shadowMode.rawValue)
                 row("Clearcoat PBR", value: config.enableClearcoat ? "Enabled" : "Disabled")
+                row("Page Mesh Grid", value: config.pageMeshSubdivisionsX > 0 ? "\(config.pageMeshSubdivisionsX)×\(config.pageMeshSubdivisionsZ)" : "2D")
+            }
+
+            Section("MetricKit Production Telemetry") {
+                row("Subscriber", value: metricKit.snapshot.isRegistered ? "Registered" : "Inactive")
+                row("Metric Payloads", value: "\(metricKit.snapshot.receivedMetricPayloads)")
+                row("Diagnostic Payloads", value: "\(metricKit.snapshot.receivedDiagnosticPayloads)")
+                if let peakMB = metricKit.snapshot.lastPeakMemoryMB {
+                    row("MetricKit Peak Mem", value: String(format: "%.1f MB", peakMB))
+                }
+                row("Hang Diagnostics", value: "\(metricKit.snapshot.lastHangCount)")
             }
 
             Section("Thermal, Power & Memory") {
