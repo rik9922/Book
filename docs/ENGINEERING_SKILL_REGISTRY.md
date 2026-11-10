@@ -1,58 +1,75 @@
 # ENGINEERING SKILL REGISTRY
 **Memoria Platform — Centralized Registry of Agent Skills, Standards & Tooling**
-**Document Version:** 1.0.0  
-**Last Maintained:** 2026-11-09  
-**Status:** Active & Discoverable  
+**Document Version:** 2.0.0
+**Last Maintained:** 2026-11-10
+**Status:** Active & Discoverable (`161` verified skills)
 
 ---
 
 ## 1. REPOSITORY SKILL DIRECTORIES & COMPATIBILITY
 
-Agent skills in Memoria are maintained in standard, portable formats adhering to the open-source Agent Skills specification (`SKILL.md` with YAML frontmatter):
+Agent skills in Memoria adhere to the open-source Agent Skills specification (`SKILL.md` with YAML frontmatter) and are synchronized identically across:
 - **Primary Agent Directory**: `.agents/skills/`
-- **Mirrored Agent Directory**: `.claude/skills/`
-- **Antigravity Customizations**: Integrated into active agent context.
+- **Mirrored Agent Directories**: `.claude/skills/` and `agent/skills/`
+- **CLI Lockfile Provenance**: `skills-lock.json`
 
 ---
 
-## 2. ACTIVE ENGINEERING SKILL REGISTRY
+## 2. VERIFIED GITHUB SKILL SOURCES BY TECHNICAL DISCIPLINE
 
-| Skill Name | Category | Source Repository / URL | Version / Commit | License | Local Path | Status |
-|---|---|---|---|---|---|---|
-| **`clean-code-solid-engineering`** | Clean Code & SOLID | `https://gitlab.com/gitlab-org/gitlab-duo-agent-platform/skills` | `v1.2.0 (2026)` | MIT / Apache 2.0 | `.agents/skills/clean-code-solid-engineering` | **VERIFIED** |
-| **`structured-logging-and-observability`** | Logging & Tracing | `https://gitlab.com/gitlab-org/observability/standards` | `v1.1.0 (2026)` | MIT / Apache 2.0 | `.agents/skills/structured-logging-and-observability` | **VERIFIED** |
-| **`error-handling-and-resilience`** | Resilience & Errors | `https://gitlab.com/gitlab-org/distributed-systems/patterns` | `v1.0.4 (2026)` | MIT / Apache 2.0 | `.agents/skills/error-handling-and-resilience` | **VERIFIED** |
-| **`code-quality-and-refactoring`** | Quality & Refactoring | `https://gitlab.com/gitlab-org/code-review/guidelines` | `v1.1.2 (2026)` | MIT / Apache 2.0 | `.agents/skills/code-quality-and-refactoring` | **VERIFIED** |
-| **`architecture-patterns`** | Backend Architecture | `https://github.com/clean-architecture/patterns` | `v2.0.0` | MIT | `.agents/skills/architecture-patterns` | **VERIFIED** |
-| **`microservices-patterns`** | Microservices | `https://github.com/microservices-patterns/reference` | `v1.4.0` | MIT | `.agents/skills/microservices-patterns` | **VERIFIED** |
-| **`database-migrations`** | Relational DB | `https://github.com/db-migrate/patterns` | `v2.1.0` | MIT | `.agents/skills/database-migrations` | **VERIFIED** |
-| **`postgres-patterns`** | PostgreSQL Perf | `https://github.com/supabase/postgres-patterns` | `v3.0.0` | Apache 2.0 | `.agents/skills/postgres-patterns` | **VERIFIED** |
-| **`postgresql-table-design`** | Schema Design | `https://github.com/postgres/table-design` | `v1.2.0` | PostgreSQL | `.agents/skills/postgresql-table-design` | **VERIFIED** |
-| **`docker-compose-patterns`** | Infrastructure | `https://github.com/docker/compose-patterns` | `v2.2.0` | Apache 2.0 | `.agents/skills/docker-compose-patterns` | **VERIFIED** |
-| **`security-and-hardening`** | AppSec & Hardening | `https://github.com/owasp/appsec-skills` | `v2025.1` | MIT | `.agents/skills/security-and-hardening` | **VERIFIED** |
-| **`owasp-top-10-testing`** | Penetration Testing | `https://github.com/owasp/top10-testing` | `v2025.2` | MIT | `.agents/skills/owasp-top-10-testing` | **VERIFIED** |
-| **`api-security-best-practices`** | API Security | `https://github.com/owasp/api-security` | `v2023.3` | MIT | `.agents/skills/api-security-best-practices` | **VERIFIED** |
-| **`auth-implementation-patterns`** | Auth & JWT | `https://github.com/auth0/identity-patterns` | `v1.5.0` | Apache 2.0 | `.agents/skills/auth-implementation-patterns` | **VERIFIED** |
-| **`qa-expert`** | Quality Assurance | `https://github.com/qa-engineering/test-standards` | `v1.3.0` | MIT | `.agents/skills/qa-expert` | **VERIFIED** |
-| **`agentic-integrity-and-security`** | AI Governance | `https://github.com/antigravity/governance-skills` | `v1.0.0` | MIT | `.agents/skills/agentic-integrity-and-security` | **VERIFIED** |
-| **`design-system`** | UI Tokens | `https://github.com/design-tokens/standard` | `v1.0.0` | MIT | `.agents/skills/design-system` | **VERIFIED** |
-| **`impeccable`** | Frontend Polish | `https://github.com/emilkowalski/design-eng` | `v1.0.0` | MIT | `.agents/skills/impeccable` | **VERIFIED** |
+| Discipline | GitHub Source Repository | License | Installed Skills |
+|---|---|---|---|
+| **Physics & 3D Mathematics** | `https://github.com/full-stack-skills/threejs-skills` | Apache-2.0 | `threejs-math` |
+| **Physics & Constraint Solvers** | `https://github.com/curiositech/some_claude_skills` | MIT | `physics-rendering-expert` |
+| **Real-Time Physics Tuning** | `https://github.com/gamedev-skills/awesome-gamedev-agent-skills` | Apache-2.0 | `physics-tuning`, `shader-programming` |
+| **R3F Rapier Physics** | `https://github.com/enzed/r3f-skills` | MIT | `r3f-physics` |
+| **Numerical Methods & PDE Solvers** | `https://github.com/heshamfs/materials-simulation-skills` | Apache-2.0 | `numerical-stability`, `numerical-integration`, `linear-solvers`, `time-stepping`, `mesh-generation` |
+| **Linear Algebra, Symbolic & Signal Math** | `https://github.com/xjtulyc/awesome-rosetta-skills` | MIT | `numerical-linear-algebra`, `scipy-numerical`, `sympy-symbolic`, `control-systems`, `finite-element-analysis`, `signal-processing`, `photogrammetry-3d` |
+| **Three.js Core & Engine** | `https://github.com/cloudai-x/threejs-skills` | Permissive OSS | `threejs-fundamentals`, `threejs-geometry`, `threejs-materials`, `threejs-lighting`, `threejs-animation`, `threejs-loaders`, `threejs-textures`, `threejs-interaction`, `threejs-postprocessing`, `threejs-performance`, `threejs-react-three-fiber`, `threejs-shaders`, `threejs-asset-pipeline` |
+| **Three.js WebGPU, A11y & Testing** | `https://github.com/cesartevisual/threejs-skills` | MIT | `threejs-physics`, `threejs-accessibility`, `threejs-debugging`, `threejs-testing`, `threejs-webgpu`, `threejs-product-viewer` |
+| **Three.js Advanced Graphics** | `https://github.com/scottstts/threejs-awesome-graphics-agent-skills` | MIT | `threejs-shadow-systems`, `threejs-procedural-geometry`, `threejs-visual-validation`, `threejs-camera-direction`, `threejs-exposure-color-grading` |
+| **WebGPU & TSL Node Shaders** | `https://github.com/dgreenheck/webgpu-claude-skill` | MIT | `webgpu-threejs-tsl` |
+| **GLSL Shaders** | `https://github.com/sickn33/agentic-awesome-skills` | Permissive OSS | `shader-programming-glsl` |
+| **Blender Pipeline & Optimization** | `https://github.com/arjun988/blender-skills` | MIT | `asset-optimization`, `export-pipeline`, `lod-pipeline`, `blender-modeler` |
+| **Blender Python (`bpy`/`bmesh`)** | `https://github.com/terminalskills/skills` | Apache-2.0 | `blender-scripting` |
+| **Blender Web Export** | `https://github.com/freshtechbro/claudedesignskills` | Permissive OSS | `blender-web-pipeline` |
+| **OpenUSD & RealityKit Advanced** | `https://github.com/tomkrikorian/visionosagents` | MIT | `realitykit-animation-physics`, `realitykit-ecs-systems`, `realitykit-rendering-materials`, `usd-editor`, `shadergraph-editor` |
+| **OpenUSD Performance Tuning** | `https://github.com/nvidia/skills` | Apache-2.0 | `omniverse-usd-performance-tuning` |
+| **Metal Shaders & TBDR** | `https://github.com/curiositech/some_claude_skills` | MIT | `metal-shader-expert` |
+| **Apple / iOS Engineering Suite** | `https://github.com/charleswiltgen/axiom` | MIT | `axiom-graphics`, `axiom-performance`, `axiom-concurrency`, `axiom-testing`, `axiom-build`, `axiom-accessibility`, `axiom-vision`, `axiom-media`, `axiom-data`, `axiom-networking`, `axiom-tools` |
+| **Native iOS Frameworks & Diagnostics** | `https://github.com/dpearson2699/swift-ios-skills` | PolyForm Perimeter | `realitykit`, `debugging-instruments`, `ios-memgraph-analysis`, `ios-ettrace-performance`, `metrickit`, `swift-concurrency`, `swift-testing`, `swiftui-performance`, `swiftui-animation`, `swiftui-gestures`, `vision-framework`, `ios-simulator`, `ios-accessibility`, `background-processing`, `swift-security`, `pdfkit`, `photokit`, `swift-architecture`, `swiftlint` |
+| **SwiftUI Best Practices** | `https://github.com/twostraws/swiftui-agent-skill` | Permissive OSS | `swiftui-pro` |
+| **Instruments CLI Profiling** | `https://github.com/steipete/agent-scripts` | MIT | `instruments-profiling` |
+| **Processor, Apple Silicon, SIMD & Cache** | `https://github.com/mohitmishra786/low-level-dev-skills` | MIT | `apple-silicon`, `simd-intrinsics`, `cpu-cache-opt`, `cpu-pipelines-and-hazards`, `branch-prediction-and-speculation`, `memory-hierarchy-and-caches`, `gpu-memory-model`, `lldb`, `assembly-arm` |
+| **OCR, Media, gRPC & Queues** | `https://github.com/terminalskills/skills` | Apache-2.0 | `tesseract`, `sharp`, `ffmpeg`, `bull-mq`, `nats-messaging`, `grpc`, `zod` |
+| **Computer Vision & Profiling** | `https://github.com/curiositech/some_claude_skills` | MIT | `computer-vision-pipeline`, `performance-profiling` |
+| **Redis Data & Security** | `https://github.com/redis/agent-skills` | MIT | `redis-core`, `redis-observability`, `redis-security` |
+| **NATS Subject Design** | `https://github.com/trogonstack/agentskills` | MIT | `nats-design-subject` |
+| **Protobuf Schemas** | `https://github.com/bufbuild/claude-plugins` | Apache-2.0 | `protobuf` |
+| **Fastify & Node.js Core** | `https://github.com/mcollina/skills` | MIT | `fastify-best-practices`, `nodejs-core` |
+| **Backend Architecture & TypeScript** | `https://github.com/wshobson/agents` | Permissive OSS | `architecture-patterns`, `auth-implementation-patterns`, `microservices-patterns`, `postgresql-table-design`, `typescript-advanced-types`, `nextjs-app-router-patterns`, `e2e-testing-patterns`, `memory-safety-patterns` |
+| **Database & Turbopack** | `https://github.com/affaan-m/ecc` | Permissive OSS | `database-migrations`, `postgres-patterns`, `nextjs-turbopack` |
+| **Docker Compose** | `https://github.com/docker/skills` | Apache-2.0 | `docker-compose-patterns` |
+| **Engineering Practices & Quality** | `https://github.com/addyosmani/agent-skills` | Permissive OSS | `context-engineering`, `documentation-and-adrs`, `security-and-hardening`, `performance-optimization`, `observability-and-instrumentation`, `api-and-interface-design`, `test-driven-development` |
+| **Web Quality & Playwright E2E** | `https://github.com/addyosmani/web-quality-skills`, `https://github.com/currents-dev/playwright-best-practices-skill` | MIT | `core-web-vitals`, `playwright-best-practices` |
+| **Next.js / React / UI / Design** | `https://github.com/vercel-labs/agent-skills`, `https://github.com/anthropics/skills`, `https://github.com/emilkowalski/skills`, `https://github.com/pbakaus/impeccable`, `https://github.com/nextlevelbuilder/ui-ux-pro-max-skill`, `https://github.com/shadcn-ui/ui` | Permissive OSS | `vercel-react-best-practices`, `vercel-composition-patterns`, `web-design-guidelines`, `frontend-design`, `emil-design-eng`, `impeccable`, `design-system`, `ui-ux-pro-max`, `shadcn` |
+| **QA & Security Testing** | `https://github.com/daymade/claude-code-skills`, `https://github.com/softaworks/agent-toolkit`, `https://github.com/usestrix/strix`, `https://github.com/openai/skills`, `https://github.com/sickn33/agentic-awesome-skills` | Permissive OSS | `qa-expert`, `qa-test-planner`, `api-security-testing`, `owasp-top-10-testing`, `web-app-penetration-testing`, `security-threat-model`, `api-security-best-practices`, `nodejs-best-practices` |
+| **Spec, Context & Diagrams** | `https://github.com/bmad-code-org/bmad-method`, `https://github.com/warpdotdev/common-skills`, `https://github.com/mattpocock/skills`, `https://github.com/spillwavesolutions/design-doc-mermaid` | Permissive OSS | `bmad-project-context`, `check-impl-against-spec`, `validate-changes-match-specs`, `improve-codebase-architecture`, `design-doc-mermaid` |
+| **Memoria Governance Standards** | Repository Internal (`AGENTS.md` / `docs/MEMORIA_ENGINEERING_STANDARDS.md`) | Internal | `agentic-integrity-and-security`, `clean-code-solid-engineering`, `code-quality-and-refactoring`, `error-handling-and-resilience`, `structured-logging-and-observability` |
 
 ---
 
 ## 3. SKILL DISCOVERY & VALIDATION CRITERIA
 
-Before any skill is imported from GitLab or open-source repositories into Memoria:
-1. **License Compliance**: Must possess a verified permissive open-source license (MIT, Apache 2.0, BSD, or PostgreSQL license). Unlicensed or proprietary skills are strictly rejected.
-2. **Relevance & Zero Duplication**: The skill must solve an active architectural or operational problem in Memoria without duplicating existing installed skills.
-3. **Security Inspection**: Every script, prompt, and rule file is inspected to ensure zero remote tracking, telemetry, hidden credentials, or unsafe code execution.
-4. **$0 Budget Rule**: Skills requiring paid cloud subscriptions, enterprise SaaS keys, or credit-card gated services are rejected.
+Before any skill is imported from GitHub into Memoria:
+1. **License & Provenance Verification**: Repository must be verified on GitHub with open-source/permissive usage terms; unverified URLs are never fabricated.
+2. **Valid Frontmatter Structure**: Every `SKILL.md` must parse cleanly with valid YAML frontmatter (`name`, `description`).
+3. **Security Inspection**: Scripts and references are audited to ensure zero remote tracking, hidden credentials, or unsafe execution patterns.
+4. **$0 Budget Compliance**: Skills requiring paid cloud subscriptions, credit cards, or proprietary SaaS keys are rejected.
 
 ---
 
-## 4. PERIODIC MAINTENANCE & UPDATE RUNBOOK
+## 4. MAINTENANCE & VERIFICATION RUNBOOK
 
-1. **Upstream Review**: Check upstream GitLab repositories quarterly for meaningful advancements in clean code, testing, or observability patterns.
-2. **Diff Review**: Inspect diffs before pulling updates to preserve Memoria-specific architectural customizations and path bindings.
-3. **Automated Verification**: After modifying any skill, execute `pnpm run check:quality && pnpm test` to confirm agent workflow stability and verify skill discovery.
-
+1. Validate skill directories are mirrored across `.agents/skills/`, `.claude/skills/`, and `agent/skills/`.
+2. Run `pnpm run check:quality` and `npx skills list` after any skill update to verify repository health and skill discovery.

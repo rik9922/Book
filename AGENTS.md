@@ -37,17 +37,20 @@ This document governs the operational rules, architectural constraints, clean co
 
 ## 2. ACTIVE SKILL REPERTOIRE
 
-The repository maintains an installed skill library under `.agents/skills/` (and mirrored in `.claude/skills/`):
+The repository maintains an installed skill library under `.agents/skills/` (mirrored in `.claude/skills/` and `agent/skills/`, with provenance tracked in `skills-lock.json` and `docs/ENGINEERING_SKILL_REGISTRY.md`):
 
-- **Clean Code & Architecture**: `clean-code-solid-engineering`, `code-quality-and-refactoring`, `architecture-patterns`, `microservices-patterns`, `nodejs-best-practices`
-- **Logging & Resilience**: `structured-logging-and-observability`, `error-handling-and-resilience`
-- **Context & Memory**: `context-engineering`, `bmad-project-context`
-- **Spec Verification & Anti-Hallucination**: `validate-changes-match-specs`, `check-impl-against-spec`
-- **Quality Assurance & Testing**: `qa-expert`, `qa-test-planner`
-- **Security & Hardening**: `security-and-hardening`, `security-threat-model`, `api-security-best-practices`, `auth-implementation-patterns`
-- **Database & Performance**: `database-migrations`, `postgres-patterns`, `postgresql-table-design`
-- **3D & Graphics Engine**: `threejs-fundamentals`, `threejs-geometry`, `threejs-materials`, `threejs-lighting`, `threejs-animation`, `threejs-loaders`, `threejs-textures`, `threejs-interaction`, `threejs-postprocessing`, `threejs-performance`, `threejs-react-three-fiber`, `threejs-shaders`, `threejs-asset-pipeline`, `blender-web-pipeline`, `realitykit`, `swiftui-pro`
-- **Design & UI/UX**: `design-system`, `emil-design-eng`, `frontend-design`, `impeccable`, `shadcn`, `ui-ux-pro-max`, `web-design-guidelines`
+- **Clean Code & Architecture**: `clean-code-solid-engineering`, `code-quality-and-refactoring`, `architecture-patterns`, `microservices-patterns`, `nodejs-best-practices`, `nodejs-core`, `fastify-best-practices`, `api-and-interface-design`, `improve-codebase-architecture`, `typescript-advanced-types`, `zod`, `protobuf`, `grpc`
+- **Logging, Resilience & Observability**: `structured-logging-and-observability`, `error-handling-and-resilience`, `observability-and-instrumentation`, `performance-optimization`, `performance-profiling`, `memory-safety-patterns`
+- **Context & Spec Verification**: `context-engineering`, `bmad-project-context`, `validate-changes-match-specs`, `check-impl-against-spec`, `documentation-and-adrs`, `design-doc-mermaid`
+- **Quality Assurance & Testing**: `qa-expert`, `qa-test-planner`, `test-driven-development`, `e2e-testing-patterns`, `playwright-best-practices`
+- **Security & Hardening**: `agentic-integrity-and-security`, `security-and-hardening`, `security-threat-model`, `api-security-best-practices`, `auth-implementation-patterns`, `owasp-top-10-testing`, `web-app-penetration-testing`, `api-security-testing`
+- **Database, Caching, Queues & Messaging**: `database-migrations`, `postgres-patterns`, `postgresql-table-design`, `docker-compose-patterns`, `redis-core`, `redis-observability`, `redis-security`, `bull-mq`, `nats-messaging`, `nats-design-subject`
+- **Media & OCR Processing**: `tesseract`, `sharp`, `ffmpeg`, `computer-vision-pipeline`
+- **Physics & 3D Mathematics**: `threejs-math`, `physics-rendering-expert`, `physics-tuning`, `r3f-physics`, `numerical-stability`, `numerical-integration`, `linear-solvers`, `time-stepping`, `mesh-generation`, `numerical-linear-algebra`, `scipy-numerical`, `sympy-symbolic`, `control-systems`, `finite-element-analysis`, `signal-processing`, `photogrammetry-3d`
+- **3D Rendering, Shaders, Blender & OpenUSD**: `threejs-fundamentals`, `threejs-geometry`, `threejs-materials`, `threejs-lighting`, `threejs-animation`, `threejs-loaders`, `threejs-textures`, `threejs-interaction`, `threejs-postprocessing`, `threejs-performance`, `threejs-react-three-fiber`, `threejs-shaders`, `threejs-asset-pipeline`, `threejs-physics`, `threejs-accessibility`, `threejs-debugging`, `threejs-testing`, `threejs-webgpu`, `threejs-product-viewer`, `threejs-shadow-systems`, `threejs-procedural-geometry`, `threejs-visual-validation`, `threejs-camera-direction`, `threejs-exposure-color-grading`, `webgpu-threejs-tsl`, `shader-programming`, `shader-programming-glsl`, `metal-shader-expert`, `shadergraph-editor`, `blender-web-pipeline`, `blender-modeler`, `blender-scripting`, `asset-optimization`, `export-pipeline`, `lod-pipeline`, `usd-editor`, `omniverse-usd-performance-tuning`
+- **Native iOS Device Engineering**: `swiftui-pro`, `swift-architecture`, `swift-concurrency`, `swift-testing`, `swift-security`, `swiftlint`, `swiftui-animation`, `swiftui-gestures`, `swiftui-performance`, `realitykit`, `realitykit-animation-physics`, `realitykit-ecs-systems`, `realitykit-rendering-materials`, `vision-framework`, `pdfkit`, `photokit`, `background-processing`, `metrickit`, `debugging-instruments`, `instruments-profiling`, `ios-memgraph-analysis`, `ios-ettrace-performance`, `ios-simulator`, `ios-accessibility`, `axiom-graphics`, `axiom-performance`, `axiom-concurrency`, `axiom-testing`, `axiom-build`, `axiom-accessibility`, `axiom-vision`, `axiom-media`, `axiom-data`, `axiom-networking`, `axiom-tools`
+- **Processor & Low-Level Systems Engineering**: `apple-silicon`, `simd-intrinsics`, `cpu-cache-opt`, `cpu-pipelines-and-hazards`, `branch-prediction-and-speculation`, `memory-hierarchy-and-caches`, `gpu-memory-model`, `lldb`, `assembly-arm`
+- **Web Frontend, Next.js & UI/UX**: `design-system`, `emil-design-eng`, `frontend-design`, `impeccable`, `shadcn`, `ui-ux-pro-max`, `web-design-guidelines`, `nextjs-app-router-patterns`, `nextjs-turbopack`, `vercel-react-best-practices`, `vercel-composition-patterns`, `core-web-vitals`
 
 ---
 
