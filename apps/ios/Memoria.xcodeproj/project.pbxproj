@@ -7,8 +7,17 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		04F0850D9FD066C4BF87DCB1 /* MemoriaHeirloomBook_Efficient.usdz in Resources */ = {isa = PBXBuildFile; fileRef = CDB8BB6C8F8A23945C3694B2 /* MemoriaHeirloomBook_Efficient.usdz */; };
+		05B4D6EFA0DDF0C35E9278D7 /* MemoriaHeirloomBook_Premium.usdz in Resources */ = {isa = PBXBuildFile; fileRef = 74C7FC8D7FC570ADB40DC951 /* MemoriaHeirloomBook_Premium.usdz */; };
+		06A81C8E818D9245535EE569 /* Adaptive3DEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5462DDB9BD7DBD096A827AA0 /* Adaptive3DEngineTests.swift */; };
+		1CE893993E1765427F5AE524 /* PerformanceMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B3D85823EC8E55FC7971788 /* PerformanceMonitor.swift */; };
+		22BD2905D4444CFE7170C2A6 /* SceneLifecycleManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C8FE3766758B7961012CF1F /* SceneLifecycleManager.swift */; };
+		2CF459F946783B52AA95E648 /* BookInteractionController.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF1A3C22B9D973A43B9D34C6 /* BookInteractionController.swift */; };
+		375310215F76FC43B30FFD6D /* MemoryPressureManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B0DF4A742095EF7C5D3FD10 /* MemoryPressureManager.swift */; };
 		3BA1D813E76F21E5A29B419D /* MemoriaApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42A9EEEF173309FE9F4A450B /* MemoriaApp.swift */; };
 		3BDA7749FEEE4B48B6E1A2D4 /* Book2DSpreadFallbackView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6010C2CBB4DEA0D1BDAD2E0 /* Book2DSpreadFallbackView.swift */; };
+		3D398D62F977B6DA505863ED /* DeviceCapabilityAnalyzer.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACB26199B11CF3D25350B220 /* DeviceCapabilityAnalyzer.swift */; };
+		3E1B03C2936CBAD25133A118 /* RenderingConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1CDFBB4D863989BF3D66724 /* RenderingConfiguration.swift */; };
 		3E3958A9DB28AB4A116BF8D4 /* LocalStorageService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5B4C378C6DE635DF76551A1 /* LocalStorageService.swift */; };
 		407BCA7F3AFBE3B9FBB92E84 /* Book3DContract.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B1032798CE8462F8BEB0F06 /* Book3DContract.swift */; };
 		43256B66A2A710731475468D /* MemoriaTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48B083AB7A7AA58A884BA05A /* MemoriaTheme.swift */; };
@@ -18,12 +27,19 @@
 		55DDA151445CB6A779D4B2F2 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 287E5FC36F9B6EE91B84AEAB /* SettingsView.swift */; };
 		58DECFC14C13F65DDC2EA40D /* MemoryCreateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87A869C359EB0FA226321CA5 /* MemoryCreateView.swift */; };
 		643A929129CEDE4E306E91A1 /* HomeFeedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBA06307A01578ADBB6EBF8F /* HomeFeedView.swift */; };
+		8066EB6FE394D16823FA4C85 /* TextureResourceManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FDEAF84781063EE096F71D1 /* TextureResourceManager.swift */; };
+		90C4FFD10D9715212E2A1BE3 /* BookRenderingManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E5AD0EB183786677094C390 /* BookRenderingManager.swift */; };
 		9B020469E76DACC9A0727C71 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = C917C715782F1EA8AFAD1FC1 /* Assets.xcassets */; };
 		AE5E747344BA9697F08532A2 /* Book3DRealityView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00B846A423A8D175D4AEB91 /* Book3DRealityView.swift */; };
 		B0AB60FD7E8324BD955A4310 /* Profile.swift in Sources */ = {isa = PBXBuildFile; fileRef = EABDF7113CD6975ED42EFA5D /* Profile.swift */; };
+		B570A52C07EF6BBB8C945E08 /* BookAssetManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC7B96F46CB21766F337C524 /* BookAssetManager.swift */; };
 		B62E91F58EDBB19C286154B9 /* Book3DReaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2AF54DCB89CB19776E5818D /* Book3DReaderView.swift */; };
+		C1E6E8EE7E30938A5873AE7B /* BookFallbackController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4259E5D122729F54096DDD6E /* BookFallbackController.swift */; };
+		C77D2E7410DA646F2DD8F48A /* RenderingDiagnosticsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6DB032E0E14336BA93B0F7BB /* RenderingDiagnosticsView.swift */; };
 		C9CF2C1401CA0C5DD78BEF10 /* MemoriaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E898BB538D5BB5026923F81 /* MemoriaTests.swift */; };
 		DD00052E208EB983E5EBB2F9 /* Memoria.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E436BE18620ABA8C140912D /* Memoria.swift */; };
+		DF92875A01A1BFE46AB3AC46 /* RenderingQualityController.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF2D5B8F43DC42A59BD7A31F /* RenderingQualityController.swift */; };
+		EA44EE74BF8934BE0DBB5940 /* ThermalMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1CE54765EA9105022D2F85F /* ThermalMonitor.swift */; };
 		EA533C93896FA1399A99FB98 /* Memory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7603410260A1C4B0495EBED4 /* Memory.swift */; };
 		FB8B796486477B84CECD24BC /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E7377236A89B881FC64F4D6 /* RootView.swift */; };
 		FE3F9067E684421C154643CB /* BookshelfView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80C980320A5A67ABC6685DCE /* BookshelfView.swift */; };
@@ -42,27 +58,43 @@
 /* Begin PBXFileReference section */
 		0E898BB538D5BB5026923F81 /* MemoriaTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoriaTests.swift; sourceTree = "<group>"; };
 		1B1032798CE8462F8BEB0F06 /* Book3DContract.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Book3DContract.swift; sourceTree = "<group>"; };
+		1FDEAF84781063EE096F71D1 /* TextureResourceManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextureResourceManager.swift; sourceTree = "<group>"; };
 		222AE1FC9ECF455120C38236 /* MemoriaTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = MemoriaTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		27957311F5BB1F3F8EB3BE3C /* MemoriaHeirloomBook.usdz */ = {isa = PBXFileReference; lastKnownFileType = file.usdz; path = MemoriaHeirloomBook.usdz; sourceTree = "<group>"; };
 		287E5FC36F9B6EE91B84AEAB /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		3B0DF4A742095EF7C5D3FD10 /* MemoryPressureManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryPressureManager.swift; sourceTree = "<group>"; };
+		3C8FE3766758B7961012CF1F /* SceneLifecycleManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneLifecycleManager.swift; sourceTree = "<group>"; };
+		3E5AD0EB183786677094C390 /* BookRenderingManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookRenderingManager.swift; sourceTree = "<group>"; };
+		4259E5D122729F54096DDD6E /* BookFallbackController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookFallbackController.swift; sourceTree = "<group>"; };
 		42A9EEEF173309FE9F4A450B /* MemoriaApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoriaApp.swift; sourceTree = "<group>"; };
 		48B083AB7A7AA58A884BA05A /* MemoriaTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoriaTheme.swift; sourceTree = "<group>"; };
+		5462DDB9BD7DBD096A827AA0 /* Adaptive3DEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Adaptive3DEngineTests.swift; sourceTree = "<group>"; };
+		5B3D85823EC8E55FC7971788 /* PerformanceMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerformanceMonitor.swift; sourceTree = "<group>"; };
+		6DB032E0E14336BA93B0F7BB /* RenderingDiagnosticsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RenderingDiagnosticsView.swift; sourceTree = "<group>"; };
 		6E436BE18620ABA8C140912D /* Memoria.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Memoria.swift; sourceTree = "<group>"; };
 		6E7377236A89B881FC64F4D6 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		74C7FC8D7FC570ADB40DC951 /* MemoriaHeirloomBook_Premium.usdz */ = {isa = PBXFileReference; lastKnownFileType = file.usdz; path = MemoriaHeirloomBook_Premium.usdz; sourceTree = "<group>"; };
 		7603410260A1C4B0495EBED4 /* Memory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Memory.swift; sourceTree = "<group>"; };
 		80C980320A5A67ABC6685DCE /* BookshelfView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookshelfView.swift; sourceTree = "<group>"; };
 		87A869C359EB0FA226321CA5 /* MemoryCreateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryCreateView.swift; sourceTree = "<group>"; };
 		A00B846A423A8D175D4AEB91 /* Book3DRealityView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Book3DRealityView.swift; sourceTree = "<group>"; };
+		A1CDFBB4D863989BF3D66724 /* RenderingConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RenderingConfiguration.swift; sourceTree = "<group>"; };
 		A2AF54DCB89CB19776E5818D /* Book3DReaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Book3DReaderView.swift; sourceTree = "<group>"; };
+		ACB26199B11CF3D25350B220 /* DeviceCapabilityAnalyzer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceCapabilityAnalyzer.swift; sourceTree = "<group>"; };
+		AF1A3C22B9D973A43B9D34C6 /* BookInteractionController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookInteractionController.swift; sourceTree = "<group>"; };
 		C1BE195B60330E260358A724 /* MediaImportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaImportService.swift; sourceTree = "<group>"; };
 		C917C715782F1EA8AFAD1FC1 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		CDB8BB6C8F8A23945C3694B2 /* MemoriaHeirloomBook_Efficient.usdz */ = {isa = PBXFileReference; lastKnownFileType = file.usdz; path = MemoriaHeirloomBook_Efficient.usdz; sourceTree = "<group>"; };
+		D1CE54765EA9105022D2F85F /* ThermalMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThermalMonitor.swift; sourceTree = "<group>"; };
 		D5B4C378C6DE635DF76551A1 /* LocalStorageService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalStorageService.swift; sourceTree = "<group>"; };
 		DBA06307A01578ADBB6EBF8F /* HomeFeedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeFeedView.swift; sourceTree = "<group>"; };
 		E0186D1525C9D289547C6651 /* MemoriaAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoriaAPIClient.swift; sourceTree = "<group>"; };
 		EABDF7113CD6975ED42EFA5D /* Profile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Profile.swift; sourceTree = "<group>"; };
 		EC56191CE06F441682E54829 /* Memoria.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Memoria.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		EC7B96F46CB21766F337C524 /* BookAssetManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookAssetManager.swift; sourceTree = "<group>"; };
 		F6010C2CBB4DEA0D1BDAD2E0 /* Book2DSpreadFallbackView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Book2DSpreadFallbackView.swift; sourceTree = "<group>"; };
 		FA35F6BD71F81864DE20DEFA /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		FF2D5B8F43DC42A59BD7A31F /* RenderingQualityController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RenderingQualityController.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -152,6 +184,26 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
+		B2D375C3B6D378A0A2AAA5AB /* RenderingEngine */ = {
+			isa = PBXGroup;
+			children = (
+				EC7B96F46CB21766F337C524 /* BookAssetManager.swift */,
+				4259E5D122729F54096DDD6E /* BookFallbackController.swift */,
+				AF1A3C22B9D973A43B9D34C6 /* BookInteractionController.swift */,
+				3E5AD0EB183786677094C390 /* BookRenderingManager.swift */,
+				ACB26199B11CF3D25350B220 /* DeviceCapabilityAnalyzer.swift */,
+				3B0DF4A742095EF7C5D3FD10 /* MemoryPressureManager.swift */,
+				5B3D85823EC8E55FC7971788 /* PerformanceMonitor.swift */,
+				A1CDFBB4D863989BF3D66724 /* RenderingConfiguration.swift */,
+				6DB032E0E14336BA93B0F7BB /* RenderingDiagnosticsView.swift */,
+				FF2D5B8F43DC42A59BD7A31F /* RenderingQualityController.swift */,
+				3C8FE3766758B7961012CF1F /* SceneLifecycleManager.swift */,
+				1FDEAF84781063EE096F71D1 /* TextureResourceManager.swift */,
+				D1CE54765EA9105022D2F85F /* ThermalMonitor.swift */,
+			);
+			path = RenderingEngine;
+			sourceTree = "<group>";
+		};
 		B74FB26263E260255147DF44 /* Tests */ = {
 			isa = PBXGroup;
 			children = (
@@ -174,6 +226,8 @@
 		D3FE1C2A1B318A5A496FCCA2 /* Models */ = {
 			isa = PBXGroup;
 			children = (
+				CDB8BB6C8F8A23945C3694B2 /* MemoriaHeirloomBook_Efficient.usdz */,
+				74C7FC8D7FC570ADB40DC951 /* MemoriaHeirloomBook_Premium.usdz */,
 				27957311F5BB1F3F8EB3BE3C /* MemoriaHeirloomBook.usdz */,
 			);
 			path = Models;
@@ -182,6 +236,7 @@
 		D44041E048182FE37A29739C /* MemoriaTests */ = {
 			isa = PBXGroup;
 			children = (
+				5462DDB9BD7DBD096A827AA0 /* Adaptive3DEngineTests.swift */,
 				0E898BB538D5BB5026923F81 /* MemoriaTests.swift */,
 			);
 			path = MemoriaTests;
@@ -192,6 +247,7 @@
 			children = (
 				6E436BE18620ABA8C140912D /* Memoria.swift */,
 				3993F774171BF6AE36C0DCBC /* Models */,
+				B2D375C3B6D378A0A2AAA5AB /* RenderingEngine */,
 				08585B924642631C846C387C /* Services */,
 				587FF64944240BB8E0EFBEA6 /* Theme */,
 				10E67A55477E074F053F5B65 /* Views */,
@@ -282,6 +338,8 @@
 			files = (
 				9B020469E76DACC9A0727C71 /* Assets.xcassets in Resources */,
 				5201299C86C34B10C600AEDE /* MemoriaHeirloomBook.usdz in Resources */,
+				04F0850D9FD066C4BF87DCB1 /* MemoriaHeirloomBook_Efficient.usdz in Resources */,
+				05B4D6EFA0DDF0C35E9278D7 /* MemoriaHeirloomBook_Premium.usdz in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -292,6 +350,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				06A81C8E818D9245535EE569 /* Adaptive3DEngineTests.swift in Sources */,
 				C9CF2C1401CA0C5DD78BEF10 /* MemoriaTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -304,7 +363,12 @@
 				407BCA7F3AFBE3B9FBB92E84 /* Book3DContract.swift in Sources */,
 				B62E91F58EDBB19C286154B9 /* Book3DReaderView.swift in Sources */,
 				AE5E747344BA9697F08532A2 /* Book3DRealityView.swift in Sources */,
+				B570A52C07EF6BBB8C945E08 /* BookAssetManager.swift in Sources */,
+				C1E6E8EE7E30938A5873AE7B /* BookFallbackController.swift in Sources */,
+				2CF459F946783B52AA95E648 /* BookInteractionController.swift in Sources */,
+				90C4FFD10D9715212E2A1BE3 /* BookRenderingManager.swift in Sources */,
 				FE3F9067E684421C154643CB /* BookshelfView.swift in Sources */,
+				3D398D62F977B6DA505863ED /* DeviceCapabilityAnalyzer.swift in Sources */,
 				643A929129CEDE4E306E91A1 /* HomeFeedView.swift in Sources */,
 				3E3958A9DB28AB4A116BF8D4 /* LocalStorageService.swift in Sources */,
 				4A1938B5DA08A9292C900403 /* MediaImportService.swift in Sources */,
@@ -314,9 +378,17 @@
 				43256B66A2A710731475468D /* MemoriaTheme.swift in Sources */,
 				EA533C93896FA1399A99FB98 /* Memory.swift in Sources */,
 				58DECFC14C13F65DDC2EA40D /* MemoryCreateView.swift in Sources */,
+				375310215F76FC43B30FFD6D /* MemoryPressureManager.swift in Sources */,
+				1CE893993E1765427F5AE524 /* PerformanceMonitor.swift in Sources */,
 				B0AB60FD7E8324BD955A4310 /* Profile.swift in Sources */,
+				3E1B03C2936CBAD25133A118 /* RenderingConfiguration.swift in Sources */,
+				C77D2E7410DA646F2DD8F48A /* RenderingDiagnosticsView.swift in Sources */,
+				DF92875A01A1BFE46AB3AC46 /* RenderingQualityController.swift in Sources */,
 				FB8B796486477B84CECD24BC /* RootView.swift in Sources */,
+				22BD2905D4444CFE7170C2A6 /* SceneLifecycleManager.swift in Sources */,
 				55DDA151445CB6A779D4B2F2 /* SettingsView.swift in Sources */,
+				8066EB6FE394D16823FA4C85 /* TextureResourceManager.swift in Sources */,
+				EA44EE74BF8934BE0DBB5940 /* ThermalMonitor.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

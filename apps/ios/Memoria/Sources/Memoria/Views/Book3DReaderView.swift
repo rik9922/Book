@@ -3,7 +3,9 @@ import SwiftUI
 public struct Book3DReaderView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+    @Environment(\.scenePhase) private var scenePhase
 
+    @ObservedObject private var renderingManager: BookRenderingManager
     @State private var configuration: Book3DConfiguration
     @State private var pageTurnNonce: Int = 0
     @State private var pageTurnDirection: Int = 1
@@ -13,13 +15,25 @@ public struct Book3DReaderView: View {
 
     private let spreads = Book3DSampleData.sampleSpreads
 
-    public init(initialConfiguration: Book3DConfiguration = Book3DConfiguration()) {
+    public init(
+        initialConfiguration: Book3DConfiguration = Book3DConfiguration(),
+        renderingManager: BookRenderingManager = .shared
+    ) {
         _configuration = State(initialValue: initialConfiguration)
+        self._renderingManager = ObservedObject(wrappedValue: renderingManager)
     }
 
     private var activeSpread: BookSpreadPreview {
         let safeIdx = max(0, min(spreads.count - 1, configuration.currentSpreadIndex))
         return spreads[safeIdx]
+    }
+
+    private var shouldShow2DFallback: Bool {
+        is2DMode || renderingManager.fallbackController.isFallbackActive
+    }
+
+    private var effectiveFallbackReason: String? {
+        renderingManager.fallbackController.userFacingMessage ?? fallbackReason
     }
 
     public var body: some View {
@@ -28,15 +42,21 @@ public struct Book3DReaderView: View {
                 MemoriaTheme.canvas.ignoresSafeArea()
 
                 VStack(spacing: 0) {
-                    if is2DMode {
+                    if shouldShow2DFallback {
                         Book2DSpreadFallbackView(
                             configuration: configuration,
                             spreads: spreads,
-                            fallbackReason: fallbackReason,
+                            fallbackReason: effectiveFallbackReason,
                             onSelectSpread: { nextIndex in
                                 configuration.currentSpreadIndex = nextIndex
+                                renderingManager.updateInteractionContext(
+                                    state: .fallback,
+                                    spreadIndex: nextIndex,
+                                    totalSpreads: spreads.count,
+                                    reduceMotion: effectiveConfiguration.reducedMotion
+                                )
                             },
-                            onReturnTo3D: fallbackReason == nil ? { is2DMode = false } : nil
+                            onReturnTo3D: effectiveFallbackReason == nil ? { is2DMode = false } : nil
                         )
                     } else {
                         #if canImport(RealityKit) && os(iOS)
@@ -46,10 +66,13 @@ public struct Book3DReaderView: View {
                                 pageTurnNonce: pageTurnNonce,
                                 pageTurnDirection: pageTurnDirection,
                                 allowGestures: true,
+                                isSceneActive: !showMaterialCustomizer && scenePhase == .active,
+                                renderingManager: renderingManager,
                                 onToggleOpen: toggleCover,
                                 onTurnPage: turnPage,
                                 onFallbackRequired: { reason in
-                                    fallbackReason = reason
+                                    fallbackReason = BookFallbackController.calmUserMessage(for: .sceneLoadFailure)
+                                    renderingManager.reportSceneLoadFailure(reason)
                                     is2DMode = true
                                 }
                             )
@@ -62,7 +85,7 @@ public struct Book3DReaderView: View {
                         Book2DSpreadFallbackView(
                             configuration: configuration,
                             spreads: spreads,
-                            fallbackReason: "3D RealityKit preview is available on iOS devices; showing Accessible 2D Spread Reader.",
+                            fallbackReason: "Interactive 3D preview is available on supported iOS devices. Showing the accessible heirloom book reader.",
                             onSelectSpread: { nextIndex in
                                 configuration.currentSpreadIndex = nextIndex
                             }
@@ -94,14 +117,21 @@ public struct Book3DReaderView: View {
                     Button {
                         is2DMode.toggle()
                     } label: {
-                        Label(is2DMode ? "3D" : "2D", systemImage: is2DMode ? "cube" : "book.pages")
+                        Label(shouldShow2DFallback ? "3D" : "2D", systemImage: shouldShow2DFallback ? "cube" : "book.pages")
                     }
                     .tint(MemoriaTheme.sageFunc)
-                    .disabled(fallbackReason != nil)
+                    .disabled(effectiveFallbackReason != nil)
                 }
             }
             .sheet(isPresented: $showMaterialCustomizer) {
                 materialCustomizerSheet
+            }
+            .onChange(of: scenePhase) { _, nextPhase in
+                if nextPhase == .background {
+                    renderingManager.handleAppBackgrounded()
+                } else if nextPhase == .active {
+                    renderingManager.handleAppForegrounded()
+                }
             }
         }
     }

@@ -75,7 +75,7 @@
     "usdz": {
       "relativePath": "models/MemoriaHeirloomBook.usdz",
       "byteSize": 32811,
-      "sha256": "9d458d1ec6c6fd352974a1034341444831432f61fcb54bcd532a0a238f14263b",
+      "sha256": "82fc8120e28882cedd8df73bc0d6dd5439f64889785816002dfff5a82250c0fc",
       "targetPlatform": "iOS 17+ / RealityKit / QuickLook"
     }
   },

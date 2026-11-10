@@ -79,6 +79,17 @@ public struct SettingsView: View {
                             .clipShape(Capsule())
                     }
                 }
+
+                #if DEBUG
+                Section("Developer Diagnostics") {
+                    NavigationLink {
+                        RenderingDiagnosticsView()
+                    } label: {
+                        Label("3D Rendering Engine Diagnostics", systemImage: "gauge.with.dots.needle.33percent")
+                            .foregroundStyle(MemoriaTheme.plum)
+                    }
+                }
+                #endif
             }
             .navigationTitle("Settings")
             .task {

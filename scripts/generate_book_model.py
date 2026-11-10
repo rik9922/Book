@@ -513,28 +513,55 @@ def compute_sha256(filepath):
             h.update(chunk)
     return h.hexdigest()
 
-def main():
-    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    print("==================================================================")
-    print("Memoria Unified 3D Book Engine — Multi-Format Asset Pipeline")
-    print("Single Source of Truth: Canonical Procedural Geometry & PBR")
-    print("==================================================================")
+def build_book_geometry(spine_steps=20, emblem_segments=32, page_steps=16):
+    spine_v, spine_n, spine_u, spine_i = create_curved_spine(
+        TEXTBLOCK_THICKNESS / 2.0 + BOARD_THICKNESS,
+        BOOK_HEIGHT,
+        steps=spine_steps
+    )
+    back_v, back_n, back_u, back_i = create_box_mesh(
+        BOOK_WIDTH, BOARD_THICKNESS, BOOK_HEIGHT, center=(BOOK_WIDTH / 2.0, Z_BACK, 0)
+    )
+    tb_v, tb_n, tb_u, tb_i = create_box_mesh(
+        TEXTBLOCK_WIDTH, TEXTBLOCK_THICKNESS, TEXTBLOCK_HEIGHT, center=(TEXTBLOCK_WIDTH / 2.0 + 0.004, 0, 0)
+    )
+    front_v, front_n, front_u, front_i = create_box_mesh(
+        BOOK_WIDTH, BOARD_THICKNESS, BOOK_HEIGHT, center=(BOOK_WIDTH / 2.0, Z_FRONT, 0)
+    )
 
-    glb_builder = GlbBuilder()
-    usd_builder = UsdBuilder("HeirloomBookRoot")
-
-    glb_mats = {}
-    for name, data in CANONICAL_MATERIALS.items():
-        glb_idx = glb_builder.add_material(name, data["color"], metallic=data["metallic"], roughness=data["roughness"])
-        glb_mats[name] = glb_idx
-        usd_builder.add_material(name, data["color"][:3], metallic=data["metallic"], roughness=data["roughness"])
-
-    # 3. Geometry Components
-    spine_v, spine_n, spine_u, spine_i = create_curved_spine(TEXTBLOCK_THICKNESS / 2.0 + BOARD_THICKNESS, BOOK_HEIGHT)
-    back_v, back_n, back_u, back_i = create_box_mesh(BOOK_WIDTH, BOARD_THICKNESS, BOOK_HEIGHT, center=(BOOK_WIDTH / 2.0, Z_BACK, 0))
-    tb_v, tb_n, tb_u, tb_i = create_box_mesh(TEXTBLOCK_WIDTH, TEXTBLOCK_THICKNESS, TEXTBLOCK_HEIGHT, center=(TEXTBLOCK_WIDTH / 2.0 + 0.004, 0, 0))
-    front_v, front_n, front_u, front_i = create_box_mesh(BOOK_WIDTH, BOARD_THICKNESS, BOOK_HEIGHT, center=(BOOK_WIDTH / 2.0, Z_FRONT, 0))
-    emblem_v, emblem_n, emblem_u, emblem_i = create_memoria_emblem(BOOK_WIDTH * 0.52, Z_FRONT + BOARD_THICKNESS / 2.0 + 0.0002, 0, radius=0.045)
+    # Parameterized emblem segment count while preserving exact outward +Y winding
+    emblem_v, emblem_n, emblem_u, emblem_i = [], [], [], []
+    center_x = BOOK_WIDTH * 0.52
+    center_y = Z_FRONT + BOARD_THICKNESS / 2.0 + 0.0002
+    center_z = 0.0
+    radius = 0.045
+    emblem_v.extend([center_x, center_y, center_z])
+    emblem_n.extend([0.0, 1.0, 0.0])
+    emblem_u.extend([0.5, 0.5])
+    for i in range(emblem_segments + 1):
+        angle = (i / emblem_segments) * 2.0 * math.pi
+        px = center_x + radius * math.cos(angle)
+        pz = center_z + radius * math.sin(angle)
+        emblem_v.extend([px, center_y, pz])
+        emblem_n.extend([0.0, 1.0, 0.0])
+        emblem_u.extend([0.5 + 0.5 * math.cos(angle), 0.5 + 0.5 * math.sin(angle)])
+    for i in range(1, emblem_segments + 1):
+        emblem_i.extend([0, i + 1, i])
+    rim_base = len(emblem_v) // 3
+    rim_thickness = 0.0012
+    for i in range(emblem_segments + 1):
+        angle = (i / emblem_segments) * 2.0 * math.pi
+        px = center_x + (radius + 0.0035) * math.cos(angle)
+        pz = center_z + (radius + 0.0035) * math.sin(angle)
+        emblem_v.extend([px, center_y + rim_thickness, pz])
+        emblem_n.extend([0.0, 1.0, 0.0])
+        emblem_u.extend([0.5 + 0.5 * math.cos(angle), 0.5 + 0.5 * math.sin(angle)])
+    for i in range(emblem_segments):
+        inner_1 = 1 + i
+        inner_2 = 1 + i + 1
+        outer_1 = rim_base + i
+        outer_2 = rim_base + i + 1
+        emblem_i.extend([inner_1, inner_2, outer_2, inner_1, outer_2, outer_1])
 
     corners_v, corners_n, corners_u, corners_i = [], [], [], []
     corner_specs = [
@@ -549,11 +576,74 @@ def main():
         corners_u.extend(cu)
         corners_i.extend([idx + base for idx in ci])
 
-    page_v, page_n, page_u, page_i = create_turning_page_leaf(TEXTBLOCK_WIDTH, TEXTBLOCK_HEIGHT, curl_factor=0.0005)
+    page_v, page_n, page_u, page_i = create_turning_page_leaf(
+        TEXTBLOCK_WIDTH, TEXTBLOCK_HEIGHT, curl_factor=0.0005, steps_x=page_steps
+    )
 
     ribbon_w = 0.012
     ribbon_l = BOOK_HEIGHT * 1.15
-    ribbon_v, ribbon_n, ribbon_u, ribbon_i = create_box_mesh(ribbon_w, 0.0005, ribbon_l, center=(BOOK_WIDTH * 0.48, TEXTBLOCK_THICKNESS * 0.5 + 0.0003, 0.025))
+    ribbon_v, ribbon_n, ribbon_u, ribbon_i = create_box_mesh(
+        ribbon_w, 0.0005, ribbon_l, center=(BOOK_WIDTH * 0.48, TEXTBLOCK_THICKNESS * 0.5 + 0.0003, 0.025)
+    )
+
+    return {
+        "spine": (spine_v, spine_n, spine_u, spine_i),
+        "back": (back_v, back_n, back_u, back_i),
+        "tb": (tb_v, tb_n, tb_u, tb_i),
+        "front": (front_v, front_n, front_u, front_i),
+        "emblem": (emblem_v, emblem_n, emblem_u, emblem_i),
+        "corners": (corners_v, corners_n, corners_u, corners_i),
+        "page": (page_v, page_n, page_u, page_i),
+        "ribbon": (ribbon_v, ribbon_n, ribbon_u, ribbon_i),
+    }
+
+
+def export_usdz_variant(output_usdz_path, geom):
+    usd_builder = UsdBuilder("HeirloomBookRoot")
+    for name, data in CANONICAL_MATERIALS.items():
+        usd_builder.add_material(name, data["color"][:3], metallic=data["metallic"], roughness=data["roughness"])
+
+    usd_builder.add_mesh("Spine", *geom["spine"], "MutedPlumLeather")
+    usd_builder.add_mesh("BackCover", *geom["back"], "MutedPlumLeather")
+    usd_builder.add_mesh("TextBlock", *geom["tb"], "ArchivalPaperIvory")
+    usd_builder.add_mesh("SilkRibbonBookmark", *geom["ribbon"], "SilkRibbonSage")
+
+    usd_builder.add_mesh("FrontCover", *geom["front"], "MutedPlumLeather", parent_xform="FrontCoverHinge")
+    usd_builder.add_mesh("TreeOfLifeEmblem", *geom["emblem"], "MetallicGoldFoil", parent_xform="FrontCoverHinge")
+    usd_builder.add_mesh("CornerGuards", *geom["corners"], "MetallicGoldFoil", parent_xform="FrontCoverHinge")
+
+    usd_builder.add_mesh("TurningPageLeaf", *geom["page"], "ArchivalPaperIvory", parent_xform="TurningPageHinge")
+    usd_builder.build_usdz(output_usdz_path)
+
+    verts = sum(len(geom[k][0]) for k in geom) // 3
+    tris = sum(len(geom[k][3]) for k in geom) // 3
+    return verts, tris
+
+
+def main():
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    print("==================================================================")
+    print("Memoria Unified 3D Book Engine — Multi-Format Asset Pipeline")
+    print("Single Source of Truth: Canonical Procedural Geometry & PBR")
+    print("==================================================================")
+
+    glb_builder = GlbBuilder()
+
+    glb_mats = {}
+    for name, data in CANONICAL_MATERIALS.items():
+        glb_idx = glb_builder.add_material(name, data["color"], metallic=data["metallic"], roughness=data["roughness"])
+        glb_mats[name] = glb_idx
+
+    # 3. Canonical Geometry Components (Balanced / Standard)
+    canonical_geom = build_book_geometry(spine_steps=20, emblem_segments=32, page_steps=16)
+    spine_v, spine_n, spine_u, spine_i = canonical_geom["spine"]
+    back_v, back_n, back_u, back_i = canonical_geom["back"]
+    tb_v, tb_n, tb_u, tb_i = canonical_geom["tb"]
+    front_v, front_n, front_u, front_i = canonical_geom["front"]
+    emblem_v, emblem_n, emblem_u, emblem_i = canonical_geom["emblem"]
+    corners_v, corners_n, corners_u, corners_i = canonical_geom["corners"]
+    page_v, page_n, page_u, page_i = canonical_geom["page"]
+    ribbon_v, ribbon_n, ribbon_u, ribbon_i = canonical_geom["ribbon"]
 
     # 4. GLB Graph
     child_nodes = []
@@ -589,33 +679,33 @@ def main():
 
     glb_builder.add_node("HeirloomBookRoot", children=child_nodes)
 
-    # 5. USDZ Graph
-    usd_builder.add_mesh("Spine", spine_v, spine_n, spine_u, spine_i, "MutedPlumLeather")
-    usd_builder.add_mesh("BackCover", back_v, back_n, back_u, back_i, "MutedPlumLeather")
-    usd_builder.add_mesh("TextBlock", tb_v, tb_n, tb_u, tb_i, "ArchivalPaperIvory")
-    usd_builder.add_mesh("SilkRibbonBookmark", ribbon_v, ribbon_n, ribbon_u, ribbon_i, "SilkRibbonSage")
-
-    usd_builder.add_mesh("FrontCover", front_v, front_n, front_u, front_i, "MutedPlumLeather", parent_xform="FrontCoverHinge")
-    usd_builder.add_mesh("TreeOfLifeEmblem", emblem_v, emblem_n, emblem_u, emblem_i, "MetallicGoldFoil", parent_xform="FrontCoverHinge")
-    usd_builder.add_mesh("CornerGuards", corners_v, corners_n, corners_u, corners_i, "MetallicGoldFoil", parent_xform="FrontCoverHinge")
-
-    usd_builder.add_mesh("TurningPageLeaf", page_v, page_n, page_u, page_i, "ArchivalPaperIvory", parent_xform="TurningPageHinge")
-
     # 6. Build and Export GLB Targets
     glb_target_1 = os.path.join(repo_root, "apps/web/public/models/memoria_heirloom_book.glb")
     glb_target_2 = os.path.join(repo_root, "apps/web/public/models/heirloom_book.glb")
     glb_builder.build_glb(glb_target_1)
     glb_builder.build_glb(glb_target_2)
 
-    # 7. Build and Export USDZ Targets
+    # 7. Build and Export Canonical USDZ + iOS Runtime LOD Variants
     usdz_web_target = os.path.join(repo_root, "apps/web/public/models/MemoriaHeirloomBook.usdz")
     usdz_ios_target = os.path.join(repo_root, "apps/ios/Memoria/Resources/Models/MemoriaHeirloomBook.usdz")
-    usd_builder.build_usdz(usdz_web_target)
-    
+    export_usdz_variant(usdz_web_target, canonical_geom)
+
     os.makedirs(os.path.dirname(usdz_ios_target), exist_ok=True)
     import shutil
     shutil.copyfile(usdz_web_target, usdz_ios_target)
     print(f"✓ Mirrored USDZ to Native iOS Resources: {usdz_ios_target}")
+
+    # iOS Runtime Variants (Premium & Efficient) preserving identical 11-node hierarchy & dimensions
+    premium_geom = build_book_geometry(spine_steps=36, emblem_segments=48, page_steps=24)
+    usdz_ios_premium = os.path.join(repo_root, "apps/ios/Memoria/Resources/Models/MemoriaHeirloomBook_Premium.usdz")
+    prem_v, prem_t = export_usdz_variant(usdz_ios_premium, premium_geom)
+
+    efficient_geom = build_book_geometry(spine_steps=8, emblem_segments=12, page_steps=6)
+    usdz_ios_efficient = os.path.join(repo_root, "apps/ios/Memoria/Resources/Models/MemoriaHeirloomBook_Efficient.usdz")
+    eff_v, eff_t = export_usdz_variant(usdz_ios_efficient, efficient_geom)
+
+    print(f"✓ iOS Premium Variant  : {prem_v} verts, {prem_t} tris ({os.path.getsize(usdz_ios_premium):,} bytes)")
+    print(f"✓ iOS Efficient Variant: {eff_v} verts, {eff_t} tris ({os.path.getsize(usdz_ios_efficient):,} bytes)")
 
     # 8. Compute Telemetry & Manifest
     total_vertices = (len(spine_v) + len(back_v) + len(tb_v) + len(front_v) + len(emblem_v) + len(corners_v) + len(page_v) + len(ribbon_v)) // 3

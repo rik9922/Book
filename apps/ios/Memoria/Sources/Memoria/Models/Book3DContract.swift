@@ -433,20 +433,57 @@ public enum Book3DSampleData {
     ]
 }
 
+public enum Book3DAssetVariant: String, CaseIterable, Identifiable, Sendable, Codable {
+    case premium
+    case balanced
+    case efficient
+
+    public var id: String { rawValue }
+
+    public var resourceName: String {
+        switch self {
+        case .premium: return "\(Book3DDimensions.modelAssetName)_Premium"
+        case .balanced: return Book3DDimensions.modelAssetName
+        case .efficient: return "\(Book3DDimensions.modelAssetName)_Efficient"
+        }
+    }
+
+    public var estimatedMemoryBytes: Int {
+        switch self {
+        case .premium: return 650_000
+        case .balanced: return 450_000
+        case .efficient: return 260_000
+        }
+    }
+}
+
 public enum Book3DAssetLocator {
-    public static func locateBundledUSDZ(in bundle: Bundle = .main) -> URL? {
-        if let direct = bundle.url(forResource: Book3DDimensions.modelAssetName, withExtension: "usdz") {
+    public static func locateBundledUSDZ(
+        variant: Book3DAssetVariant = .balanced,
+        in bundle: Bundle = .main
+    ) -> URL? {
+        if let variantURL = findUSDZ(named: variant.resourceName, in: bundle) {
+            return variantURL
+        }
+        if variant != .balanced {
+            return findUSDZ(named: Book3DDimensions.modelAssetName, in: bundle)
+        }
+        return nil
+    }
+
+    private static func findUSDZ(named name: String, in bundle: Bundle) -> URL? {
+        if let direct = bundle.url(forResource: name, withExtension: "usdz") {
             return direct
         }
         if let nested = bundle.url(
-            forResource: Book3DDimensions.modelAssetName,
+            forResource: name,
             withExtension: "usdz",
             subdirectory: "Models"
         ) {
             return nested
         }
         if let nestedResources = bundle.url(
-            forResource: Book3DDimensions.modelAssetName,
+            forResource: name,
             withExtension: "usdz",
             subdirectory: "Resources/Models"
         ) {

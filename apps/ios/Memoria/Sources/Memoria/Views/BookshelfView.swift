@@ -1,6 +1,8 @@
 import SwiftUI
 
 public struct BookshelfView: View {
+    @Environment(\.scenePhase) private var scenePhase
+    @ObservedObject private var renderingManager = BookRenderingManager.shared
     @State private var selectedConfig = Book3DConfiguration()
     @State private var isPresentingReader = false
     @State private var isPresenting2DFallback = false
@@ -24,34 +26,33 @@ public struct BookshelfView: View {
                         }
                         .padding(.horizontal)
 
-                        // Featured Volume Card with Live 3D RealityKit Preview
+                        // Featured Volume Card with Live 3D RealityKit Preview (or calm accessible preview when constrained)
                         VStack(spacing: 18) {
                             ZStack(alignment: .topTrailing) {
                                 #if canImport(RealityKit) && os(iOS)
-                                Book3DRealityView(
-                                    configuration: selectedConfig,
-                                    allowGestures: false,
-                                    onToggleOpen: {
+                                if renderingManager.fallbackController.isFallbackActive {
+                                    accessibleBookCoverCard
+                                } else {
+                                    Book3DRealityView(
+                                        configuration: selectedConfig,
+                                        allowGestures: false,
+                                        isSceneActive: !isPresentingReader && !isPresenting2DFallback && scenePhase == .active,
+                                        renderingManager: renderingManager,
+                                        onToggleOpen: {
+                                            isPresentingReader = true
+                                        }
+                                    )
+                                    .frame(height: 240)
+                                    .clipShape(RoundedRectangle(cornerRadius: MemoriaTheme.radiusLg))
+                                    .onTapGesture {
                                         isPresentingReader = true
                                     }
-                                )
-                                .frame(height: 240)
-                                .clipShape(RoundedRectangle(cornerRadius: MemoriaTheme.radiusLg))
-                                .onTapGesture {
-                                    isPresentingReader = true
                                 }
                                 #else
-                                RoundedRectangle(cornerRadius: MemoriaTheme.radiusLg)
-                                    .fill(MemoriaTheme.surfaceSecondary)
-                                    .frame(height: 200)
-                                    .overlay(
-                                        Image(systemName: "book.pages")
-                                            .font(.system(size: 56))
-                                            .foregroundStyle(MemoriaTheme.plum)
-                                    )
+                                accessibleBookCoverCard
                                 #endif
 
-                                Text("RealityKit USDZ")
+                                Text(renderingManager.fallbackController.isFallbackActive ? "Accessible Edition" : "Heirloom 3D")
                                     .font(.caption2.weight(.semibold))
                                     .padding(.horizontal, 10)
                                     .padding(.vertical, 5)
@@ -168,5 +169,28 @@ public struct BookshelfView: View {
                 }
             }
         }
+    }
+
+    private var accessibleBookCoverCard: some View {
+        RoundedRectangle(cornerRadius: MemoriaTheme.radiusLg)
+            .fill(selectedConfig.leather.swiftUIColor.opacity(0.14))
+            .frame(height: 220)
+            .overlay(
+                VStack(spacing: 10) {
+                    Image(systemName: "book.closed.fill")
+                        .font(.system(size: 52))
+                        .foregroundStyle(selectedConfig.leather.swiftUIColor)
+                    Text(selectedConfig.coverTitle)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(MemoriaTheme.ink)
+                }
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: MemoriaTheme.radiusLg)
+                    .stroke(MemoriaTheme.borderSubtle, lineWidth: 1)
+            )
+            .onTapGesture {
+                isPresentingReader = true
+            }
     }
 }
