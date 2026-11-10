@@ -25,8 +25,8 @@ All three USDZ variants share the exact 11 canonical `Book3DHierarchy` nodes and
 
 | Check | Scope | Result | Measured Duration |
 |---|---|---|---|
-| `cd apps/ios/Memoria && swift test` | 15 Swift tests across 3 suites (Engine, Contracts, Storage) | `15/15 PASS` | `1.69 s` build / `0.003 s` test |
-| `pnpm run ios:test` (`iPhone 17 Pro` Simulator) | 17 tests across 3 suites including live RealityKit loading of all 3 USDZ variants | `17/17 PASS` | `0.445 s` test run |
+| `cd apps/ios/Memoria && swift test` | 18 Swift tests across 3 suites (Engine, Contracts, Storage) | `18/18 PASS` | `2.62 s` build / `0.821 s` test |
+| `pnpm run ios:test` (`iPhone 17 Pro` Simulator) | 20 tests across 3 suites including live RealityKit loading of all 3 USDZ variants + TextureResource spread rendering | `20/20 PASS` | `2.428 s` test run |
 | `tests/3d-engine-consistency.test.ts` | 6 consistency tests (GLB/USDZ parity, CCW winding, `usdchecker`, `book-service`, Swift lock) | `6/6 PASS` | `172.38 ms` |
 
 ---

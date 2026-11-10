@@ -31,6 +31,7 @@ public final class BookRenderingManager: ObservableObject {
     private var totalSpreadsCount: Int = Book3DSampleData.sampleSpreads.count
     private var reduceMotionPreference: Bool = false
     private var evaluationTickCounter: Int = 0
+    private nonisolated(unsafe) var recoveryTask: Task<Void, Never>?
 
     private let logger = Logger(subsystem: "com.memoria.app", category: "Adaptive3DRendering")
 
@@ -91,6 +92,7 @@ public final class BookRenderingManager: ObservableObject {
     }
 
     deinit {
+        recoveryTask?.cancel()
         if let backgroundObserver {
             NotificationCenter.default.removeObserver(backgroundObserver)
         }
@@ -100,30 +102,32 @@ public final class BookRenderingManager: ObservableObject {
     }
 
     private func wireObservers(observeAppLifecycle: Bool) {
-        thermalMonitor.onThermalStateChanged = { [weak self] state, directive, isLowPower in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                self.logger.notice("Thermal state changed: \(ThermalMonitor.label(for: state), privacy: .public), directive=\(directive.rawValue, privacy: .public), lowPower=\(isLowPower)")
-                if state == .serious || state == .critical {
-                    self.assetManager.trimForBackground(keeping: self.activeConfiguration.assetVariant)
-                }
-                self.evaluateRuntimeQuality()
+        thermalMonitor.onThermalStateChanged = { [weak self] state, directive, isLowPower, eventDate in
+            guard let self else { return }
+            self.logger.notice("Thermal state changed: \(ThermalMonitor.label(for: state), privacy: .public), directive=\(directive.rawValue, privacy: .public), lowPower=\(isLowPower)")
+            if state == .serious || state == .critical {
+                self.assetManager.trimForBackground(keeping: self.activeConfiguration.assetVariant)
             }
+            self.evaluateRuntimeQuality(now: eventDate)
         }
 
-        memoryPressureManager.onPressureChanged = { [weak self] level in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                self.logger.warning("Memory pressure changed: \(level.rawValue, privacy: .public)")
-                self.assetManager.handleMemoryPressure(level, activeVariant: self.activeConfiguration.assetVariant)
-                self.textureManager.handleMemoryPressure(level, activeSpreadIndex: self.activeSpreadIndex)
-                self.evaluateRuntimeQuality()
-            }
+        memoryPressureManager.onPressureChanged = { [weak self] level, eventDate in
+            guard let self else { return }
+            self.logger.warning("Memory pressure changed: \(level.rawValue, privacy: .public)")
+            self.assetManager.handleMemoryPressure(level, activeVariant: self.activeConfiguration.assetVariant)
+            self.textureManager.handleMemoryPressure(level, activeSpreadIndex: self.activeSpreadIndex)
+            self.evaluateRuntimeQuality(now: eventDate)
         }
 
         qualityController.$activeProfile
             .sink { [weak self] profile in
                 self?.activeProfile = profile
+            }
+            .store(in: &cancellables)
+
+        fallbackController.objectWillChange
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
             }
             .store(in: &cancellables)
 
@@ -236,6 +240,8 @@ public final class BookRenderingManager: ObservableObject {
     public func handleAppBackgrounded() {
         guard !isAppInBackground else { return }
         isAppInBackground = true
+        recoveryTask?.cancel()
+        recoveryTask = nil
         activeInteractionState = .backgrounded
         assetManager.cancelAllInFlightLoads()
         assetManager.trimForBackground(keeping: activeConfiguration.assetVariant)
@@ -259,6 +265,12 @@ public final class BookRenderingManager: ObservableObject {
     }
 
     public func evaluateRuntimeQuality(now: Date = Date()) {
+        // Do not auto-recover out of asset-failure fallback unless explicitly reset
+        if activeProfile == .fallback && fallbackController.retryAttempts > 0 {
+            recoveryTask?.cancel()
+            recoveryTask = nil
+            return
+        }
         qualityController.evaluate(
             thermalState: thermalMonitor.currentState,
             isLowPowerMode: thermalMonitor.isLowPowerModeEnabled,
@@ -268,6 +280,47 @@ public final class BookRenderingManager: ObservableObject {
             reduceMotion: reduceMotionPreference,
             now: now
         )
+        scheduleRecoveryIfNeeded()
+    }
+
+    private func scheduleRecoveryIfNeeded() {
+        guard !isAppInBackground else {
+            recoveryTask?.cancel()
+            recoveryTask = nil
+            return
+        }
+
+        var desiredCap = qualityController.capabilityAssessment.maximumSustainableProfile
+        if thermalMonitor.currentState == .critical || memoryPressureManager.currentLevel == .critical {
+            desiredCap = .fallback
+        } else if thermalMonitor.currentState == .serious || thermalMonitor.isLowPowerModeEnabled || memoryPressureManager.currentLevel == .warning {
+            desiredCap = min(desiredCap, .efficient)
+        } else if thermalMonitor.currentState == .fair {
+            desiredCap = min(desiredCap, .balanced)
+        }
+
+        let perfHealth = performanceMonitor.snapshot().healthStatus
+        let canRecover = activeProfile < desiredCap
+            && (perfHealth == .healthy || perfHealth == .insufficientData)
+
+        guard canRecover else {
+            recoveryTask?.cancel()
+            recoveryTask = nil
+            return
+        }
+
+        if recoveryTask != nil {
+            return
+        }
+
+        let delaySeconds = max(0.05, qualityController.recoveryCooldownSeconds + 0.05)
+        recoveryTask = Task { @MainActor [weak self] in
+            let nanos = UInt64(delaySeconds * 1_000_000_000.0)
+            try? await Task.sleep(nanoseconds: nanos)
+            guard !Task.isCancelled, let self else { return }
+            self.recoveryTask = nil
+            self.evaluateRuntimeQuality()
+        }
     }
 
     private func applyConfigurationBudgets(_ config: RenderingConfiguration) {

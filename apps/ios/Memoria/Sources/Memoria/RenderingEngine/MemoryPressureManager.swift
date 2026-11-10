@@ -34,7 +34,7 @@ public final class MemoryPressureManager: ObservableObject {
     @Published public private(set) var warningCount: Int = 0
     @Published public private(set) var lastPressureEventDate: Date?
 
-    public var onPressureChanged: ((MemoryPressureLevel) -> Void)?
+    public var onPressureChanged: ((MemoryPressureLevel, Date) -> Void)?
 
     private nonisolated(unsafe) var memoryWarningObserver: NSObjectProtocol?
     private nonisolated(unsafe) var memoryPressureSource: DispatchSourceMemoryPressure?
@@ -112,7 +112,7 @@ public final class MemoryPressureManager: ObservableObject {
         let changed = currentLevel != level
         currentLevel = level
         if changed || level != .normal {
-            onPressureChanged?(level)
+            onPressureChanged?(level, date)
         }
     }
 

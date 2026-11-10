@@ -101,6 +101,8 @@ public final class BookInteractionController {
         public let didUpdateTransforms: Bool
         public let coverAngleRadians: Float
         public let pageAngleRadians: Float
+        public let pageCurlLift: Float
+        public let openProgress: Float
         public let cameraPosition: SIMD3<Float>
         public let cameraTarget: SIMD3<Float>
         public let settledToIdle: Bool
@@ -170,11 +172,15 @@ public final class BookInteractionController {
         }
 
         let pageAngle: Float
+        let pageCurlLift: Float
         if isAnimatingTurn {
             let base = BookAnimationContract.computePageTurnAngle(turnProgress: currentTurnProgress)
             pageAngle = highDetailPageCurl ? base : base * 0.96
+            let arch = sin(Float.pi * BookAnimationContract.clamp01(currentTurnProgress))
+            pageCurlLift = arch * (highDetailPageCurl ? 1.0 : 0.35)
         } else {
             pageAngle = targetOpenProgress > 0.5 ? 0.04 : 0.0
+            pageCurlLift = 0.0
         }
 
         // 3. Camera Preset & Orbit Interpolation
@@ -207,6 +213,8 @@ public final class BookInteractionController {
             didUpdateTransforms: true,
             coverAngleRadians: coverAngle,
             pageAngleRadians: pageAngle,
+            pageCurlLift: pageCurlLift,
+            openProgress: currentOpenProgress,
             cameraPosition: currentCameraPosition,
             cameraTarget: currentCameraTarget,
             settledToIdle: settled

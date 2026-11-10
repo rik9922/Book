@@ -151,8 +151,8 @@ public struct DeviceCapabilityAnalyzer: Sendable {
             )
         }
 
-        if snapshot.physicalMemoryBytes < 1_500_000_000 {
-            reasons.append("System memory below minimum 1.5 GB interactive 3D threshold")
+        if snapshot.physicalMemoryBytes < 1_400_000_000 {
+            reasons.append("System memory below minimum 1.4 GB interactive 3D threshold")
             return DeviceCapabilityAssessment(
                 tier: .tierD,
                 recommendedProfile: .fallback,
@@ -174,15 +174,16 @@ public struct DeviceCapabilityAnalyzer: Sendable {
         }
 
         // 2. Determine baseline hardware capability tier from memory, cores, GPU working set, and asset budget
+        // Note: iOS reports physicalMemory minus kernel carve-out (e.g. 6 GB iPhones report ~5.3-5.6 GiB).
         let memoryGB = snapshot.physicalMemoryGB
         let workingSetMB = Double(snapshot.recommendedMaxWorkingSetBytes) / (1024.0 * 1024.0)
         let assetFitsComfortably = estimatedTextureFootprintBytes < 32 * 1024 * 1024 && modelTriangleCount <= 50_000
 
         var tier: DeviceCapabilityTier
-        if memoryGB >= 5.5 && snapshot.processorCount >= 6 && (workingSetMB >= 1024 || snapshot.isSimulator) && assetFitsComfortably {
+        if memoryGB >= 5.0 && snapshot.processorCount >= 6 && (workingSetMB >= 1024 || snapshot.isSimulator) && assetFitsComfortably {
             tier = .tierA
             reasons.append(String(format: "%.1f GB RAM, %d cores, Metal GPU family capable of Tier A", memoryGB, snapshot.processorCount))
-        } else if memoryGB >= 3.0 && snapshot.processorCount >= 4 {
+        } else if memoryGB >= 2.7 && snapshot.processorCount >= 4 {
             tier = .tierB
             reasons.append(String(format: "%.1f GB RAM, %d cores classified as Tier B medium capability", memoryGB, snapshot.processorCount))
         } else {
@@ -197,6 +198,7 @@ public struct DeviceCapabilityAnalyzer: Sendable {
             reasons.append(String(format: "Measured historical dropped-frame ratio %.0f%% constrained ceiling", droppedRatio * 100))
         } else if let avgMs = snapshot.historicalAverageFrameTimeMs, avgMs > 18.0 {
             if tier == .tierA { tier = .tierB }
+            else if tier == .tierB && avgMs > 35.0 { tier = .tierC }
             reasons.append(String(format: "Measured historical avg frame time %.1f ms constrained ceiling", avgMs))
         }
 

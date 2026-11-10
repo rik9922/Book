@@ -70,9 +70,9 @@ public struct Book3DReaderView: View {
                                 renderingManager: renderingManager,
                                 onToggleOpen: toggleCover,
                                 onTurnPage: turnPage,
-                                onFallbackRequired: { reason in
-                                    fallbackReason = BookFallbackController.calmUserMessage(for: .sceneLoadFailure)
-                                    renderingManager.reportSceneLoadFailure(reason)
+                                onFallbackRequired: { _ in
+                                    fallbackReason = renderingManager.fallbackController.userFacingMessage
+                                        ?? BookFallbackController.calmUserMessage(for: .sceneLoadFailure)
                                     is2DMode = true
                                 }
                             )
@@ -131,6 +131,14 @@ public struct Book3DReaderView: View {
                     renderingManager.handleAppBackgrounded()
                 } else if nextPhase == .active {
                     renderingManager.handleAppForegrounded()
+                }
+            }
+            .onChange(of: renderingManager.activeProfile) { _, nextProfile in
+                if nextProfile != .fallback && !renderingManager.fallbackController.isFallbackActive {
+                    fallbackReason = nil
+                    if !is2DMode {
+                        // Already in 3D mode; nothing to reset
+                    }
                 }
             }
         }

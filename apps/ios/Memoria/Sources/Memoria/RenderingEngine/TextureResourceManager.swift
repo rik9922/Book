@@ -3,6 +3,7 @@ import Foundation
 #if canImport(RealityKit) && os(iOS)
 import RealityKit
 import UIKit
+import CoreGraphics
 #endif
 
 public struct MaterialCacheKey: Hashable, Sendable {
@@ -49,6 +50,8 @@ public final class TextureResourceManager {
     }
 
     private var materialCache: [MaterialCacheKey: MaterialBundle] = [:]
+    private var spreadTextureCache: [Int: (dimension: Int, texture: TextureResource)] = [:]
+    private var leatherGrainCache: [Int: TextureResource] = [:]
     #endif
 
     public init() {}
@@ -59,7 +62,15 @@ public final class TextureResourceManager {
 
     public func updateBudget(bytes: Int, maxDimension: Int) {
         budgetBytes = max(0, bytes)
-        maxTextureDimension = max(128, maxDimension)
+        let clampedDim = max(128, maxDimension)
+        maxTextureDimension = clampedDim
+
+        // Evict any resident spreads encoded above the new dimension cap so VRAM shrinks on downgrade
+        for (idx, entry) in residentSpreads where entry.maxDimension > clampedDim {
+            residentSpreads.removeValue(forKey: idx)
+            evictCachedSpreadTexture(at: idx)
+            evictionCount += 1
+        }
         enforceBudget(protecting: nil)
     }
 
@@ -85,11 +96,14 @@ public final class TextureResourceManager {
         // Evict spreads outside the active window first
         for existingIdx in Array(residentSpreads.keys) where !desiredIndices.contains(existingIdx) {
             residentSpreads.removeValue(forKey: existingIdx)
+            evictCachedSpreadTexture(at: existingIdx)
             evictionCount += 1
         }
 
-        // Estimate uncompressed RGBA footprint for procedural spread proof buffer if needed
-        let perSpreadBytes = min(budgetBytes, maxTextureDimension * maxTextureDimension * 4)
+        // 2:1 spread aspect footprint (width = maxTextureDimension, height = maxTextureDimension / 2)
+        let width = maxTextureDimension
+        let height = max(64, maxTextureDimension / 2)
+        let perSpreadBytes = min(budgetBytes, width * height * 4)
         let now = Date()
         for idx in desiredIndices.sorted() {
             if residentSpreads[idx] == nil && (residentMemoryBytes + perSpreadBytes <= budgetBytes || idx == safeActive) {
@@ -120,12 +134,17 @@ public final class TextureResourceManager {
         case .warning:
             for idx in Array(residentSpreads.keys) where idx != activeSpreadIndex {
                 residentSpreads.removeValue(forKey: idx)
+                evictCachedSpreadTexture(at: idx)
                 evictionCount += 1
             }
+            #if canImport(RealityKit) && os(iOS)
+            leatherGrainCache.removeAll()
+            #endif
         case .critical:
             evictAllSpreads()
             #if canImport(RealityKit) && os(iOS)
             materialCache.removeAll()
+            leatherGrainCache.removeAll()
             #endif
         }
     }
@@ -135,6 +154,15 @@ public final class TextureResourceManager {
             evictionCount += residentSpreads.count
             residentSpreads.removeAll()
         }
+        #if canImport(RealityKit) && os(iOS)
+        spreadTextureCache.removeAll()
+        #endif
+    }
+
+    private func evictCachedSpreadTexture(at index: Int) {
+        #if canImport(RealityKit) && os(iOS)
+        spreadTextureCache.removeValue(forKey: index)
+        #endif
     }
 
     private func enforceBudget(protecting protectedSpreadIndex: Int?) {
@@ -149,11 +177,81 @@ public final class TextureResourceManager {
                 break
             }
             residentSpreads.removeValue(forKey: victim.spreadIndex)
+            evictCachedSpreadTexture(at: victim.spreadIndex)
             evictionCount += 1
         }
     }
 
     #if canImport(RealityKit) && os(iOS)
+    public func spreadMaterial(for spread: BookSpreadPreview) -> PhysicallyBasedMaterial {
+        var mat = PhysicallyBasedMaterial()
+        mat.metallic = .init(floatLiteral: 0.0)
+        mat.roughness = .init(floatLiteral: 0.92)
+        mat.faceCulling = .none
+
+        if let texture = cachedOrRenderedSpreadTexture(for: spread) {
+            mat.baseColor = .init(tint: .white, texture: .init(texture))
+        } else {
+            mat.baseColor = .init(tint: UIColor(red: 0.969, green: 0.957, blue: 0.933, alpha: 1.0))
+        }
+        return mat
+    }
+
+    public func cachedSpreadTextureCount() -> Int {
+        spreadTextureCache.count
+    }
+
+    private func cachedOrRenderedSpreadTexture(for spread: BookSpreadPreview) -> TextureResource? {
+        guard budgetBytes > 0 else { return nil }
+        let targetWidth = max(256, min(1024, maxTextureDimension))
+        if let cached = spreadTextureCache[spread.spreadIndex], cached.dimension == targetWidth {
+            return cached.texture
+        }
+
+        let targetHeight = max(128, targetWidth / 2)
+        guard let cgImage = Self.renderSpreadCGImage(spread: spread, width: targetWidth, height: targetHeight) else {
+            return nil
+        }
+
+        let texture: TextureResource?
+        if #available(iOS 18.0, *) {
+            texture = try? TextureResource(image: cgImage, options: .init(semantic: .color))
+        } else {
+            texture = try? TextureResource.generate(from: cgImage, options: .init(semantic: .color))
+        }
+
+        if let texture {
+            spreadTextureCache[spread.spreadIndex] = (dimension: targetWidth, texture: texture)
+            if residentSpreads[spread.spreadIndex] == nil {
+                prepareSpreadWindow(
+                    activeSpreadIndex: spread.spreadIndex,
+                    totalSpreads: max(spread.spreadIndex + 1, Book3DSampleData.sampleSpreads.count),
+                    allowAdjacentPreload: false
+                )
+            }
+        }
+        return texture
+    }
+
+    private func leatherGrainRoughnessTexture() -> TextureResource? {
+        guard budgetBytes >= 6 * 1024 * 1024 else { return nil }
+        let dim = min(256, maxTextureDimension)
+        if let existing = leatherGrainCache[dim] {
+            return existing
+        }
+        guard let cgImage = Self.renderLeatherGrainCGImage(dimension: dim) else { return nil }
+        let texture: TextureResource?
+        if #available(iOS 18.0, *) {
+            texture = try? TextureResource(image: cgImage, options: .init(semantic: .raw))
+        } else {
+            texture = try? TextureResource.generate(from: cgImage, options: .init(semantic: .raw))
+        }
+        if let texture {
+            leatherGrainCache[dim] = texture
+        }
+        return texture
+    }
+
     public func applyCachedMaterials(
         to root: Entity,
         leather: BookLeatherSwatch,
@@ -165,12 +263,14 @@ public final class TextureResourceManager {
         if let existing = materialCache[key] {
             bundle = existing
         } else {
+            let grainTex = enableClearcoat ? leatherGrainRoughnessTexture() : nil
             bundle = MaterialBundle(
                 leather: Self.makePBRMaterial(
                     hex: leather.hexUInt,
                     metallic: leather.metallic,
                     roughness: leather.roughness,
-                    clearcoat: enableClearcoat ? leather.clearcoat : 0
+                    clearcoat: enableClearcoat ? leather.clearcoat : 0,
+                    roughnessTexture: grainTex
                 ),
                 foil: Self.makePBRMaterial(
                     hex: foil.effectiveHexUInt(for: leather),
@@ -211,7 +311,8 @@ public final class TextureResourceManager {
         hex: UInt,
         metallic: Float,
         roughness: Float,
-        clearcoat: Float
+        clearcoat: Float,
+        roughnessTexture: TextureResource? = nil
     ) -> PhysicallyBasedMaterial {
         var mat = PhysicallyBasedMaterial()
         let color = UIColor(
@@ -222,13 +323,152 @@ public final class TextureResourceManager {
         )
         mat.baseColor = .init(tint: color)
         mat.metallic = .init(floatLiteral: metallic)
-        mat.roughness = .init(floatLiteral: roughness)
+        if let roughnessTexture {
+            mat.roughness = .init(scale: roughness, texture: .init(roughnessTexture))
+        } else {
+            mat.roughness = .init(floatLiteral: roughness)
+        }
         if clearcoat > 0 {
             mat.clearcoat = .init(floatLiteral: clearcoat)
             mat.clearcoatRoughness = .init(floatLiteral: 0.4)
         }
         mat.faceCulling = .none
         return mat
+    }
+
+    private static func renderLeatherGrainCGImage(dimension: Int) -> CGImage? {
+        let size = max(64, dimension)
+        var bytes = [UInt8](repeating: 215, count: size * size * 4)
+        for y in 0..<size {
+            for x in 0..<size {
+                // Deterministic pseudo-pebble leather grain hash
+                let h = UInt32(truncatingIfNeeded: (x &* 73856093) ^ (y &* 19349663))
+                let grain = UInt8(185 + (h % 60))
+                let idx = (y * size + x) * 4
+                bytes[idx] = grain
+                bytes[idx + 1] = grain
+                bytes[idx + 2] = grain
+                bytes[idx + 3] = 255
+            }
+        }
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        guard let provider = CGDataProvider(data: Data(bytes) as CFData) else { return nil }
+        return CGImage(
+            width: size,
+            height: size,
+            bitsPerComponent: 8,
+            bitsPerPixel: 32,
+            bytesPerRow: size * 4,
+            space: colorSpace,
+            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+            provider: provider,
+            decode: nil,
+            shouldInterpolate: true,
+            intent: .defaultIntent
+        )
+    }
+
+    private static func renderSpreadCGImage(spread: BookSpreadPreview, width: Int, height: Int) -> CGImage? {
+        let rendererFormat = UIGraphicsImageRendererFormat()
+        rendererFormat.scale = 1.0
+        rendererFormat.opaque = true
+
+        let rect = CGRect(x: 0, y: 0, width: width, height: height)
+        let renderer = UIGraphicsImageRenderer(size: rect.size, format: rendererFormat)
+        let uiImage = renderer.image { ctx in
+            let cg = ctx.cgContext
+
+            // Warm Ivory cotton-rag background (#F7F4EE)
+            UIColor(red: 0.969, green: 0.957, blue: 0.933, alpha: 1.0).setFill()
+            cg.fill(rect)
+
+            // Center gutter shadow crease
+            let gutterWidth = CGFloat(width) * 0.04
+            let gutterRect = CGRect(x: (CGFloat(width) - gutterWidth) / 2.0, y: 0, width: gutterWidth, height: CGFloat(height))
+            UIColor(red: 0.85, green: 0.82, blue: 0.77, alpha: 0.65).setFill()
+            cg.fill(gutterRect)
+
+            let scale = CGFloat(width) / 512.0
+            let padX = 20.0 * scale
+            let padY = 20.0 * scale
+            let halfW = CGFloat(width) / 2.0
+            let colW = halfW - padX * 1.6
+
+            let ink = UIColor(red: 0.125, green: 0.141, blue: 0.173, alpha: 1.0)
+            let plum = UIColor(red: 0.463, green: 0.333, blue: 0.435, alpha: 1.0)
+            let sage = UIColor(red: 0.373, green: 0.451, blue: 0.369, alpha: 1.0)
+            let bodyColor = UIColor(red: 0.157, green: 0.153, blue: 0.165, alpha: 1.0)
+
+            let metaAttrs: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: 9 * scale, weight: .semibold),
+                .foregroundColor: plum
+            ]
+            let locAttrs: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: 8.5 * scale, weight: .medium),
+                .foregroundColor: sage
+            ]
+            let titleAttrs: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: 13 * scale, weight: .bold),
+                .foregroundColor: ink
+            ]
+            let bodyAttrs: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: 10 * scale, weight: .regular),
+                .foregroundColor: bodyColor
+            ]
+
+            // Left page
+            let leftOriginX = padX
+            (spread.leftDate.uppercased() as NSString).draw(
+                in: CGRect(x: leftOriginX, y: padY, width: colW, height: 14 * scale),
+                withAttributes: metaAttrs
+            )
+            (spread.leftLocation as NSString).draw(
+                in: CGRect(x: leftOriginX, y: padY + 13 * scale, width: colW, height: 14 * scale),
+                withAttributes: locAttrs
+            )
+            (spread.leftHeading as NSString).draw(
+                in: CGRect(x: leftOriginX, y: padY + 32 * scale, width: colW, height: 36 * scale),
+                withAttributes: titleAttrs
+            )
+            (spread.leftBody as NSString).draw(
+                in: CGRect(x: leftOriginX, y: padY + 72 * scale, width: colW, height: CGFloat(height) - padY * 2 - 84 * scale),
+                withAttributes: bodyAttrs
+            )
+            ("p. \(spread.leftPageNumber)" as NSString).draw(
+                at: CGPoint(x: leftOriginX, y: CGFloat(height) - padY - 12 * scale),
+                withAttributes: locAttrs
+            )
+
+            // Right page
+            let rightOriginX = halfW + padX * 0.6
+            (spread.rightDate.uppercased() as NSString).draw(
+                in: CGRect(x: rightOriginX, y: padY, width: colW, height: 14 * scale),
+                withAttributes: metaAttrs
+            )
+            (spread.rightLocation as NSString).draw(
+                in: CGRect(x: rightOriginX, y: padY + 13 * scale, width: colW, height: 14 * scale),
+                withAttributes: locAttrs
+            )
+            (spread.rightHeading as NSString).draw(
+                in: CGRect(x: rightOriginX, y: padY + 32 * scale, width: colW, height: 36 * scale),
+                withAttributes: titleAttrs
+            )
+            (spread.rightBody as NSString).draw(
+                in: CGRect(x: rightOriginX, y: padY + 72 * scale, width: colW, height: CGFloat(height) - padY * 2 - 110 * scale),
+                withAttributes: bodyAttrs
+            )
+            if let inscription = spread.ocrInscription {
+                ("\"\(inscription)\"" as NSString).draw(
+                    in: CGRect(x: rightOriginX, y: CGFloat(height) - padY - 46 * scale, width: colW, height: 32 * scale),
+                    withAttributes: metaAttrs
+                )
+            }
+            ("p. \(spread.rightPageNumber)" as NSString).draw(
+                at: CGPoint(x: rightOriginX + colW - 28 * scale, y: CGFloat(height) - padY - 12 * scale),
+                withAttributes: locAttrs
+            )
+        }
+        return uiImage.cgImage
     }
 
     private static func traverseApplyingMaterials(

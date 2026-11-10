@@ -17,10 +17,10 @@
 
 | Capability Tier | Classification Criteria | Maximum Profile | Runtime Behavior |
 |---|---|---|---|
-| **Tier A** | `>= 5.5 GB` RAM, `>= 6` cores, Metal Apple4+ GPU, `>= 1024 MB` working set, healthy history | `Premium` | Full 4-light studio rig, shadow enabled, clearcoat PBR, `Premium` USDZ |
-| **Tier B** | `>= 3.0 GB` RAM, `>= 4` cores, Metal Apple4+ GPU (or Tier A constrained by dropped frames) | `Balanced` | 3-light rig, reduced shadow, canonical `Balanced` USDZ |
-| **Tier C** | `< 3.0 GB` RAM or `< 4` cores with valid Metal Apple4+ GPU | `Efficient` | 2-light shadowless rig, lightweight `Efficient` USDZ, no clearcoat, 30 Hz cadence |
-| **Tier D** | Missing Metal device, `< 1.5 GB` RAM, or GPU below Apple4 baseline | `Accessible 2D` | Native `Book2DSpreadFallbackView` without attempting unstable 3D rendering |
+| **Tier A** | `>= 5.0 GiB` reported RAM (6 GB+ class after kernel carve-out), `>= 6` cores, Metal Apple4+ GPU, `>= 1024 MB` working set, healthy history | `Premium` | Full 4-light studio rig, shadow enabled, clearcoat PBR + grain map, `Premium` USDZ |
+| **Tier B** | `>= 2.7 GiB` reported RAM (3–4 GB class), `>= 4` cores, Metal Apple4+ GPU (or Tier A constrained by dropped frames) | `Balanced` | 3-light rig, reduced shadow, canonical `Balanced` USDZ |
+| **Tier C** | `< 2.7 GiB` reported RAM or `< 4` cores with valid Metal Apple4+ GPU | `Efficient` | 2-light shadowless rig, lightweight `Efficient` USDZ, no clearcoat, 30 Hz cadence |
+| **Tier D** | Missing Metal device, `< 1.4 GiB` reported RAM, or GPU below Apple4 baseline | `Accessible 2D` | Native `Book2DSpreadFallbackView` without attempting unstable 3D rendering |
 
 ---
 
@@ -30,7 +30,7 @@
 
 | Environment / Device | iOS Version | Refresh Rate | Selected Profile | Test Status | Notes |
 |---|---|---|---|---|---|
-| **iPhone 17 Pro (iOS Simulator)** | iOS 26.5 (SDK 27.2) | 120 Hz (host simulated) | `Premium` (Tier A) | **Tested (Automated Suite)** | 17/17 Swift & RealityKit tests passed; simulator reflects host Apple Silicon GPU, not iPhone thermal/battery hardware |
-| **macOS SwiftPM (`arm64e`)** | macOS 14+ toolchain | N/A | Unit-tested Tiers A–D | **Tested (15/15 Unit Tests)** | Verified capability analyzer, thermal hysteresis, cache LRU, lifecycle, fallback |
+| **iPhone 17 Pro (iOS Simulator)** | iOS 26.5 (SDK 27.2) | 120 Hz (host simulated) | `Premium` (Tier A) | **Tested (Automated Suite)** | 20/20 Swift & RealityKit tests passed; simulator reflects host Apple Silicon GPU, not iPhone thermal/battery hardware |
+| **macOS SwiftPM (`arm64e`)** | macOS 14+ toolchain | N/A | Unit-tested Tiers A–D | **Tested (18/18 Unit Tests)** | Verified capability analyzer, thermal hysteresis, auto-recovery, cache LRU, lifecycle, fallback |
 | **Physical Legacy iPhone (e.g., iPhone SE / 12 / 13)** | iOS 17–18 | 60 Hz | Expected Tier B/C (unverified) | **Not Tested (No physical device attached)** | Requires physical hardware run in Xcode Instruments before release |
 | **Physical ProMotion iPhone (e.g., iPhone 15/16/17 Pro)** | iOS 17–26 | 120 Hz | Expected Tier A (unverified) | **Not Tested (No physical device attached)** | Requires Metal System Trace, Energy Log, and 30-min thermal soak on physical hardware |

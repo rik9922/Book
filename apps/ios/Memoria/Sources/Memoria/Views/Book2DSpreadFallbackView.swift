@@ -120,19 +120,23 @@ public struct Book2DSpreadFallbackView: View {
 
                     Spacer()
 
-                    HStack(spacing: 6) {
-                        ForEach(spreads) { spread in
-                            Button("\(spread.spreadIndex + 1)") {
-                                onSelectSpread(spread.spreadIndex)
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            ForEach(spreads) { spread in
+                                Button("\(spread.spreadIndex + 1)") {
+                                    onSelectSpread(spread.spreadIndex)
+                                }
+                                .frame(minWidth: 36, minHeight: 44)
+                                .background(spread.spreadIndex == safeIndex ? MemoriaTheme.plum : MemoriaTheme.surfacePrimary)
+                                .foregroundStyle(spread.spreadIndex == safeIndex ? MemoriaTheme.textOnAction : MemoriaTheme.ink)
+                                .clipShape(RoundedRectangle(cornerRadius: MemoriaTheme.radiusMd))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: MemoriaTheme.radiusMd)
+                                        .stroke(MemoriaTheme.borderSubtle, lineWidth: 1)
+                                )
+                                .accessibilityLabel("Spread \(spread.spreadIndex + 1), pages \(spread.leftPageNumber) to \(spread.rightPageNumber)")
+                                .accessibilityAddTraits(spread.spreadIndex == safeIndex ? [.isSelected] : [])
                             }
-                            .frame(minWidth: 36, minHeight: 44)
-                            .background(spread.spreadIndex == safeIndex ? MemoriaTheme.plum : MemoriaTheme.surfacePrimary)
-                            .foregroundStyle(spread.spreadIndex == safeIndex ? MemoriaTheme.textOnAction : MemoriaTheme.ink)
-                            .clipShape(RoundedRectangle(cornerRadius: MemoriaTheme.radiusMd))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: MemoriaTheme.radiusMd)
-                                    .stroke(MemoriaTheme.borderSubtle, lineWidth: 1)
-                            )
                         }
                     }
 

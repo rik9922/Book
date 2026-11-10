@@ -38,7 +38,7 @@ public final class ThermalMonitor: ObservableObject {
     @Published public private(set) var lastTransitionDate: Date
     @Published public private(set) var transitionHistory: [ThermalTransitionRecord] = []
 
-    public var onThermalStateChanged: ((ProcessInfo.ThermalState, ThermalPolicyDirective, Bool) -> Void)?
+    public var onThermalStateChanged: ((ProcessInfo.ThermalState, ThermalPolicyDirective, Bool, Date) -> Void)?
 
     private nonisolated(unsafe) var thermalObserver: NSObjectProtocol?
     private nonisolated(unsafe) var powerObserver: NSObjectProtocol?
@@ -126,14 +126,14 @@ public final class ThermalMonitor: ObservableObject {
             transitionHistory.removeFirst(transitionHistory.count - maxHistoryCount)
         }
 
-        onThermalStateChanged?(nextState, directive, isLowPowerModeEnabled)
+        onThermalStateChanged?(nextState, directive, isLowPowerModeEnabled, date)
     }
 
     public func updateLowPowerMode(_ enabled: Bool, at date: Date = Date()) {
         guard enabled != isLowPowerModeEnabled else { return }
         isLowPowerModeEnabled = enabled
         lastTransitionDate = date
-        onThermalStateChanged?(currentState, directive, enabled)
+        onThermalStateChanged?(currentState, directive, enabled, date)
     }
 
     public func timeSinceLastTransition(at date: Date = Date()) -> TimeInterval {

@@ -127,11 +127,12 @@ public final class RenderingQualityController: ObservableObject {
         }
 
         // 3. Downgrade path (environmental cap or measured frame degradation)
+        let hadPendingDowngrade = pendingDeferredProfile != nil && !interactionState.isCriticalAnimation
         if activeProfile > environmentalCap {
             lastHealthyEvaluationStart = nil
             let elapsedSinceChange = now.timeIntervalSince(lastTransitionDate)
             let isSevereThermal = thermalState == .serious || thermalState == .critical
-            if elapsedSinceChange >= downgradeCooldownSeconds || isSevereThermal {
+            if elapsedSinceChange >= downgradeCooldownSeconds || isSevereThermal || hadPendingDowngrade {
                 let target: RenderingQualityProfile
                 if isSevereThermal || memoryPressure != .normal || isLowPowerMode {
                     target = environmentalCap
@@ -145,7 +146,7 @@ public final class RenderingQualityController: ObservableObject {
                     detail: capDetail,
                     interactionState: interactionState,
                     reduceMotion: reduceMotion,
-                    forceImmediate: isSevereThermal,
+                    forceImmediate: isSevereThermal || hadPendingDowngrade,
                     now: now
                 )
             }
@@ -154,12 +155,17 @@ public final class RenderingQualityController: ObservableObject {
 
         if performance.healthStatus == .severeDegradation || performance.healthStatus == .moderateDegradation {
             lastHealthyEvaluationStart = nil
-            let elapsedSinceChange = now.timeIntervalSince(lastTransitionDate)
-            if elapsedSinceChange >= downgradeCooldownSeconds {
-                let target = activeProfile.steppedDown()
-                if target < activeProfile {
+            // Moderate degradation should not kick an already-Efficient session into 2D fallback;
+            // only sustained severe degradation in Efficient forces Accessible 2D fallback.
+            let minimumTargetForDegradation: RenderingQualityProfile =
+                performance.healthStatus == .severeDegradation ? .fallback : .efficient
+            let candidate = max(minimumTargetForDegradation, activeProfile.steppedDown())
+
+            if candidate < activeProfile {
+                let elapsedSinceChange = now.timeIntervalSince(lastTransitionDate)
+                if elapsedSinceChange >= downgradeCooldownSeconds || hadPendingDowngrade {
                     applyTransition(
-                        to: target,
+                        to: candidate,
                         reason: .framePacingDegradation,
                         detail: String(
                             format: "Frame pacing degraded (avg %.1fms, p95 %.1fms, dropped %.0f%%)",
@@ -169,32 +175,31 @@ public final class RenderingQualityController: ObservableObject {
                         ),
                         interactionState: interactionState,
                         reduceMotion: reduceMotion,
-                        forceImmediate: false,
+                        forceImmediate: hadPendingDowngrade,
                         now: now
                     )
                 }
+                return
             }
-            return
         }
 
-        // 4. Apply any deferred transition once critical interaction settles
-        if let pending = pendingDeferredProfile, !interactionState.isCriticalAnimation {
-            let reason = lastDeferredReason ?? .deferredInteractionApplied
-            let detail = lastDeferredDetail ?? "Applied deferred quality transition after interaction settled"
+        // 4. Clear any deferred downgrade if conditions recovered before animation settled
+        if pendingDeferredProfile != nil && !interactionState.isCriticalAnimation {
             pendingDeferredProfile = nil
             lastDeferredReason = nil
             lastDeferredDetail = nil
-            commitProfile(pending, reason: reason, detail: detail, reduceMotion: reduceMotion, now: now)
-            return
         }
 
-        // 5. Gradual one-step recovery when conditions are healthy and stable
+        // 5. Gradual one-step recovery when conditions are healthy (or idle with no drops) and stable
         let isThermalRecoverable = thermalState == .nominal || thermalState == .fair
+        let noRecentFrameDegradation = performance.healthStatus == .healthy || performance.healthStatus == .insufficientData
         let canConsiderRecovery = activeProfile < environmentalCap
-            && (performance.healthStatus == .healthy || (performance.sampleCount == 0 && activeProfile == .fallback && isThermalRecoverable && memoryPressure == .normal))
+            && isThermalRecoverable
+            && memoryPressure == .normal
+            && noRecentFrameDegradation
 
         if canConsiderRecovery {
-            if lastHealthyEvaluationStart == nil {
+            if lastHealthyEvaluationStart == nil || now < (lastHealthyEvaluationStart ?? now) {
                 lastHealthyEvaluationStart = now
                 return
             }

@@ -14,6 +14,8 @@ public final class Book3DRealityController: ObservableObject {
     public var bookRoot: Entity?
     public var frontCoverHinge: Entity?
     public var turningPageHinge: Entity?
+    public var turningPageLeaf: Entity?
+    public var openSpreadOverlay: ModelEntity?
     public var lightingRig: Entity?
     public var sceneAnchor: AnchorEntity?
     public var cameraEntity: PerspectiveCamera?
@@ -29,7 +31,10 @@ public final class Book3DRealityController: ObservableObject {
     private var lastAppliedVariant: Book3DAssetVariant?
     private var lastAppliedLightingMode: RenderingLightingMode?
     private var lastAppliedShadowMode: RenderingShadowMode?
+    private var lastAppliedSpreadIndex: Int?
+    private var lastAppliedMaxTextureDim: Int?
     private var lastConfig: Book3DConfiguration = Book3DConfiguration()
+    private var desiredSceneActive: Bool = true
     private var isReloadingVariant = false
 
     public init(renderingManager: BookRenderingManager = .shared) {
@@ -74,12 +79,21 @@ public final class Book3DRealityController: ObservableObject {
             applyLightingConfiguration(renderConfig)
         }
 
-        renderingManager.updateInteractionContext(
-            state: lifecycleManager.interactionState,
-            spreadIndex: config.currentSpreadIndex,
-            totalSpreads: Book3DSampleData.sampleSpreads.count,
-            reduceMotion: config.reducedMotion
-        )
+        if !lifecycleManager.isOccluded && !lifecycleManager.isBackgrounded {
+            renderingManager.updateInteractionContext(
+                state: lifecycleManager.interactionState,
+                spreadIndex: config.currentSpreadIndex,
+                totalSpreads: Book3DSampleData.sampleSpreads.count,
+                reduceMotion: config.reducedMotion
+            )
+        }
+
+        if lastAppliedSpreadIndex != config.currentSpreadIndex
+            || lastAppliedMaxTextureDim != renderConfig.maxTextureDimension {
+            lastAppliedSpreadIndex = config.currentSpreadIndex
+            lastAppliedMaxTextureDim = renderConfig.maxTextureDimension
+            applySpreadTexture(spreadIndex: config.currentSpreadIndex)
+        }
 
         // Swap USDZ LOD variant only when not in the middle of a critical animation
         if isModelLoaded,
@@ -94,6 +108,7 @@ public final class Book3DRealityController: ObservableObject {
     }
 
     public func setSceneActive(_ active: Bool) {
+        desiredSceneActive = active
         lifecycleManager.setOccluded(!active, isBookOpen: lastConfig.isOpen)
         if !active {
             interactionController.isDraggingOrbit = false
@@ -114,8 +129,10 @@ public final class Book3DRealityController: ObservableObject {
         case .active:
             renderingManager.handleAppForegrounded()
             lifecycleManager.enterForeground(isBookOpen: lastConfig.isOpen)
-            lifecycleManager.setOccluded(false, isBookOpen: lastConfig.isOpen)
-            interactionController.markDirtyForCameraGesture()
+            lifecycleManager.setOccluded(!desiredSceneActive, isBookOpen: lastConfig.isOpen)
+            if desiredSceneActive {
+                interactionController.markDirtyForCameraGesture()
+            }
         @unknown default:
             break
         }
@@ -127,12 +144,21 @@ public final class Book3DRealityController: ObservableObject {
         enableClearcoat: Bool = true
     ) {
         guard let root = bookRoot else { return }
-        TextureResourceManager.shared.applyCachedMaterials(
+        renderingManager.textureManager.applyCachedMaterials(
             to: root,
             leather: leather,
             foil: foil,
             enableClearcoat: enableClearcoat
         )
+    }
+
+    public func applySpreadTexture(spreadIndex: Int) {
+        guard let overlay = openSpreadOverlay else { return }
+        let spreads = Book3DSampleData.sampleSpreads
+        guard !spreads.isEmpty else { return }
+        let safeIdx = max(0, min(spreads.count - 1, spreadIndex))
+        let mat = renderingManager.textureManager.spreadMaterial(for: spreads[safeIdx])
+        overlay.model?.materials = [mat]
     }
 
     public func applyLightingConfiguration(_ renderConfig: RenderingConfiguration) {
@@ -170,11 +196,23 @@ public final class Book3DRealityController: ObservableObject {
             pageHinge.orientation = simd_quatf(angle: step.pageAngleRadians, axis: BookAnimationContract.hingeAxis)
         }
 
+        if let leaf = turningPageLeaf {
+            if step.pageCurlLift > 0.001 {
+                leaf.position.y = 0.001 + step.pageCurlLift * 0.006
+                leaf.scale = SIMD3<Float>(1.0, 1.0 + step.pageCurlLift * 1.8, 1.0)
+            } else {
+                leaf.position.y = 0.001
+                leaf.scale = SIMD3<Float>(1.0, 1.0, 1.0)
+            }
+        }
+
+        openSpreadOverlay?.isEnabled = step.openProgress > 0.72
+
         if let camera = cameraEntity {
             camera.look(at: step.cameraTarget, from: step.cameraPosition, relativeTo: nil)
         }
 
-        if step.settledToIdle {
+        if step.settledToIdle && !lifecycleManager.isOccluded && !lifecycleManager.isBackgrounded {
             renderingManager.updateInteractionContext(
                 state: lifecycleManager.interactionState,
                 spreadIndex: lastConfig.currentSpreadIndex,
@@ -210,16 +248,33 @@ public final class Book3DRealityController: ObservableObject {
             }
         }
 
+        // Open-spread archival proof plane resting cleanly above TextBlock when book is open
+        let overlayWidth = (Book3DDimensions.bookWidth - 0.008) * 0.96
+        let overlayDepth = (Book3DDimensions.bookHeight - 0.010) * 0.96
+        let overlayMesh = MeshResource.generatePlane(width: overlayWidth, depth: overlayDepth)
+        let overlayEntity = ModelEntity(mesh: overlayMesh)
+        overlayEntity.name = "OpenSpreadOverlay"
+        overlayEntity.position = [
+            (Book3DDimensions.bookWidth - 0.008) / 2 + 0.004,
+            Book3DDimensions.textblockThickness / 2 + 0.0003,
+            0
+        ]
+        overlayEntity.isEnabled = interactionController.currentOpenProgress > 0.72
+        root.addChild(overlayEntity)
+
         bookRoot?.removeFromParent()
         sceneAnchor?.addChild(root)
 
         bookRoot = root
         frontCoverHinge = root.findEntity(named: Book3DHierarchy.frontCoverHinge)
         turningPageHinge = root.findEntity(named: Book3DHierarchy.turningPageHinge)
+        turningPageLeaf = root.findEntity(named: Book3DHierarchy.turningPageLeaf)
+        openSpreadOverlay = overlayEntity
         lastAppliedVariant = variant
         lastAppliedLeather = nil
         lastAppliedFoil = nil
         lastAppliedClearcoat = nil
+        lastAppliedSpreadIndex = nil
 
         // Immediately snap hinges to current progress to avoid visual pop during variant swap
         if let hinge = frontCoverHinge {
@@ -246,6 +301,9 @@ public final class Book3DRealityController: ObservableObject {
             lastAppliedLeather = lastConfig.leather
             lastAppliedFoil = lastConfig.foil
             lastAppliedClearcoat = renderConfig.enableClearcoat
+            applySpreadTexture(spreadIndex: lastConfig.currentSpreadIndex)
+            lastAppliedSpreadIndex = lastConfig.currentSpreadIndex
+            lastAppliedMaxTextureDim = renderConfig.maxTextureDimension
             interactionController.markDirtyForCameraGesture()
         } catch {
             renderingManager.reportSceneLoadFailure(error.localizedDescription)
@@ -412,6 +470,20 @@ public struct Book3DRealityView: View {
         .onChange(of: scenePhase) { _, nextPhase in
             controller.handleScenePhase(nextPhase)
         }
+        .onChange(of: configuration) { _, nextConfig in
+            controller.syncConfiguration(
+                nextConfig,
+                turnNonce: pageTurnNonce,
+                turnDirection: pageTurnDirection
+            )
+        }
+        .onChange(of: pageTurnNonce) { _, nextNonce in
+            controller.syncConfiguration(
+                configuration,
+                turnNonce: nextNonce,
+                turnDirection: pageTurnDirection
+            )
+        }
         .onChange(of: renderingManager.activeConfiguration) { _, _ in
             controller.syncConfiguration(
                 configuration,
@@ -425,10 +497,25 @@ public struct Book3DRealityView: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("3D Heirloom Book: \(configuration.coverTitle)")
-        .accessibilityHint(configuration.isOpen ? "Book is open. Double tap to close cover." : "Book is closed. Double tap to open cover.")
+        .accessibilityHint(
+            allowGestures
+                ? (configuration.isOpen ? "Book is open. Double tap to close cover, or swipe up and down to turn pages." : "Book is closed. Double tap to open cover.")
+                : "Double tap to open the interactive 3D book reader."
+        )
         .accessibilityAddTraits(.isButton)
         .accessibilityAction {
             onToggleOpen()
+        }
+        .accessibilityAdjustableAction { direction in
+            guard allowGestures, configuration.isOpen else { return }
+            switch direction {
+            case .increment:
+                onTurnPage(1)
+            case .decrement:
+                onTurnPage(-1)
+            @unknown default:
+                break
+            }
         }
     }
 
@@ -482,12 +569,6 @@ public struct Book3DRealityView: View {
                 renderingManager.reportSceneLoadFailure(message)
                 onFallbackRequired(message)
             }
-        } update: { _ in
-            controller.syncConfiguration(
-                configuration,
-                turnNonce: pageTurnNonce,
-                turnDirection: pageTurnDirection
-            )
         }
     }
 }
@@ -633,12 +714,6 @@ private struct Book3DLegacyARView: UIViewRepresentable {
 
     func updateUIView(_ uiView: ARView, context: Context) {
         applyRenderOptions(to: uiView, configuration: controller.renderingManager.activeConfiguration)
-        controller.setSceneActive(isSceneActive)
-        controller.syncConfiguration(
-            configuration,
-            turnNonce: pageTurnNonce,
-            turnDirection: pageTurnDirection
-        )
     }
 
     private func applyRenderOptions(to arView: ARView, configuration: RenderingConfiguration) {

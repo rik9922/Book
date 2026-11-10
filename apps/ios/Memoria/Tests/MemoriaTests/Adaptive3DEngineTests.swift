@@ -361,6 +361,118 @@ struct Adaptive3DEngineTests {
         #expect(!msg.localizedCaseInsensitiveContains("thermal"))
     }
 
+    @Test("Stale deferred downgrade clears if conditions recover during page turn, and moderate degradation does not force Efficient into 2D fallback")
+    @MainActor
+    func testDeferredDowngradeRecoveryAndModerateEfficientStability() {
+        let snapshot = makeSnapshot(memoryGB: 8.0, cores: 6, refreshRate: 60)
+        let assessment = DeviceCapabilityAnalyzer().assess(snapshot: snapshot)
+        let controller = RenderingQualityController(
+            capabilityAssessment: assessment,
+            downgradeCooldownSeconds: 1.0,
+            recoveryCooldownSeconds: 10.0,
+            now: Date(timeIntervalSince1970: 100)
+        )
+
+        // Defer a thermal fair downgrade during .pageTurning
+        let t1 = Date(timeIntervalSince1970: 105)
+        controller.evaluate(
+            thermalState: .fair,
+            isLowPowerMode: false,
+            memoryPressure: .normal,
+            performance: .empty,
+            interactionState: .pageTurning,
+            reduceMotion: false,
+            now: t1
+        )
+        #expect(controller.activeProfile == .premium)
+        #expect(controller.pendingDeferredProfile == .balanced)
+
+        // Thermal recovers to nominal before page turn finishes
+        controller.evaluate(
+            thermalState: .nominal,
+            isLowPowerMode: false,
+            memoryPressure: .normal,
+            performance: .empty,
+            interactionState: .reading,
+            reduceMotion: false,
+            now: t1.addingTimeInterval(0.6)
+        )
+        #expect(controller.activeProfile == .premium)
+        #expect(controller.pendingDeferredProfile == nil)
+
+        // Moderate degradation in .efficient must NOT kick user out of 3D into .fallback
+        let t2 = t1.addingTimeInterval(2.0)
+        controller.evaluate(
+            thermalState: .serious,
+            isLowPowerMode: false,
+            memoryPressure: .normal,
+            performance: .empty,
+            interactionState: .reading,
+            reduceMotion: false,
+            now: t2
+        )
+        #expect(controller.activeProfile == .efficient)
+
+        let modPerf = PerformanceMonitor()
+        for i in 0..<20 {
+            modPerf.recordFrameDelta(seconds: i < 17 ? 0.025 : 0.045) // 15% dropped -> moderateDegradation
+        }
+        modPerf.updateTargetFrameBudgetMs(33.33)
+        #expect(modPerf.snapshot().healthStatus == .moderateDegradation)
+
+        controller.evaluate(
+            thermalState: .nominal,
+            isLowPowerMode: false,
+            memoryPressure: .normal,
+            performance: modPerf.snapshot(),
+            interactionState: .reading,
+            reduceMotion: false,
+            now: t2.addingTimeInterval(5.0)
+        )
+        #expect(controller.activeProfile == .efficient)
+    }
+
+    @Test("Scheduled auto-recovery steps up from thermal fallback while idle, while permanent asset failure fallback stays safe")
+    @MainActor
+    func testScheduledAutoRecoveryWhileIdle() async throws {
+        let manager = BookRenderingManager(
+            environmentSnapshot: makeSnapshot(memoryGB: 8.0, cores: 6),
+            assetManager: BookAssetManager(budgetBytes: 12 * 1024 * 1024),
+            textureManager: TextureResourceManager(),
+            downgradeCooldownSeconds: 0.05,
+            recoveryCooldownSeconds: 0.12,
+            observeAppLifecycle: false
+        )
+
+        manager.thermalMonitor.updateThermalState(.critical)
+        #expect(manager.activeProfile == .fallback)
+        #expect(manager.fallbackController.isFallbackActive)
+
+        // Return to nominal while idle (sampleCount == 0); scheduled recovery should step up automatically
+        manager.thermalMonitor.updateThermalState(.nominal)
+        try await Task.sleep(nanoseconds: 550_000_000)
+        #expect(manager.activeProfile > .fallback)
+        #expect(!manager.fallbackController.isFallbackActive)
+
+        // Exhaust asset failure retries -> must remain in fallback without auto-retrying
+        manager.reportSceneLoadFailure("Corrupt asset test 1")
+        manager.reportSceneLoadFailure("Corrupt asset test 2")
+        #expect(manager.activeProfile == .fallback)
+        try await Task.sleep(nanoseconds: 250_000_000)
+        #expect(manager.activeProfile == .fallback)
+        #expect(manager.fallbackController.isFallbackActive)
+    }
+
+    @Test("6 GB physical memory devices classify as Tier A after iOS kernel carve-out")
+    func testSixGigabyteCarveOutTierClassification() {
+        let analyzer = DeviceCapabilityAnalyzer()
+        // Real 6 GB iPhones typically report ~5.35 GiB to ProcessInfo.physicalMemory
+        let sixGbIphone = makeSnapshot(memoryGB: 5.35, cores: 6, workingSetMB: 2048)
+        let assessment = analyzer.assess(snapshot: sixGbIphone)
+        #expect(assessment.tier == .tierA)
+        #expect(assessment.recommendedProfile == .premium)
+    }
+
     #if os(iOS) && canImport(RealityKit)
     @Test("All 3 USDZ runtime variants load via BookAssetManager with 11 canonical nodes and cache hits")
     @MainActor
@@ -396,29 +508,63 @@ struct Adaptive3DEngineTests {
         #expect(balancedRig.children.count == 3)
         #expect(efficientRig.children.count == 2)
 
-        // Verify repeated open/close & page turns converge and stop ticking when idle
+        // Verify repeated open/close, page curl lift, spread overlay, and occluded scene isolation
+        let texMgr = TextureResourceManager()
         let renderingMgr = BookRenderingManager(
             environmentSnapshot: makeSnapshot(memoryGB: 8.0, cores: 6),
+            assetManager: assetManager,
+            textureManager: texMgr,
             observeAppLifecycle: false
         )
         let controller = Book3DRealityController(renderingManager: renderingMgr)
         let loaded = try await assetManager.loadBookSceneRoot(variant: .balanced)
-        controller.bookRoot = loaded.entity
-        controller.frontCoverHinge = loaded.entity.findEntity(named: Book3DHierarchy.frontCoverHinge)
-        controller.turningPageHinge = loaded.entity.findEntity(named: Book3DHierarchy.turningPageHinge)
+        controller.attachLoadedRoot(loaded.entity, variant: .balanced)
         controller.isModelLoaded = true
 
-        for cycle in 1...4 {
-            let openCfg = Book3DConfiguration(leather: .plum, foil: .gold, isOpen: true, currentSpreadIndex: cycle % 4)
-            controller.syncConfiguration(openCfg, turnNonce: cycle, turnDirection: 1)
+        // Real spread texture generation and dimension-aware eviction on downgrade
+        let openCfg = Book3DConfiguration(leather: .plum, foil: .gold, isOpen: true, currentSpreadIndex: 1)
+        controller.syncConfiguration(openCfg, turnNonce: 1, turnDirection: 1)
+        #expect(texMgr.cachedSpreadTextureCount() >= 1)
+
+        // Verify mid-turn curl lift activates during page turn and settles to 0
+        var sawCurlLift = false
+        for _ in 0..<40 {
+            if let step = controller.interactionController.step(
+                deltaTime: 0.016,
+                targetStepInterval: 1.0 / 60.0,
+                isBookOpen: true,
+                lifecycle: controller.lifecycleManager
+            ), step.pageCurlLift > 0.1 {
+                sawCurlLift = true
+            }
+        }
+        #expect(sawCurlLift)
+
+        // Downgrading texture dimension from 1024 -> 256 must evict oversized 1024px spread cache entries
+        texMgr.updateBudget(bytes: 4 * 1024 * 1024, maxDimension: 256)
+        #expect(texMgr.cachedSpreadTextureCount() == 0)
+
+        // Occluded shelf controller must remain occluded across foreground transition and not clobber spreadIndex
+        let shelfController = Book3DRealityController(renderingManager: renderingMgr)
+        shelfController.setSceneActive(false)
+        shelfController.handleScenePhase(.background)
+        shelfController.handleScenePhase(.active)
+        #expect(shelfController.lifecycleManager.isOccluded)
+
+        for cycle in 2...5 {
+            let cycleOpen = Book3DConfiguration(leather: .plum, foil: .gold, isOpen: true, currentSpreadIndex: cycle % 4)
+            controller.syncConfiguration(cycleOpen, turnNonce: cycle, turnDirection: 1)
             for _ in 0..<180 {
                 controller.tick(deltaTime: 0.016)
             }
+            #expect(controller.openSpreadOverlay?.isEnabled == true)
+
             let closedCfg = Book3DConfiguration(leather: .plum, foil: .gold, isOpen: false, currentSpreadIndex: cycle % 4)
             controller.syncConfiguration(closedCfg, turnNonce: cycle, turnDirection: 1)
             for _ in 0..<180 {
                 controller.tick(deltaTime: 0.016)
             }
+            #expect(controller.openSpreadOverlay?.isEnabled == false)
         }
 
         let activeBeforeIdle = controller.lifecycleManager.activeSimulationTicks

@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 
 #if canImport(RealityKit) && os(iOS)
 import RealityKit
@@ -233,7 +234,7 @@ public final class BookAssetManager {
                 if #available(iOS 18.0, *) {
                     return try await Entity(contentsOf: usdzURL)
                 } else {
-                    return try Entity.load(contentsOf: usdzURL)
+                    return try await Self.loadEntityAsyncLegacy(contentsOf: usdzURL)
                 }
             }
             return Self.makeProceduralFallbackBookHierarchy()
@@ -263,6 +264,41 @@ public final class BookAssetManager {
                 lastFailureMessage = error.localizedDescription
             }
             throw error
+        }
+    }
+
+    private static func loadEntityAsyncLegacy(contentsOf url: URL) async throws -> Entity {
+        @MainActor
+        final class SubscriptionBox {
+            var cancellable: AnyCancellable?
+            var didResume = false
+        }
+        let box = SubscriptionBox()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                box.cancellable = Entity.loadAsync(contentsOf: url)
+                    .sink(
+                        receiveCompletion: { completion in
+                            guard !box.didResume else { return }
+                            if case .failure(let error) = completion {
+                                box.didResume = true
+                                continuation.resume(throwing: error)
+                            }
+                            box.cancellable = nil
+                        },
+                        receiveValue: { entity in
+                            guard !box.didResume else { return }
+                            box.didResume = true
+                            continuation.resume(returning: entity)
+                            box.cancellable = nil
+                        }
+                    )
+            }
+        } onCancel: {
+            Task { @MainActor in
+                box.cancellable?.cancel()
+                box.cancellable = nil
+            }
         }
     }
 
