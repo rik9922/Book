@@ -239,7 +239,7 @@ export const BookDocumentSchema = z.object({
   subtitle: z.string().optional(),
   format: BookFormatSchema,
   coverColor: z.string().default("#304C43"), // Forest
-  foilStamping: z.enum(["gold", "silver", "blind_emboss", "none"]).default("gold"),
+  foilStamping: z.enum(["gold", "rose", "silver", "blind_emboss", "none"]).default("gold"),
   coverTitle: z.string(),
   spineText: z.string().optional(),
   spreads: z.array(BookSpreadSchema).default([]),

@@ -97,6 +97,7 @@ public struct Book3DReaderView: View {
                         Label(is2DMode ? "3D" : "2D", systemImage: is2DMode ? "cube" : "book.pages")
                     }
                     .tint(MemoriaTheme.sageFunc)
+                    .disabled(fallbackReason != nil)
                 }
             }
             .sheet(isPresented: $showMaterialCustomizer) {

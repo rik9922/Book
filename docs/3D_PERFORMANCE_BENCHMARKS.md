@@ -12,7 +12,7 @@ Verified directly from `scripts/generate_book_model.py`, `packages/contracts/src
 
 | Metric | Budget Target | Measured Actual | Status |
 |---|---|---|---|
-| **GLB Binary Size** | `< 250 KB` | `18,776` bytes (`18.3 KB`) | PASS (7.3% of budget) |
+| **GLB Binary Size** | `< 250 KB` | `18,764` bytes (`18.3 KB`) | PASS (7.3% of budget) |
 | **USDZ Archive Size** | `< 350 KB` | `32,811` bytes (`32.0 KB`) | PASS (9.1% of budget) |
 | **Total Vertex Count** | `< 15,000` | `313` vertices | PASS (2.1% of budget) |
 | **Total Triangle Count** | `< 10,000` | `218` triangles | PASS (2.2% of budget) |
@@ -28,7 +28,7 @@ Measured via 100 sequential Fastify `app.inject` HTTP requests against `buildBoo
 | Endpoint | Payload | Iterations | Avg Latency | p50 (Median) | p95 | p99 |
 |---|---|---|---|---|---|---|
 | `GET /api/v1/books/3d/manifest` | JSON contracts + manifest | 100 | `0.127 ms` | `0.043 ms` | `0.141 ms` | `7.344 ms` |
-| `GET /api/v1/books/3d/assets/memoria_heirloom_book.glb?v=2.0.0` | `18,776` bytes (`model/gltf-binary`) | 100 | `0.162 ms` | `0.128 ms` | `0.234 ms` | `1.500 ms` |
+| `GET /api/v1/books/3d/assets/memoria_heirloom_book.glb?v=2.0.0` | `18,764` bytes (`model/gltf-binary`) | 100 | `0.162 ms` | `0.128 ms` | `0.234 ms` | `1.500 ms` |
 | `GET /api/v1/books/3d/assets/MemoriaHeirloomBook.usdz?v=2.0.0` | `32,811` bytes (`model/vnd.usdz+zip`) | 100 | `0.173 ms` | `0.136 ms` | `0.456 ms` | `1.167 ms` |
 
 - Conditional caching (`ETag` / `If-None-Match` -> `304 Not Modified`) and immutable `?v=2.0.0` `Cache-Control` headers eliminate redundant binary transfers after initial load.

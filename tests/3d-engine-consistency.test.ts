@@ -171,6 +171,25 @@ describe("Memoria Unified Cross-Platform 3D Book Engine Consistency Suite", () =
 
     assert.equal(totalVertices, CANONICAL_BOOK_3D_MANIFEST.topology.totalVertices);
     assert.equal(totalTriangles, CANONICAL_BOOK_3D_MANIFEST.topology.totalTriangles);
+
+    // Regression: TurningPageLeaf at rest must stay inside TextBlock (y < FrontCover bottom 0.011m)
+    const pageMesh = parsed.gltf.meshes.find((m: { name: string }) => m.name === "TurningPageMesh");
+    assert.ok(pageMesh, "TurningPageMesh must exist");
+    const pagePosAcc = parsed.gltf.accessors[pageMesh.primitives[0].attributes.POSITION];
+    const maxPageWorldY = pageHinge.translation[1] + pagePosAcc.max[1];
+    assert.ok(
+      maxPageWorldY < 0.011,
+      `TurningPageLeaf rest max Y (${maxPageWorldY}) must remain below closed FrontCover (0.011m)`
+    );
+
+    // Regression: SilkRibbonBookmark must rest on top of TextBlock (>= 0.011m)
+    const ribbonMesh = parsed.gltf.meshes.find((m: { name: string }) => m.name === "RibbonMesh");
+    assert.ok(ribbonMesh, "RibbonMesh must exist");
+    const ribbonPosAcc = parsed.gltf.accessors[ribbonMesh.primitives[0].attributes.POSITION];
+    assert.ok(
+      ribbonPosAcc.max[1] >= 0.011,
+      `SilkRibbonBookmark max Y (${ribbonPosAcc.max[1]}) must rest on top of TextBlock (>= 0.011m)`
+    );
   });
 
   test("3. USDZ Hierarchy Parity & Apple usdchecker Validation", () => {
@@ -357,6 +376,55 @@ describe("Memoria Unified Cross-Platform 3D Book Engine Consistency Suite", () =
     assert.equal(book3dBody.data.configuration.leatherId, "navy");
     assert.equal(book3dBody.data.configuration.foilId, "silver");
 
+    // Regression: Default #304C43 maps to emerald, "none" maps to blind_emboss, and long titles clamp cleanly without 500
+    const longTitleRes = await app.inject({
+      method: "POST",
+      url: "/api/v1/books",
+      payload: {
+        spaceId: "12345678-1234-4234-8234-123456789012",
+        title: "The Comprehensive Bennett Multi-Generational Family Chronicle & Heirloom Edition 2026",
+        foilStamping: "none",
+      },
+    });
+    assert.equal(longTitleRes.statusCode, 201);
+    const longBook = JSON.parse(longTitleRes.body).data;
+
+    const longBook3dRes = await app.inject({
+      method: "GET",
+      url: `/api/v1/books/${longBook.id}/3d-model`,
+    });
+    assert.equal(longBook3dRes.statusCode, 200);
+    const longBook3dBody = JSON.parse(longBook3dRes.body);
+    assert.equal(longBook3dBody.data.configuration.leatherId, "emerald");
+    assert.equal(longBook3dBody.data.configuration.foilId, "blind_emboss");
+    assert.ok(longBook3dBody.data.configuration.coverTitle.length <= 60);
+    assert.ok(longBook3dBody.data.configuration.spineText.length <= 40);
+
     await app.close();
+  });
+
+  test("6. Swift Book3DContract.swift Parity Lock Against Manifest & TS Contracts", () => {
+    const swiftPath = path.resolve("apps/ios/Memoria/Sources/Memoria/Models/Book3DContract.swift");
+    const swiftSrc = fs.readFileSync(swiftPath, "utf-8");
+
+    for (const nodeName of BOOK_3D_REQUIRED_NODES) {
+      assert.ok(swiftSrc.includes(`"${nodeName}"`), `Swift contract missing node ${nodeName}`);
+    }
+    for (const swatch of BOOK_LEATHER_SWATCHES) {
+      assert.ok(
+        swiftSrc.includes(`"${swatch.hex}"`),
+        `Swift contract missing leather swatch hex ${swatch.hex}`
+      );
+    }
+    for (const preset of BOOK_CAMERA_PRESETS) {
+      assert.ok(
+        swiftSrc.includes(`"${preset.label}"`),
+        `Swift contract missing camera preset ${preset.label}`
+      );
+    }
+    assert.ok(swiftSrc.includes(`openAngleRadians: Float = ${BOOK_ANIMATION_CONTRACT.openAngleRadians}`));
+    assert.ok(swiftSrc.includes(`pageTurnEndRadians: Float = ${BOOK_ANIMATION_CONTRACT.pageTurnEndRadians}`));
+    assert.ok(swiftSrc.includes(`"${CANONICAL_BOOK_3D_MANIFEST.version}"`));
+    assert.ok(swiftSrc.includes('"The Bennett Heritage"'));
   });
 });

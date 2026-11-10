@@ -7,7 +7,6 @@ import {
   Float,
   useGLTF,
   ContactShadows,
-  Text,
   useProgress,
 } from "@react-three/drei";
 import * as THREE from "three";
@@ -56,6 +55,200 @@ const GLB_MODEL_URL = `/models/memoria_heirloom_book.glb?v=${CANONICAL_BOOK_3D_M
 export const LEATHER_SWATCHES = BOOK_LEATHER_SWATCHES;
 export const FOIL_SWATCHES = BOOK_FOIL_SWATCHES;
 
+function createCoverLabelTexture(
+  text: string,
+  colorHex: string,
+  options: { fontSizePx: number; letterSpacing?: number; uppercase?: boolean; weight?: string }
+): THREE.CanvasTexture | null {
+  if (typeof document === "undefined") return null;
+  const canvas = document.createElement("canvas");
+  canvas.width = 1024;
+  canvas.height = 192;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const content = (options.uppercase ? text.toUpperCase() : text).trim();
+  ctx.fillStyle = colorHex;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = `${options.weight ?? "600"} ${options.fontSizePx}px Georgia, "Times New Roman", serif`;
+  if ("letterSpacing" in ctx && options.letterSpacing) {
+    (ctx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = `${options.letterSpacing}px`;
+  }
+  ctx.fillText(content, canvas.width / 2, canvas.height / 2, canvas.width - 48);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 4;
+  texture.needsUpdate = true;
+  return texture;
+}
+
+function createSpreadPageTexture(spread: BookSpreadPreview): THREE.CanvasTexture | null {
+  if (typeof document === "undefined") return null;
+  const canvas = document.createElement("canvas");
+  canvas.width = 768;
+  canvas.height = 1024;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+
+  // Archival paper base
+  ctx.fillStyle = "#FAF7F2";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Subtle archival frame border
+  ctx.strokeStyle = "#E7E2DA";
+  ctx.lineWidth = 4;
+  ctx.strokeRect(28, 28, canvas.width - 56, canvas.height - 56);
+
+  // Chapter label
+  ctx.fillStyle = "#76556F";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  ctx.font = '600 22px system-ui, -apple-system, sans-serif';
+  ctx.fillText(spread.chapterTitle.toUpperCase(), canvas.width / 2, 72, canvas.width - 110);
+
+  // Date & Location
+  ctx.fillStyle = "#5C5955";
+  ctx.font = '500 20px system-ui, -apple-system, sans-serif';
+  ctx.fillText(`${spread.rightDate}  •  ${spread.rightLocation}`, canvas.width / 2, 118, canvas.width - 110);
+
+  // Heading
+  ctx.fillStyle = "#20242C";
+  ctx.font = '700 38px Georgia, "Times New Roman", serif';
+  const headingWords = spread.rightHeading.split(" ");
+  let headingLine = "";
+  let y = 186;
+  for (const word of headingWords) {
+    const test = headingLine ? `${headingLine} ${word}` : word;
+    if (ctx.measureText(test).width > canvas.width - 120) {
+      ctx.fillText(headingLine, canvas.width / 2, y);
+      headingLine = word;
+      y += 48;
+    } else {
+      headingLine = test;
+    }
+  }
+  if (headingLine) {
+    ctx.fillText(headingLine, canvas.width / 2, y);
+    y += 66;
+  }
+
+  // Divider rule
+  ctx.strokeStyle = "#D4AF37";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(canvas.width / 2 - 90, y);
+  ctx.lineTo(canvas.width / 2 + 90, y);
+  ctx.stroke();
+  y += 42;
+
+  // Body text (left-aligned editorial column)
+  ctx.fillStyle = "#28272A";
+  ctx.textAlign = "left";
+  ctx.font = '400 27px Georgia, "Times New Roman", serif';
+  const words = spread.rightBody.split(" ");
+  let line = "";
+  const leftMargin = 72;
+  const maxLineWidth = canvas.width - 144;
+  for (const word of words) {
+    const test = line ? `${line} ${word}` : word;
+    if (ctx.measureText(test).width > maxLineWidth) {
+      ctx.fillText(line, leftMargin, y);
+      line = word;
+      y += 42;
+    } else {
+      line = test;
+    }
+  }
+  if (line) {
+    ctx.fillText(line, leftMargin, y);
+    y += 56;
+  }
+
+  // Optional OCR Inscription box
+  if (spread.ocrInscription) {
+    ctx.fillStyle = "#F0ECE1";
+    ctx.fillRect(68, y, canvas.width - 136, 130);
+    ctx.strokeStyle = "#E7E2DA";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(68, y, canvas.width - 136, 130);
+    ctx.fillStyle = "#76556F";
+    ctx.font = '600 18px system-ui, sans-serif';
+    ctx.fillText("ARCHIVAL INSCRIPTION", 88, y + 20);
+    ctx.fillStyle = "#20242C";
+    ctx.font = 'italic 22px Georgia, serif';
+    ctx.fillText(`"${spread.ocrInscription}"`, 88, y + 58, canvas.width - 176);
+  }
+
+  // Footer page number
+  ctx.fillStyle = "#78736E";
+  ctx.textAlign = "right";
+  ctx.font = '500 20px monospace';
+  ctx.fillText(`p. ${spread.rightPageNumber}`, canvas.width - 72, canvas.height - 76);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 4;
+  texture.needsUpdate = true;
+  return texture;
+}
+
+function StudioEnvironment() {
+  const { gl, scene } = useThree();
+
+  useEffect(() => {
+    const pmrem = new THREE.PMREMGenerator(gl);
+    pmrem.compileEquirectangularShader();
+
+    const envScene = new THREE.Scene();
+    envScene.background = new THREE.Color("#F4EFE6");
+
+    const addPanel = (
+      pos: [number, number, number],
+      lookAt: [number, number, number],
+      size: [number, number],
+      color: string,
+      intensity: number
+    ) => {
+      const mat = new THREE.MeshBasicMaterial({
+        color: new THREE.Color(color).multiplyScalar(intensity),
+        side: THREE.DoubleSide,
+      });
+      const mesh = new THREE.Mesh(new THREE.PlaneGeometry(size[0], size[1]), mat);
+      mesh.position.set(...pos);
+      mesh.lookAt(...lookAt);
+      envScene.add(mesh);
+      return mesh;
+    };
+
+    const panels = [
+      addPanel([0, 4.5, 0], [0, 0, 0], [8, 8], "#FFFDF8", 2.4),
+      addPanel([3.2, 2.5, 3.0], [0, 0, 0], [4, 4], "#FFF4DC", 3.2),
+      addPanel([-3.5, 2.0, -2.5], [0, 0, 0], [5, 4], "#DCE9E2", 1.8),
+      addPanel([0, 2.2, 4.2], [0, 0, 0], [6, 3], "#FFF7E8", 2.1),
+      addPanel([0, -2.5, 0], [0, 0, 0], [10, 10], "#EDE7DC", 1.0),
+    ];
+
+    const renderTarget = pmrem.fromScene(envScene, 0.04);
+    scene.environment = renderTarget.texture;
+    scene.environmentIntensity = 0.9;
+
+    return () => {
+      scene.environment = null;
+      renderTarget.dispose();
+      pmrem.dispose();
+      for (const panel of panels) {
+        panel.geometry.dispose();
+        (panel.material as THREE.Material).dispose();
+      }
+    };
+  }, [gl, scene]);
+
+  return null;
+}
+
 function checkWebGLSupport(): boolean {
   if (typeof window === "undefined") return true;
   try {
@@ -99,6 +292,7 @@ function Heirloom3DBook({
 }: BookSceneProps) {
   const rootGroupRef = useRef<THREE.Group>(null);
   const frontHingeRef = useRef<THREE.Object3D | null>(null);
+  const coverTextGroupRef = useRef<THREE.Group>(null);
   const turningPageHingeRef = useRef<THREE.Object3D | null>(null);
   const turningPageMeshRef = useRef<THREE.Mesh | null>(null);
   const openProgressRef = useRef<number>(isOpen ? 1 : 0);
@@ -153,6 +347,7 @@ function Heirloom3DBook({
     let foundFrontHinge: THREE.Object3D | null = null;
     let foundPageHinge: THREE.Object3D | null = null;
     let foundPageMesh: THREE.Mesh | null = null;
+    let clonedPageGeometry: THREE.BufferGeometry | null = null;
 
     clonedScene.traverse((child) => {
       if (child.name === BOOK_3D_HIERARCHY.frontCoverHinge) {
@@ -195,8 +390,12 @@ function Heirloom3DBook({
           parentName === BOOK_3D_HIERARCHY.turningPageLeaf
         ) {
           mesh.material = materialsBundle.paper;
+          if (!clonedPageGeometry) {
+            clonedPageGeometry = mesh.geometry.clone();
+            mesh.geometry = clonedPageGeometry;
+          }
           foundPageMesh = mesh;
-          if (!basePagePositionsRef.current && mesh.geometry.attributes.position) {
+          if (mesh.geometry.attributes.position) {
             basePagePositionsRef.current = new Float32Array(
               mesh.geometry.attributes.position.array as Float32Array
             );
@@ -213,6 +412,12 @@ function Heirloom3DBook({
     frontHingeRef.current = foundFrontHinge;
     turningPageHingeRef.current = foundPageHinge;
     turningPageMeshRef.current = foundPageMesh;
+
+    return () => {
+      if (clonedPageGeometry) {
+        clonedPageGeometry.dispose();
+      }
+    };
   }, [clonedScene, materialsBundle]);
 
   // Trigger animated page flip on spread change
@@ -244,8 +449,13 @@ function Heirloom3DBook({
       );
     }
 
+    const coverAngle = computeCoverHingeAngle(openProgressRef.current);
     if (frontHingeRef.current) {
-      frontHingeRef.current.rotation.z = computeCoverHingeAngle(openProgressRef.current);
+      frontHingeRef.current.rotation.z = coverAngle;
+    }
+    if (coverTextGroupRef.current) {
+      coverTextGroupRef.current.rotation.z = coverAngle;
+      coverTextGroupRef.current.visible = openProgressRef.current < 0.55;
     }
 
     // 2. Turning Page Kinematics & Dynamic Conical Curl
@@ -276,12 +486,13 @@ function Heirloom3DBook({
       turningPageHingeRef.current.rotation.z = turnAngle;
     }
 
-    // Apply subtle vertex curl modulation during active turns
+    // Apply subtle vertex curl modulation only when open/turning; lie flat inside textblock when closed
     const pageMesh = turningPageMeshRef.current;
     const basePositions = basePagePositionsRef.current;
     if (pageMesh && basePositions && pageMesh.geometry.attributes.position) {
       const posAttr = pageMesh.geometry.attributes.position as THREE.BufferAttribute;
       const arr = posAttr.array as Float32Array;
+      const isBookOpeningOrOpen = isOpen || openProgressRef.current > 0.25;
       const activeProgress =
         turnProgressRef.current > 0 ? turnProgressRef.current : isOpen ? 0.15 : 0;
       const bookWidth = CANONICAL_BOOK_3D_MANIFEST.dimensions.bookWidth;
@@ -289,13 +500,17 @@ function Heirloom3DBook({
       for (let i = 0; i < arr.length; i += 3) {
         const bx = basePositions[i];
         const by = basePositions[i + 1];
+        if (!isBookOpeningOrOpen) {
+          arr[i + 1] = by;
+          continue;
+        }
         const normX = Math.max(0, Math.min(1, bx / bookWidth));
         const curlLift = computePageCurlDisplacement(
           normX,
-          BOOK_ANIMATION_CONTRACT.pageCurlAmplitude * 0.75,
+          BOOK_ANIMATION_CONTRACT.pageCurlAmplitude,
           activeProgress
         );
-        arr[i + 1] = by * 0.35 + curlLift;
+        arr[i + 1] = by + curlLift;
       }
       posAttr.needsUpdate = true;
     }
@@ -304,6 +519,51 @@ function Heirloom3DBook({
   const foilHex = buildFoilMaterialSpec(foilSwatch, leatherSwatch).baseColorHex;
   const openSpreadVisible = isOpen;
   const textBlockTopY = CANONICAL_BOOK_3D_MANIFEST.dimensions.textblockThickness / 2 + 0.0008;
+
+  const titleTexture = useMemo(
+    () =>
+      createCoverLabelTexture(title || "Memoria", foilHex, {
+        fontSizePx: 54,
+        letterSpacing: 4,
+        uppercase: true,
+        weight: "700",
+      }),
+    [title, foilHex]
+  );
+
+  const subtitleTexture = useMemo(
+    () =>
+      createCoverLabelTexture(subtitle, foilHex, {
+        fontSizePx: 30,
+        letterSpacing: 3,
+        uppercase: true,
+        weight: "500",
+      }),
+    [subtitle, foilHex]
+  );
+
+  const spreadTexture = useMemo(
+    () => createSpreadPageTexture(currentSpread),
+    [currentSpread]
+  );
+
+  useEffect(() => {
+    return () => {
+      titleTexture?.dispose();
+    };
+  }, [titleTexture]);
+
+  useEffect(() => {
+    return () => {
+      subtitleTexture?.dispose();
+    };
+  }, [subtitleTexture]);
+
+  useEffect(() => {
+    return () => {
+      spreadTexture?.dispose();
+    };
+  }, [spreadTexture]);
 
   return (
     <Float
@@ -326,82 +586,27 @@ function Heirloom3DBook({
         <primitive object={clonedScene} />
 
         {/* Dynamic Foil-Stamped Cover Typography synced to FrontCoverHinge */}
-        {frontHingeRef.current && (
-          <group rotation={[0, 0, computeCoverHingeAngle(isOpen ? 1 : 0)]} visible={!isOpen}>
-            <Text
-              position={[0.104, 0.016, 0.068]}
-              rotation={[-Math.PI / 2, 0, 0]}
-              fontSize={0.0105}
-              color={foilHex}
-              anchorX="center"
-              anchorY="middle"
-              maxWidth={0.16}
-            >
-              {title.toUpperCase()}
-            </Text>
-            <Text
-              position={[0.104, 0.016, -0.072]}
-              rotation={[-Math.PI / 2, 0, 0]}
-              fontSize={0.0058}
-              color={foilHex}
-              anchorX="center"
-              anchorY="middle"
-              maxWidth={0.17}
-              letterSpacing={0.06}
-            >
-              {subtitle.toUpperCase()}
-            </Text>
-          </group>
-        )}
+        <group ref={coverTextGroupRef}>
+          {titleTexture && (
+            <mesh position={[0.104, 0.0154, -0.082]} rotation={[-Math.PI / 2, 0, 0]}>
+              <planeGeometry args={[0.165, 0.031]} />
+              <meshBasicMaterial map={titleTexture} transparent toneMapped={false} />
+            </mesh>
+          )}
+          {subtitleTexture && (
+            <mesh position={[0.104, 0.0154, 0.082]} rotation={[-Math.PI / 2, 0, 0]}>
+              <planeGeometry args={[0.17, 0.032]} />
+              <meshBasicMaterial map={subtitleTexture} transparent toneMapped={false} />
+            </mesh>
+          )}
+        </group>
 
         {/* Active Open Spread Content on TextBlock Surface */}
-        {openSpreadVisible && (
-          <group position={[0.10, textBlockTopY, 0]}>
-            <Text
-              position={[0, 0.001, -0.088]}
-              rotation={[-Math.PI / 2, 0, 0]}
-              fontSize={0.0055}
-              color="#76556F"
-              anchorX="center"
-              anchorY="middle"
-              maxWidth={0.16}
-            >
-              {currentSpread.chapterTitle.toUpperCase()}
-            </Text>
-            <Text
-              position={[0, 0.001, -0.055]}
-              rotation={[-Math.PI / 2, 0, 0]}
-              fontSize={0.0085}
-              color="#20242C"
-              anchorX="center"
-              anchorY="middle"
-              maxWidth={0.155}
-            >
-              {currentSpread.rightHeading}
-            </Text>
-            <Text
-              position={[0, 0.001, 0.01]}
-              rotation={[-Math.PI / 2, 0, 0]}
-              fontSize={0.0056}
-              color="#28272A"
-              anchorX="center"
-              anchorY="middle"
-              maxWidth={0.155}
-              lineHeight={1.45}
-            >
-              {currentSpread.rightBody}
-            </Text>
-            <Text
-              position={[0.065, 0.001, 0.102]}
-              rotation={[-Math.PI / 2, 0, 0]}
-              fontSize={0.005}
-              color="#78736E"
-              anchorX="right"
-              anchorY="middle"
-            >
-              {`p. ${currentSpread.rightPageNumber}`}
-            </Text>
-          </group>
+        {openSpreadVisible && spreadTexture && (
+          <mesh position={[0.10, textBlockTopY, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+            <planeGeometry args={[0.184, 0.242]} />
+            <meshStandardMaterial map={spreadTexture} roughness={0.92} metalness={0.0} />
+          </mesh>
         )}
       </group>
     </Float>
@@ -562,16 +767,14 @@ export default function ExperienceCanvas({
         setCameraPresetId("open_spread");
         setCameraResetNonce((n) => n + 1);
       }
+      const next = Math.max(0, Math.min(totalSpreads - 1, spreadIndex + direction));
       setPageTurnDirection(direction);
-      setSpreadIndex((prev) => {
-        const next = Math.max(0, Math.min(totalSpreads - 1, prev + direction));
-        if (next !== prev) {
-          setPageTurnNonce((n) => n + 1);
-        }
-        return next;
-      });
+      if (next !== spreadIndex) {
+        setSpreadIndex(next);
+        setPageTurnNonce((n) => n + 1);
+      }
     },
-    [isOpen, totalSpreads]
+    [isOpen, spreadIndex, totalSpreads]
   );
 
   const handleSelectCameraPreset = useCallback((id: BookCameraPresetId) => {
@@ -737,6 +940,7 @@ export default function ExperienceCanvas({
                 aria-label="Drag horizontally to preview page turn curl"
                 onPointerDown={(e) => {
                   pageDragStartXRef.current = e.clientX;
+                  e.currentTarget.setPointerCapture(e.pointerId);
                 }}
                 onPointerMove={(e) => {
                   if (pageDragStartXRef.current === null) return;
@@ -744,18 +948,24 @@ export default function ExperienceCanvas({
                   const normalized = Math.max(0, Math.min(1, dx / 140));
                   setDragTurnOffset(normalized);
                 }}
-                onPointerUp={() => {
+                onPointerUp={(e) => {
+                  if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+                    e.currentTarget.releasePointerCapture(e.pointerId);
+                  }
                   if (pageDragStartXRef.current !== null && dragTurnOffset > 0.45) {
                     handleTurnPage(1);
                   }
                   pageDragStartXRef.current = null;
                   setDragTurnOffset(0);
                 }}
-                onPointerLeave={() => {
+                onPointerCancel={(e) => {
+                  if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+                    e.currentTarget.releasePointerCapture(e.pointerId);
+                  }
                   pageDragStartXRef.current = null;
                   setDragTurnOffset(0);
                 }}
-                className="hidden md:flex absolute right-4 top-1/2 -translate-y-1/2 z-10 w-10 h-40 rounded-xl bg-white/75 hover:bg-white/95 border border-[#E7E2DA] items-center justify-center text-[#76556F] shadow-xs cursor-ew-resize select-none"
+                className="flex absolute right-4 top-1/2 -translate-y-1/2 z-10 w-11 h-36 rounded-xl bg-white/80 hover:bg-white/95 border border-[#E7E2DA] items-center justify-center text-[#76556F] shadow-xs cursor-ew-resize select-none touch-none"
                 title="Drag left to turn page"
               >
                 <ChevronRight className="w-5 h-5" />
@@ -781,7 +991,7 @@ export default function ExperienceCanvas({
               )}
             >
               <Canvas
-                shadows="percentage"
+                shadows
                 dpr={[1, 2]}
                 camera={{
                   position: BOOK_CAMERA_PRESETS[0].position,
@@ -801,12 +1011,16 @@ export default function ExperienceCanvas({
                 }}
                 className="w-full h-[480px] md:h-[640px] cursor-grab active:cursor-grabbing"
               >
+                <StudioEnvironment />
                 <ambientLight intensity={BOOK_LIGHTING_INTENT.ambientIntensity} />
                 <directionalLight
                   position={BOOK_LIGHTING_INTENT.keyLight.position}
                   intensity={BOOK_LIGHTING_INTENT.keyLight.intensity}
                   color={BOOK_LIGHTING_INTENT.keyLight.colorHex}
                   castShadow
+                  shadow-mapSize={[1024, 1024]}
+                  shadow-bias={-0.0008}
+                  shadow-normalBias={0.015}
                 />
                 <directionalLight
                   position={BOOK_LIGHTING_INTENT.fillLight.position}
@@ -857,7 +1071,7 @@ export default function ExperienceCanvas({
       </div>
 
       {/* Material Customization Studio Sidebar */}
-      <aside className="w-full lg:w-84 p-6 border-t lg:border-t-0 lg:border-l border-[#E7E2DA] bg-[#FFFFFF] flex flex-col justify-between gap-6">
+      <aside className="w-full lg:w-[360px] p-6 border-t lg:border-t-0 lg:border-l border-[#E7E2DA] bg-[#FFFFFF] flex flex-col justify-between gap-6">
         <div className="space-y-5">
           <div>
             <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-[#76556F]">
@@ -885,17 +1099,17 @@ export default function ExperienceCanvas({
                   key={swatch.id}
                   type="button"
                   onClick={() => setSelectedLeather(swatch)}
-                  className={`min-h-[44px] flex items-center gap-2.5 p-2 rounded-lg border text-left text-xs transition-all cursor-pointer ${
+                  className={`min-h-[44px] flex items-center gap-2 px-2.5 py-2 rounded-lg border text-left text-[11.5px] transition-all cursor-pointer ${
                     selectedLeather.id === swatch.id
                       ? "border-[#76556F] bg-[#F4EEF3] text-[#20242C] font-semibold shadow-xs"
                       : "border-[#E7E2DA] bg-[#F7F4EE] text-[#5C5955] hover:border-[#8D857A] hover:text-[#28272A]"
                   }`}
                 >
                   <span
-                    className="w-4 h-4 rounded-full border border-black/15 shrink-0"
+                    className="w-3.5 h-3.5 rounded-full border border-black/15 shrink-0"
                     style={{ backgroundColor: swatch.hex }}
                   />
-                  <span className="truncate">{swatch.name}</span>
+                  <span className="leading-tight">{swatch.name}</span>
                 </button>
               ))}
             </div>

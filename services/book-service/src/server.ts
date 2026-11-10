@@ -203,8 +203,12 @@ export async function buildBookService(): Promise<FastifyInstance> {
         );
     }
 
-    const etag = `"manifest-${CANONICAL_BOOK_3D_MANIFEST.version}-${CANONICAL_BOOK_3D_MANIFEST.assets.glb.sha256.slice(0, 12)}"`;
-    if (req.headers["if-none-match"] === etag) {
+    const etag = `"manifest-${CANONICAL_BOOK_3D_MANIFEST.version}-${CANONICAL_BOOK_3D_MANIFEST.assets.glb.sha256.slice(0, 8)}-${CANONICAL_BOOK_3D_MANIFEST.assets.usdz.sha256.slice(0, 8)}"`;
+    const ifNoneMatch = req.headers["if-none-match"];
+    if (
+      typeof ifNoneMatch === "string" &&
+      ifNoneMatch.split(",").some((tag) => tag.trim().replace(/^W\//, "") === etag)
+    ) {
       return reply.status(304).send();
     }
 
@@ -273,7 +277,11 @@ export async function buildBookService(): Promise<FastifyInstance> {
       }
 
       const etag = `"${actualSha256}"`;
-      if (req.headers["if-none-match"] === etag) {
+      const ifNoneMatch = req.headers["if-none-match"];
+      if (
+        typeof ifNoneMatch === "string" &&
+        ifNoneMatch.split(",").some((tag) => tag.trim().replace(/^W\//, "") === etag)
+      ) {
         return reply.status(304).send();
       }
 
@@ -307,12 +315,15 @@ export async function buildBookService(): Promise<FastifyInstance> {
 
       const leatherSwatch = resolveLeatherSwatch(book?.coverColor);
       const foilSwatch = resolveFoilSwatch(book?.foilStamping);
+      const rawTitle = (book?.coverTitle || book?.title || "The Bennett Heritage").trim();
+      const rawSubtitle = (book?.subtitle || "1948 — 2026 • Memoria Volume I").trim();
+      const rawSpine = (book?.spineText || rawTitle || "MEMORIA VOL. I").trim();
       const configuration = Book3DConfigurationSchema.parse({
         leatherId: leatherSwatch.id,
         foilId: foilSwatch.id,
-        coverTitle: book?.coverTitle || "The Bennett Heritage",
-        coverSubtitle: book?.subtitle || "1948 — 2026 • Memoria Volume I",
-        spineText: book?.spineText || "MEMORIA VOL. I",
+        coverTitle: (rawTitle || "The Bennett Heritage").slice(0, 60),
+        coverSubtitle: rawSubtitle.slice(0, 80),
+        spineText: rawSpine.slice(0, 40),
         isOpen: false,
         currentSpreadIndex: 0,
         totalSpreads: book && book.spreads.length > 0 ? book.spreads.length : CANONICAL_SAMPLE_SPREADS.length,
@@ -347,7 +358,7 @@ export async function buildBookService(): Promise<FastifyInstance> {
     subtitle: z.string().optional(),
     format: BookFormatSchema.default("hardcover_standard_8x10"),
     coverColor: z.string().default("#304C43"),
-    foilStamping: z.enum(["gold", "silver", "blind_emboss", "none"]).default("gold"),
+    foilStamping: z.enum(["gold", "rose", "silver", "blind_emboss", "none"]).default("gold"),
     coverTitle: z.string().optional(),
     spineText: z.string().optional(),
   });

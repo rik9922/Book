@@ -287,7 +287,7 @@ public final class Book3DRealityController: ObservableObject {
 
         let ribbon = ModelEntity(mesh: .generateBox(size: [0.012, 0.0005, h * 1.15]))
         ribbon.name = Book3DHierarchy.ribbon
-        ribbon.position = [w * 0.48, tt * 0.47, 0.025]
+        ribbon.position = [w * 0.48, tt * 0.5 + 0.0003, 0.025]
         root.addChild(ribbon)
 
         let frontHinge = Entity()
@@ -353,6 +353,17 @@ public final class Book3DRealityController: ObservableObject {
         rimLight.position = BookLightingIntent.rimLightPosition
         rig.addChild(rimLight)
 
+        let foilBounceLight = PointLight()
+        foilBounceLight.light.color = UIColor(
+            red: 1.0,
+            green: 0.976,
+            blue: 0.910,
+            alpha: 1.0
+        )
+        foilBounceLight.light.intensity = 1800
+        foilBounceLight.position = SIMD3<Float>(0.15, 0.85, 0.65)
+        rig.addChild(foilBounceLight)
+
         return rig
     }
 }
@@ -393,6 +404,16 @@ public struct Book3DRealityView: View {
 
             if #available(iOS 18.0, *) {
                 realityKit18View
+                    .modifier(
+                        Book3DGestureModifier(
+                            enabled: allowGestures,
+                            controller: controller,
+                            isOpen: configuration.isOpen,
+                            lastDragTranslation: $lastDragTranslation,
+                            onToggleOpen: onToggleOpen,
+                            onTurnPage: onTurnPage
+                        )
+                    )
             } else {
                 Book3DLegacyARView(
                     controller: controller,
@@ -448,8 +469,17 @@ public struct Book3DRealityView: View {
                 let root = try await Book3DRealityController.loadBookSceneRoot()
                 root.position = [-0.04, 0, 0]
                 root.orientation = simd_quatf(angle: -0.22, axis: [0, 1, 0])
-                root.components.set(CollisionComponent(shapes: [.generateBox(size: [0.24, 0.05, 0.28])]))
+                let bookBoundsShape = ShapeResource.generateBox(size: [0.24, 0.06, 0.28])
+                    .offsetBy(translation: [0.10, 0, 0])
+                root.components.set(CollisionComponent(shapes: [bookBoundsShape]))
                 root.components.set(InputTargetComponent())
+
+                for interactiveName in [Book3DHierarchy.frontCover, Book3DHierarchy.textBlock] {
+                    if let entity = root.findEntity(named: interactiveName) {
+                        entity.generateCollisionShapes(recursive: false)
+                        entity.components.set(InputTargetComponent())
+                    }
+                }
 
                 anchor.addChild(root)
                 content.add(anchor)
@@ -482,45 +512,60 @@ public struct Book3DRealityView: View {
                 turnDirection: pageTurnDirection
             )
         }
-        .gesture(
-            SpatialTapGesture()
-                .targetedToAnyEntity()
-                .onEnded { _ in
-                    guard allowGestures else { return }
-                    controller.triggerHapticFeedback()
-                    onToggleOpen()
-                }
-        )
-        .simultaneousGesture(
-            DragGesture()
-                .onChanged { value in
-                    guard allowGestures else { return }
-                    let dx = Float(value.translation.width - lastDragTranslation.width)
-                    let dy = Float(value.translation.height - lastDragTranslation.height)
-                    lastDragTranslation = value.translation
-                    controller.orbitYaw -= dx * 0.008
-                    controller.orbitPitch = max(-0.65, min(0.65, controller.orbitPitch - dy * 0.008))
-                }
-                .onEnded { value in
-                    lastDragTranslation = .zero
-                    guard allowGestures, configuration.isOpen else { return }
-                    if value.translation.width < -90 && abs(value.translation.height) < 50 {
-                        controller.triggerHapticFeedback()
-                        onTurnPage(1)
-                    } else if value.translation.width > 90 && abs(value.translation.height) < 50 {
-                        controller.triggerHapticFeedback()
-                        onTurnPage(-1)
-                    }
-                }
-        )
-        .simultaneousGesture(
-            MagnifyGesture()
-                .onChanged { value in
-                    guard allowGestures else { return }
-                    let clamped = max(0.55, min(1.8, Float(1.0 / value.magnification)))
-                    controller.zoomScale = clamped
-                }
-        )
+    }
+}
+
+@available(iOS 18.0, *)
+private struct Book3DGestureModifier: ViewModifier {
+    let enabled: Bool
+    let controller: Book3DRealityController
+    let isOpen: Bool
+    @Binding var lastDragTranslation: CGSize
+    let onToggleOpen: () -> Void
+    let onTurnPage: (Int) -> Void
+
+    func body(content: Content) -> some View {
+        if enabled {
+            content
+                .gesture(
+                    SpatialTapGesture()
+                        .targetedToAnyEntity()
+                        .onEnded { _ in
+                            controller.triggerHapticFeedback()
+                            onToggleOpen()
+                        }
+                )
+                .simultaneousGesture(
+                    DragGesture()
+                        .onChanged { value in
+                            let dx = Float(value.translation.width - lastDragTranslation.width)
+                            let dy = Float(value.translation.height - lastDragTranslation.height)
+                            lastDragTranslation = value.translation
+                            controller.orbitYaw -= dx * 0.008
+                            controller.orbitPitch = max(-0.65, min(0.65, controller.orbitPitch - dy * 0.008))
+                        }
+                        .onEnded { value in
+                            lastDragTranslation = .zero
+                            guard isOpen else { return }
+                            if value.translation.width < -90 && abs(value.translation.height) < 50 {
+                                controller.triggerHapticFeedback()
+                                onTurnPage(1)
+                            } else if value.translation.width > 90 && abs(value.translation.height) < 50 {
+                                controller.triggerHapticFeedback()
+                                onTurnPage(-1)
+                            }
+                        }
+                )
+                .simultaneousGesture(
+                    MagnifyGesture()
+                        .onChanged { value in
+                            let clamped = max(0.55, min(1.8, Float(1.0 / value.magnification)))
+                            controller.zoomScale = clamped
+                        }
+                )
+        } else {
+            content
+        }
     }
 }
 

@@ -15,7 +15,7 @@ scripts/generate_book_model.py
   ├── Canonical PBR Materials (MutedPlumLeather, ArchivalPaperIvory, MetallicGoldFoil, SilkRibbonSage)
   ├── Strict CCW Mesh Primitives & Articulated Hinges
   │
-  ├──► GlbBuilder ──► apps/web/public/models/memoria_heirloom_book.glb (18,776 bytes)
+  ├──► GlbBuilder ──► apps/web/public/models/memoria_heirloom_book.glb (18,764 bytes)
   │               ──► apps/web/public/models/heirloom_book.glb (legacy alias)
   │
   ├──► UsdBuilder ──► /usr/bin/usdzip ──► xcrun usdchecker (Apple Compliance Check)
@@ -42,7 +42,7 @@ scripts/generate_book_model.py
 
 - **Total Vertices:** `313`
 - **Total Triangles:** `218`
-- **GLB Size:** `18,776` bytes
+- **GLB Size:** `18,764` bytes
 - **USDZ Size:** `32,811` bytes
 
 ---

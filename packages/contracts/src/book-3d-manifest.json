@@ -68,14 +68,14 @@
   "assets": {
     "glb": {
       "relativePath": "models/memoria_heirloom_book.glb",
-      "byteSize": 18776,
-      "sha256": "2656f184a87657332b2fff31ef2fc1d5aa8267a1c32e4282aba65852ae28645a",
+      "byteSize": 18764,
+      "sha256": "b9cfba0f0d1407506963127aa136793b9bc1fbd2ef2b2ebc31a684724da4d32a",
       "targetPlatform": "Web / Three.js / React Three Fiber"
     },
     "usdz": {
       "relativePath": "models/MemoriaHeirloomBook.usdz",
       "byteSize": 32811,
-      "sha256": "0079a4b3180148fa26e1d7fd3fe38e08b2537520617f0af20096579573968a3d",
+      "sha256": "9d458d1ec6c6fd352974a1034341444831432f61fcb54bcd532a0a238f14263b",
       "targetPlatform": "iOS 17+ / RealityKit / QuickLook"
     }
   },

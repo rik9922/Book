@@ -60,6 +60,8 @@ struct Book3DEngineTests {
         #expect(defaultConfig.leather == .plum)
         #expect(defaultConfig.leather.hexString == "#76556F")
         #expect(defaultConfig.foil == .gold)
+        #expect(defaultConfig.coverTitle == "The Bennett Heritage")
+        #expect(defaultConfig.coverSubtitle == "1948 — 2026 • Memoria Volume I")
         #expect(BookLeatherSwatch.allCases.count == 5)
         #expect(BookFoilSwatch.allCases.count == 4)
         #expect(BookCameraPreset.allCases.count == 5)
@@ -88,6 +90,23 @@ struct Book3DEngineTests {
         let pageEnd = BookAnimationContract.computePageTurnAngle(turnProgress: 1.0)
         #expect(pageStart == 0.0)
         #expect(abs(pageEnd - 2.88) < 0.0001)
+    }
+
+    @Test("Verify Book3DManifestDTO Decoding Matches Book Service JSON")
+    func testManifestDTODecoding() throws {
+        let json = """
+        {
+          "manifest": { "version": "2.0.0", "modelId": "memoria_heirloom_book_v2" },
+          "endpoints": {
+            "glb": "/api/v1/books/3d/assets/memoria_heirloom_book.glb?v=2.0.0",
+            "usdz": "/api/v1/books/3d/assets/MemoriaHeirloomBook.usdz?v=2.0.0"
+          }
+        }
+        """
+        let dto = try JSONDecoder().decode(Book3DManifestDTO.self, from: Data(json.utf8))
+        #expect(dto.manifest.version == "2.0.0")
+        #expect(dto.manifest.modelId == "memoria_heirloom_book_v2")
+        #expect(dto.endpoints.usdz.contains("MemoriaHeirloomBook.usdz"))
     }
 
     #if os(iOS) && canImport(RealityKit)

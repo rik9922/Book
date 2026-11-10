@@ -16,7 +16,7 @@ The Memoria 3D Book Engine provides a single-source-of-truth interactive heirloo
 ```mermaid
 flowchart TD
     A["scripts/generate_book_model.py\nCanonical Geometry & PBR Generator"] --> B["packages/contracts/src/book-3d-manifest.json\nSHA-256 Checksums, Topology, Kinematics"]
-    A --> C["apps/web/public/models/memoria_heirloom_book.glb\n18,776 bytes (Web / R3F)"]
+    A --> C["apps/web/public/models/memoria_heirloom_book.glb\n18,764 bytes (Web / R3F)"]
     A --> D["apps/ios/Memoria/Resources/Models/MemoriaHeirloomBook.usdz\n32,811 bytes (iOS / RealityKit)"]
 
     B --> E["packages/contracts/src/book-3d.ts\nZod Schemas, Material Adapters, Camera & Lighting"]

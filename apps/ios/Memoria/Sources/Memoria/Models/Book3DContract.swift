@@ -331,8 +331,8 @@ public struct Book3DConfiguration: Sendable, Equatable {
     public init(
         leather: BookLeatherSwatch = .plum,
         foil: BookFoilSwatch = .gold,
-        coverTitle: String = "The Bennett Family",
-        coverSubtitle: String = "Volume I • 1948–2026",
+        coverTitle: String = "The Bennett Heritage",
+        coverSubtitle: String = "1948 — 2026 • Memoria Volume I",
         spineText: String = "MEMORIA VOL. I",
         isOpen: Bool = false,
         currentSpreadIndex: Int = 0,

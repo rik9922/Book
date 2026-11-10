@@ -549,11 +549,11 @@ def main():
         corners_u.extend(cu)
         corners_i.extend([idx + base for idx in ci])
 
-    page_v, page_n, page_u, page_i = create_turning_page_leaf(TEXTBLOCK_WIDTH, TEXTBLOCK_HEIGHT, curl_factor=0.015)
+    page_v, page_n, page_u, page_i = create_turning_page_leaf(TEXTBLOCK_WIDTH, TEXTBLOCK_HEIGHT, curl_factor=0.0005)
 
     ribbon_w = 0.012
     ribbon_l = BOOK_HEIGHT * 1.15
-    ribbon_v, ribbon_n, ribbon_u, ribbon_i = create_box_mesh(ribbon_w, 0.0005, ribbon_l, center=(BOOK_WIDTH * 0.48, TEXTBLOCK_THICKNESS * 0.47, 0.025))
+    ribbon_v, ribbon_n, ribbon_u, ribbon_i = create_box_mesh(ribbon_w, 0.0005, ribbon_l, center=(BOOK_WIDTH * 0.48, TEXTBLOCK_THICKNESS * 0.5 + 0.0003, 0.025))
 
     # 4. GLB Graph
     child_nodes = []
@@ -674,6 +674,7 @@ def main():
     manifest_path = os.path.join(repo_root, "packages/contracts/src/book-3d-manifest.json")
     with open(manifest_path, 'w', encoding='utf-8') as f:
         json.dump(manifest, f, indent=2)
+        f.write("\n")
     print(f"✓ Generated 3D Asset Manifest: {manifest_path}")
 
     print("\n------------------------------------------------------------------")

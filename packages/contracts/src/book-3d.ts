@@ -256,14 +256,21 @@ export function resolveLeatherSwatch(idOrHex?: string): LeatherSwatchSpec {
   if (!idOrHex) return BOOK_LEATHER_SWATCHES[0];
   const normalized = idOrHex.trim().toLowerCase();
   return (
-    BOOK_LEATHER_SWATCHES.find((s) => s.id === normalized || s.hex.toLowerCase() === normalized) ||
-    BOOK_LEATHER_SWATCHES[0]
+    BOOK_LEATHER_SWATCHES.find(
+      (s) =>
+        s.id === normalized ||
+        s.hex.toLowerCase() === normalized ||
+        s.accentHex.toLowerCase() === normalized
+    ) || BOOK_LEATHER_SWATCHES[0]
   );
 }
 
 export function resolveFoilSwatch(idOrHex?: string): FoilSwatchSpec {
   if (!idOrHex) return BOOK_FOIL_SWATCHES[0];
   const normalized = idOrHex.trim().toLowerCase();
+  if (normalized === "none") {
+    return BOOK_FOIL_SWATCHES.find((s) => s.id === "blind_emboss") || BOOK_FOIL_SWATCHES[0];
+  }
   return (
     BOOK_FOIL_SWATCHES.find((s) => s.id === normalized || s.hex.toLowerCase() === normalized) ||
     BOOK_FOIL_SWATCHES[0]
