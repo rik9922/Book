@@ -1,7 +1,7 @@
 # Memoria — Your memories, made timeless.
 
 <p align="center">
-  <img src="apps/web/public/branding/memoria-app-icon-512.png" width="160" height="160" alt="Memoria Official App Icon" style="border-radius: 32px; box-shadow: 0 16px 32px rgba(18, 63, 53, 0.4);" />
+  <img src="apps/web/public/branding/memoria-app-icon-512.png" width="160" height="160" alt="Memoria Official App Icon" style="border-radius: 32px; box-shadow: 0 16px 32px rgba(118, 85, 111, 0.25);" />
 </p>
 
 <p align="center">

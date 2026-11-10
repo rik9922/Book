@@ -42,7 +42,7 @@ export const pwaScreens1: ScreenSpec[] = [
     statesMatrix: {
       loading: "Warm ivory skeleton placeholder with soft pulse on hero banner and canvas placeholder.",
       empty: "N/A (static marketing and real WebGL canvas)",
-      populated: "Fully loaded 3D WebGL book canvas with emerald/gold foil cover, typography in Cormorant Garamond and Inter, responsive layout.",
+      populated: "Fully loaded 3D WebGL book canvas with plum/gold foil cover, typography in Cormorant Garamond and Inter, responsive layout.",
       error: "WebGL failure fallback banner: displays high-resolution static photographic spread of the heirloom book with accessible 2D turn buttons.",
       offline: "Service Worker served cached landing assets; offline badge banner indicating local browsing.",
       permissionDenied: "N/A"

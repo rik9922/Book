@@ -59,9 +59,9 @@ All iOS and Xcode workflows are wired into the root [`package.json`](../package.
 
 ## 4. Visual Identity & Assets
 
-- **App Icon**: Premium 3D emerald-green archival memory book with golden tree-of-life emblem and archival photographs, formatted as a 1024x1024 universal icon in `AppIcon.appiconset`.
-- **Accent Color**: Archival Gold (`#E3B854` / `Color(red: 0.89, green: 0.72, blue: 0.33)`).
-- **Background**: Deep Emerald Obsidian (`#0D120F` / `Color(red: 0.05, green: 0.07, blue: 0.06)`).
+- **App Icon**: Sculpted 3D Muted Plum monogram 'M' with Soft Sage living leaf on Warm Ivory canvas, formatted as a 1024x1024 universal icon in `AppIcon.appiconset`.
+- **Accent Color**: Muted Plum (`#76556F` / `Color(red: 0.46, green: 0.33, blue: 0.44)`).
+- **Background**: Warm Ivory (`#F7F4EE` / `Color(red: 0.97, green: 0.96, blue: 0.93)`).
 
 ---
 

@@ -58,7 +58,7 @@ The native iOS application is authored in Swift 6 & SwiftUI targeting iOS 17+.
    - `MediaImportService.swift`: Interacts with `PHPhotoLibrary` to inspect authorization and query injected simulator photos.
    - `LocalStorageService.swift`: JSON-based cache in `CachesDirectory/MemoriaCache` for offline resilience.
 3. **SwiftUI Views (`Sources/Memoria/Views/`)**:
-   - `HomeFeedView.swift`: Chronological memory cards with heirloom dark-emerald styling and golden accents.
+   - `HomeFeedView.swift`: Chronological memory cards with Living Archive Muted Plum styling and Soft Sage accents.
    - `MemoryCreateView.swift`: Form with `PhotosPicker` integration, tag chips, and API save action.
    - `BookshelfView.swift`: 3D miniature book presentation with leather-bound gradients.
    - `SettingsView.swift`: Real-time permission status indicators and cache controls.

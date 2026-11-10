@@ -107,7 +107,7 @@ This document establishes the exhaustive, binding single source of truth for all
 #### 8. States Matrix
 - **Loading State**: Warm ivory skeleton placeholder with soft pulse on hero banner and canvas placeholder.
 - **Empty State**: N/A (static marketing and real WebGL canvas)
-- **Populated State**: Fully loaded 3D WebGL book canvas with emerald/gold foil cover, typography in Cormorant Garamond and Inter, responsive layout.
+- **Populated State**: Fully loaded 3D WebGL book canvas with plum/gold foil cover, typography in Cormorant Garamond and Inter, responsive layout.
 - **Error State**: WebGL failure fallback banner: displays high-resolution static photographic spread of the heirloom book with accessible 2D turn buttons.
 - **Offline Mode**: Service Worker served cached landing assets; offline badge banner indicating local browsing.
 - **Permission Denied**: N/A

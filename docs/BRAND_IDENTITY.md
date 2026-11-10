@@ -22,14 +22,12 @@
 ## 2. OFFICIAL APP ICON
 
 ### 2.1 Visual Design Concept
-The approved Memoria 3D icon symbolizes permanence, heritage, and the living continuity of family life:
-- **Binding**: Deep emerald-green genuine leather-bound archival heirloom book with tactile pebble-grain texturing.
-- **Emblem**: Embossed sculpted golden tree-of-life emblem with organic flowing roots and detailed leaves.
-- **Pages**: Heavy ivory deckle-edge layered pages.
-- **Accents**: Gold metal protective corners and an archival golden satin ribbon bookmark.
-- **Photographs**: Archival family photographs (generations holding hands, family home, mountain landscapes) gently emerging behind the book.
-- **Lighting & Ambiance**: Warm cinematic golden rim lighting, volumetric bokeh, and subtle atmospheric dust motes.
-- **Format**: Rounded-square app icon composition.
+The approved Memoria 3D icon reflects the Living Archive design philosophy — timeless, elegant, and focused on memory preservation:
+- **Monogram**: Sculpted three-dimensional serif letter "M" in Muted Plum (`#76556F`) with tactile beveled edges.
+- **Living Leaf**: Sculpted organic leaf motif emerging from the central stem in Soft Sage (`#849483`), symbolizing personal growth and living family heritage.
+- **Open Book Foundation**: Graceful curved book spreads at the base in Muted Plum with layered Warm Ivory page linings.
+- **Canvas**: Warm Ivory (`#F7F4EE`) textured matte substrate with subtle ambient lighting.
+- **Format**: Rounded-square squircle app icon composition.
 
 ### 2.2 Asset Directory & Manifest Mapping
 All icon assets are centralized in `apps/web/public/branding/`:
@@ -38,9 +36,11 @@ All icon assets are centralized in `apps/web/public/branding/`:
 | `memoria-app-icon.png` | 1024 × 1024 | Master high-resolution source copy. |
 | `memoria-app-icon-1024.png` | 1024 × 1024 | App Store / High-DPI display asset. |
 | `memoria-app-icon-512.png` | 512 × 512 | Standard PWA application icon (`any`). |
-| `memoria-app-icon-maskable-512.png` | 512 × 512 | PWA maskable icon with safe zone padding on emerald background. |
+| `memoria-app-icon-maskable-512.png` | 512 × 512 | PWA maskable icon with safe zone padding on Warm Ivory background. |
 | `memoria-app-icon-192.png` | 192 × 192 | Mobile home-screen shortcut icon (`any`). |
 | `memoria-app-icon-maskable-192.png` | 192 × 192 | Mobile home-screen maskable icon. |
+| `memoria-emblem.png` | 1024 × 1024 | Standalone transparent PNG emblem (Plum & Sage M on alpha). |
+| `memoria-logo.png` | 1024 × 1024 | High-resolution logo mark with alpha transparency. |
 | `apple-touch-icon.png` | 180 × 180 | iOS Safari web clip & bookmark icon. |
 | `favicon-32x32.png` / `favicon.ico` | 32 × 32 | Browser tab favicon. |
 | `favicon-16x16.png` | 16 × 16 | Compact address bar favicon. |
@@ -49,10 +49,18 @@ All icon assets are centralized in `apps/web/public/branding/`:
 
 ## 3. COLOR PALETTE & DESIGN SYSTEM TOKENS
 
-The Memoria visual identity is anchored in the **Modern Heirloom** aesthetic:
+The Memoria visual identity is anchored in the **Living Archive** light-only palette:
 
 | Role | Color Name | Hex Code | Usage |
 |---|---|---|---|
+| **Primary Brand** | Muted Plum | `#76556F` | Key brand actions, primary buttons, interactive highlights, monogram emblem. |
+| **Living Accent** | Soft Sage | `#849483` | Living leaf motif, secondary badges, gentle accent indicators. |
+| **Functional Sage**| Functional Forest Sage | `#5F735E` | Accessible status indicators, success badges (WCAG 2.2 AA compliant). |
+| **Structural Text**| Deep Ink | `#20242C` | Primary display headings, high-contrast navigation text (14.17:1 on ivory). |
+| **Body Text** | Archival Charcoal | `#28272A` | Long-form reading narrative, metadata text (12.44:1 contrast). |
+| **Canvas** | Warm Ivory | `#F7F4EE` | Main application canvas, light-mode background. |
+| **Subtle Border** | Natural Linen | `#E7E2DA` | Card dividers, section separators. |
+| **Strong Border** | Archival Stone | `#8D857A` | Form field boundaries, input focus borders. |
 | **Primary Brand** | Deep Emerald | `#123F35` | Dominant brand color, PWA theme color, book binding reference, header accents. |
 | **Secondary Brand**| Forest Green | `#304C43` | Borders, subtle card backgrounds, navigation outlines. |
 | **Accent / Luxury** | Antique Gold | `#C49A4A` | Foil stamping, badges, active states, key icons, tree-of-life highlights. |
