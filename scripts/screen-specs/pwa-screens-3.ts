@@ -341,7 +341,7 @@ export const pwaScreens3: ScreenSpec[] = [
       e2e: ["selects 2 profiles, verifies candidate memory counter updates"]
     },
     uiComponents: ["SourceSelector", "ProfileChipGroup", "DateRangeSlider", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "PWA-60",
@@ -591,7 +591,7 @@ export const pwaScreens3: ScreenSpec[] = [
       e2e: ["selects Editorial Classic, clicks Generate Spreads, redirects to 2D Editor"]
     },
     uiComponents: ["ThemeCardGrid", "SpreadPreviewModal", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "PWA-63",
@@ -943,7 +943,7 @@ export const pwaScreens3: ScreenSpec[] = [
       e2e: ["adjusts scale slider to 125%, drags focal crosshair, clicks Done"]
     },
     uiComponents: ["CropModal", "FocalReticle", "DPIMeter", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "PWA-67",

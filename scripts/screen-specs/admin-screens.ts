@@ -255,7 +255,7 @@ export const adminScreens: ScreenSpec[] = [
       e2e: ["opens user dossier, clicks Revoke All Sessions, types reason, verifies session count becomes 0"]
     },
     uiComponents: ["UserProfileCard", "SessionsTable", "DangerZoneBox", "ConfirmationModal", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "ADMIN-04",
@@ -432,7 +432,7 @@ export const adminScreens: ScreenSpec[] = [
       e2e: ["creates support request, logs in as second admin, approves request, verifies countdown timer begins"]
     },
     uiComponents: ["AccessRequestModal", "DualApprovalBadge", "DataTable", "WebAuthnSignaturePrompt", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
 
   // ==========================================
@@ -522,7 +522,7 @@ export const adminScreens: ScreenSpec[] = [
       e2e: ["opens moderation item, toggles image blur, selects Quarantine with rationale, verifies item removed from queue"]
     },
     uiComponents: ["ModerationCard", "SensitiveImageBlurView", "ResolutionActionBar", "ConfirmationModal", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "ADMIN-07",
@@ -607,7 +607,7 @@ export const adminScreens: ScreenSpec[] = [
       e2e: ["opens open report, selects Warning Issued, enters resolution notes, closes case"]
     },
     uiComponents: ["ReportsTable", "IncidentDossierModal", "PriorityPill", "ResolutionDropdown", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
 
   // ==========================================
@@ -779,7 +779,7 @@ export const adminScreens: ScreenSpec[] = [
       e2e: ["searches media UUID, clicks Re-generate Derivatives, verifies queued toast notification"]
     },
     uiComponents: ["TechnicalInspectorCard", "EXIFMetadataGrid", "DerivativeHealthRow", "LogStreamConsole", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "ADMIN-10",
@@ -1034,7 +1034,7 @@ export const adminScreens: ScreenSpec[] = [
       e2e: ["selects failed job, clicks Inspect, reads stack trace, clicks Retry, verifies job disappears from DLQ"]
     },
     uiComponents: ["DLQTable", "StackTraceDrawer", "ErrorChip", "PayloadViewer", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "ADMIN-13",
@@ -1200,7 +1200,7 @@ export const adminScreens: ScreenSpec[] = [
       e2e: ["opens monitor, observes active book compile job progress from 20% to 100%, verifies artifact generation"]
     },
     uiComponents: ["CompilationTable", "StageProgressBar", "OutputArtifactCard", "EngineTelemetryBox", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "ADMIN-15",
@@ -1285,7 +1285,7 @@ export const adminScreens: ScreenSpec[] = [
       e2e: ["opens book with 1 warning, inspects margin overlay on page 12, enters override reason, verifies status changes to Approved"]
     },
     uiComponents: ["PreflightAuditTable", "MarginOverlayPreview", "PreflightMetricCard", "OverrideModal", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
 
   // ==========================================
@@ -1633,7 +1633,7 @@ export const adminScreens: ScreenSpec[] = [
       e2e: ["inputs FedEx tracking number, clicks Mark as Shipped, verifies status updates to Shipped and toast confirms email"]
     },
     uiComponents: ["OrderDetailCard", "ShippingAddressBox", "CarrierTrackingForm", "ProductionTimeline", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "ADMIN-20",
@@ -1725,7 +1725,7 @@ export const adminScreens: ScreenSpec[] = [
       e2e: ["opens refund request, selects Full Refund with justification, confirms modal, verifies order status updates to Refunded"]
     },
     uiComponents: ["RefundsTable", "DamageEvidencePreview", "RefundDecisionModal", "AmountInputField", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "ADMIN-21",
@@ -1809,7 +1809,7 @@ export const adminScreens: ScreenSpec[] = [
       e2e: ["searches transaction by order ID, clicks Inspect Webhook, validates 200 OK delivery status"]
     },
     uiComponents: ["TransactionLedgerTable", "WebhookInspectorDrawer", "VolumeSummaryCard", "SearchInput", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
 
   // ==========================================

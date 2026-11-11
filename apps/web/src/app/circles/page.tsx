@@ -27,6 +27,7 @@ interface MemberRecord {
   spaceId: string;
   userId: string;
   role: "owner" | "admin" | "contributor" | "viewer";
+  permissions?: Record<string, boolean>;
   joinedAt: string;
 }
 
@@ -228,13 +229,28 @@ export default function CirclesPage() {
     }
   };
 
-  const handleUpdateRole = async (userId: string, role: "admin" | "contributor" | "viewer") => {
+  const handleUpdateRole = async (
+    userId: string,
+    role: "admin" | "contributor" | "viewer",
+    permissions?: Record<string, boolean>
+  ) => {
     if (!spaceId) return;
+    const previous = members;
+    setMembers((prev) =>
+      prev.map((m) =>
+        m.userId === userId
+          ? { ...m, role, permissions: permissions ?? m.permissions }
+          : m
+      )
+    );
     try {
-      await updateSpaceMemberRole(spaceId, userId, role);
-      setMembers((prev) => prev.map((m) => (m.userId === userId ? { ...m, role } : m)));
-      setNotice(`Updated member role to ${role}.`);
+      const updated = await updateSpaceMemberRole(spaceId, userId, role, permissions);
+      setMembers((prev) =>
+        prev.map((m) => (m.userId === userId ? { ...m, role: updated.role, permissions: updated.permissions } : m))
+      );
+      setNotice(`Updated member role & capabilities (${role}).`);
     } catch (err) {
+      setMembers(previous);
       setError(err instanceof Error ? err.message : "Failed to update role.");
     }
   };
@@ -356,36 +372,71 @@ export default function CirclesPage() {
                     {members.map((m) => (
                       <li
                         key={m.id || m.userId}
-                        className="p-3 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] flex items-center justify-between gap-2"
+                        className="p-3 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] space-y-2"
                       >
-                        <div className="min-w-0">
-                          <p className="text-xs font-mono text-[#20242C] truncate">{m.userId}</p>
-                          <span className="inline-block mt-1 px-2 py-0.5 rounded-full bg-[#FFFFFF] border border-[#E7E2DA] text-[10px] uppercase font-medium text-[#76556F]">
-                            {m.role}
-                          </span>
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="text-xs font-mono text-[#20242C] truncate">{m.userId}</p>
+                            <span className="inline-block mt-1 px-2 py-0.5 rounded-full bg-[#FFFFFF] border border-[#E7E2DA] text-[10px] uppercase font-medium text-[#76556F]">
+                              {m.role}
+                            </span>
+                          </div>
+                          {m.role !== "owner" && (
+                            <div className="flex items-center gap-2">
+                              <select
+                                aria-label={`Role for ${m.userId}`}
+                                value={m.role}
+                                onChange={(e) =>
+                                  handleUpdateRole(m.userId, e.target.value as "admin" | "contributor" | "viewer")
+                                }
+                                className="px-2 py-1 rounded-lg bg-white border border-[#E7E2DA] text-[11px]"
+                              >
+                                <option value="admin">Admin</option>
+                                <option value="contributor">Contributor</option>
+                                <option value="viewer">Viewer</option>
+                              </select>
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveMember(m.userId)}
+                                aria-label={`Remove member ${m.userId}`}
+                                className="p-2 rounded-lg text-[#B6423E] hover:bg-[#FDF2F2]"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          )}
                         </div>
                         {m.role !== "owner" && (
-                          <div className="flex items-center gap-2">
-                            <select
-                              aria-label={`Role for ${m.userId}`}
-                              value={m.role}
-                              onChange={(e) =>
-                                handleUpdateRole(m.userId, e.target.value as "admin" | "contributor" | "viewer")
-                              }
-                              className="px-2 py-1 rounded-lg bg-white border border-[#E7E2DA] text-[11px]"
-                            >
-                              <option value="admin">Admin</option>
-                              <option value="contributor">Contributor</option>
-                              <option value="viewer">Viewer</option>
-                            </select>
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveMember(m.userId)}
-                              aria-label={`Remove member ${m.userId}`}
-                              className="p-2 rounded-lg text-[#B6423E] hover:bg-[#FDF2F2]"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+                          <div className="flex flex-wrap gap-3 pt-1 border-t border-[#E7E2DA]/70 text-[11px] text-[#5C5955]">
+                            {(
+                              [
+                                { key: "can_create_memories", label: "Preserve Memories" },
+                                { key: "can_edit_books", label: "Edit Books" },
+                                { key: "can_invite", label: "Invite Members" },
+                              ] as const
+                            ).map((cap) => {
+                              const currentPerms = m.permissions || {
+                                can_create_memories: m.role !== "viewer",
+                                can_edit_books: m.role === "admin",
+                                can_invite: m.role === "admin",
+                              };
+                              const checked = Boolean(currentPerms[cap.key]);
+                              return (
+                                <label key={cap.key} className="inline-flex items-center gap-1.5">
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={(e) =>
+                                      handleUpdateRole(m.userId, m.role as "admin" | "contributor" | "viewer", {
+                                        ...currentPerms,
+                                        [cap.key]: e.target.checked,
+                                      })
+                                    }
+                                  />
+                                  <span>{cap.label}</span>
+                                </label>
+                              );
+                            })}
                           </div>
                         )}
                       </li>

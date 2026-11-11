@@ -10,7 +10,15 @@ public struct HomeFeedView: View {
     @State private var isShowingUploadQueue = false
     @State private var isShowingSpaceSwitcher = false
     @State private var isShowingAuth = false
+    @State private var isShowingOnboarding = false
     @State private var activeSpaceId: String
+
+    // IOS-24: Grid vs List & Pinch-to-Zoom Column Density (1, 2, 3 columns)
+    @State private var columnDensity: Int = 1
+    @State private var pinchScale: CGFloat = 1.0
+
+    // IOS-31: Favorites Quick Filter
+    @State private var favoritesOnly = false
 
     public var spaceId: String { activeSpaceId }
 
@@ -18,46 +26,98 @@ public struct HomeFeedView: View {
         self._activeSpaceId = State(initialValue: spaceId)
     }
 
+    private var displayedMemories: [Memory] {
+        favoritesOnly ? memories.filter(\.isFavorite) : memories
+    }
+
+    private var gridColumns: [GridItem] {
+        Array(repeating: GridItem(.flexible(), spacing: 12, alignment: .top), count: max(1, min(3, columnDensity)))
+    }
+
     public var body: some View {
         NavigationStack {
             ZStack {
                 MemoriaTheme.canvas.ignoresSafeArea()
 
-                if isLoading && memories.isEmpty {
-                    ProgressView("Preserving Memories...")
-                        .tint(MemoriaTheme.plum)
-                } else if memories.isEmpty {
-                    VStack(spacing: 16) {
-                        Image(systemName: "photo.stack")
-                            .font(.system(size: 48))
-                            .foregroundStyle(MemoriaTheme.plum)
-                        Text("No Memories Yet")
-                            .font(.title2.bold())
-                            .foregroundStyle(MemoriaTheme.ink)
-                        Text("Capture your first family heirloom memory to begin your living archive.")
+                VStack(spacing: 0) {
+                    archiveControlStrip
+
+                    if isLoading && memories.isEmpty {
+                        Spacer()
+                        ProgressView("Preserving Memories...")
+                            .tint(MemoriaTheme.plum)
+                        Spacer()
+                    } else if displayedMemories.isEmpty {
+                        Spacer()
+                        VStack(spacing: 16) {
+                            Image(systemName: favoritesOnly ? "star.slash" : "photo.stack")
+                                .font(.system(size: 48))
+                                .foregroundStyle(MemoriaTheme.plum)
+                            Text(favoritesOnly ? "No Favorite Memories" : "No Memories Yet")
+                                .font(.title2.bold())
+                                .foregroundStyle(MemoriaTheme.ink)
+                            Text(
+                                favoritesOnly
+                                    ? "Tap the star on any memory card to pin it to your Favorites quick filter."
+                                    : "Capture your first family heirloom memory or run guided onboarding to begin your living archive."
+                            )
                             .font(.subheadline)
                             .foregroundStyle(MemoriaTheme.textSecondary)
                             .multilineTextAlignment(.center)
                             .padding(.horizontal, 32)
-                        Button("Add First Memory") {
-                            isCreatingMemory = true
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .tint(MemoriaTheme.plum)
-                    }
-                } else {
-                    ScrollView {
-                        LazyVStack(spacing: 16) {
-                            ForEach(memories) { memory in
-                                NavigationLink {
-                                    MemoryDetailView(memory: memory)
-                                } label: {
-                                    MemoryCardView(memory: memory)
+                            HStack(spacing: 12) {
+                                if favoritesOnly {
+                                    Button("Show All Memories") {
+                                        favoritesOnly = false
+                                    }
+                                    .buttonStyle(.borderedProminent)
+                                    .tint(MemoriaTheme.plum)
+                                } else {
+                                    Button("Add First Memory") {
+                                        isCreatingMemory = true
+                                    }
+                                    .buttonStyle(.borderedProminent)
+                                    .tint(MemoriaTheme.plum)
+
+                                    Button("Guided Setup") {
+                                        isShowingOnboarding = true
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .tint(MemoriaTheme.sageFunc)
                                 }
-                                .buttonStyle(.plain)
                             }
                         }
-                        .padding()
+                        Spacer()
+                    } else {
+                        ScrollView {
+                            LazyVGrid(columns: gridColumns, spacing: 14) {
+                                ForEach(displayedMemories) { memory in
+                                    NavigationLink {
+                                        MemoryDetailView(memory: memory)
+                                    } label: {
+                                        MemoryCardView(memory: memory, compact: columnDensity > 1)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                            .padding()
+                        }
+                        .gesture(
+                            MagnifyGesture()
+                                .onChanged { value in
+                                    pinchScale = value.magnification
+                                }
+                                .onEnded { value in
+                                    withAnimation(.easeInOut(duration: 0.2)) {
+                                        if value.magnification > 1.15 && columnDensity > 1 {
+                                            columnDensity -= 1
+                                        } else if value.magnification < 0.85 && columnDensity < 3 {
+                                            columnDensity += 1
+                                        }
+                                        pinchScale = 1.0
+                                    }
+                                }
+                        )
                     }
                 }
             }
@@ -117,6 +177,9 @@ public struct HomeFeedView: View {
                             Button("Upload Queue", systemImage: "arrow.up.circle") {
                                 isShowingUploadQueue = true
                             }
+                            Button("Guided Archive Setup", systemImage: "sparkles") {
+                                isShowingOnboarding = true
+                            }
                         } label: {
                             Image(systemName: "plus.circle.fill")
                                 .font(.title3)
@@ -154,10 +217,76 @@ public struct HomeFeedView: View {
                     Task { await loadMemories() }
                 }
             }
+            .sheet(isPresented: $isShowingOnboarding) {
+                OnboardingFlowView()
+            }
             .task {
                 await loadMemories()
             }
         }
+    }
+
+    private var archiveControlStrip: some View {
+        VStack(spacing: 8) {
+            // IOS-24: List (1 col) vs Grid (2/3 col) Density Selector
+            Picker("View Density", selection: $columnDensity) {
+                Text("List").tag(1)
+                Text("2-Col Grid").tag(2)
+                Text("3-Col Grid").tag(3)
+            }
+            .pickerStyle(.segmented)
+            .accessibilityLabel("Grid Column Density")
+
+            HStack(spacing: 8) {
+                // IOS-31: Favorites Quick Filter
+                Button {
+                    favoritesOnly.toggle()
+                } label: {
+                    Label(favoritesOnly ? "Favorites Only" : "Favorites", systemImage: favoritesOnly ? "star.fill" : "star")
+                        .font(.caption.weight(.semibold))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .frame(maxWidth: .infinity)
+                        .background(favoritesOnly ? MemoriaTheme.plum : MemoriaTheme.surfacePrimary)
+                        .foregroundStyle(favoritesOnly ? Color.white : MemoriaTheme.plum)
+                        .clipShape(Capsule())
+                        .overlay(Capsule().stroke(MemoriaTheme.borderSubtle, lineWidth: 1))
+                }
+                .accessibilityLabel("Favorites Filter")
+
+                // IOS-32: Direct Collections Link
+                NavigationLink {
+                    CollectionsView(spaceId: activeSpaceId)
+                } label: {
+                    Label("Collections", systemImage: "folder")
+                        .font(.caption.weight(.semibold))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .frame(maxWidth: .infinity)
+                        .background(MemoriaTheme.surfacePrimary)
+                        .foregroundStyle(MemoriaTheme.sageFunc)
+                        .clipShape(Capsule())
+                        .overlay(Capsule().stroke(MemoriaTheme.borderSubtle, lineWidth: 1))
+                }
+
+                // IOS-09/10: Direct Onboarding Access
+                Button {
+                    isShowingOnboarding = true
+                } label: {
+                    Label("Onboarding", systemImage: "sparkles")
+                        .font(.caption.weight(.semibold))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .frame(maxWidth: .infinity)
+                        .background(MemoriaTheme.surfacePrimary)
+                        .foregroundStyle(MemoriaTheme.ink)
+                        .clipShape(Capsule())
+                        .overlay(Capsule().stroke(MemoriaTheme.borderSubtle, lineWidth: 1))
+                }
+            }
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 8)
     }
 
     private func loadMemories() async {
@@ -180,15 +309,17 @@ public struct HomeFeedView: View {
 
 public struct MemoryCardView: View {
     public let memory: Memory
+    public var compact: Bool = false
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: compact ? 8 : 12) {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(memory.title)
-                        .font(.headline)
+                        .font(compact ? .subheadline.bold() : .headline)
                         .foregroundStyle(MemoriaTheme.ink)
-                    if let location = memory.location {
+                        .lineLimit(compact ? 2 : 3)
+                    if !compact, let location = memory.location {
                         HStack(spacing: 4) {
                             Image(systemName: "mappin.and.ellipse")
                                 .font(.caption2)
@@ -205,7 +336,7 @@ public struct MemoryCardView: View {
                 }
             }
 
-            if let content = memory.content, !content.isEmpty {
+            if !compact, let content = memory.content, !content.isEmpty {
                 Text(content)
                     .font(.body)
                     .foregroundStyle(MemoriaTheme.textPrimary)
@@ -217,18 +348,20 @@ public struct MemoryCardView: View {
                     .font(.caption2)
                     .foregroundStyle(MemoriaTheme.textSecondary)
                 Spacer()
-                ForEach(memory.tags.prefix(3), id: \.self) { tag in
-                    Text("#\(tag)")
-                        .font(.caption2.weight(.medium))
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(MemoriaTheme.sageLight)
-                        .clipShape(Capsule())
-                        .foregroundStyle(MemoriaTheme.sageFunc)
+                if !compact {
+                    ForEach(memory.tags.prefix(3), id: \.self) { tag in
+                        Text("#\(tag)")
+                            .font(.caption2.weight(.medium))
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(MemoriaTheme.sageLight)
+                            .clipShape(Capsule())
+                            .foregroundStyle(MemoriaTheme.sageFunc)
+                    }
                 }
             }
         }
-        .padding()
+        .padding(compact ? 10 : 16)
         .memoriaCard()
     }
 }

@@ -254,7 +254,7 @@ export const iosScreens2: ScreenSpec[] = [
       e2e: ["toggles favorite on memory, opens Favorites view, verifies memory appears"]
     },
     uiComponents: ["MasonryGridView", "MemoryCard", "FavoriteToggleBadge", "FilterChipBar", "FloatingCTAButton"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "IOS-32",
@@ -337,7 +337,7 @@ export const iosScreens2: ScreenSpec[] = [
       e2e: ["taps '+' button, creates 'Summer 1990' album, verifies it appears in list"]
     },
     uiComponents: ["CollectionGrid", "CollectionCard", "AlbumCoverCollage", "SearchTextField", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "IOS-33",
@@ -505,7 +505,7 @@ export const iosScreens2: ScreenSpec[] = [
       e2e: ["deletes memory to trash, opens trash sheet, taps Restore, verifies memory returns to feed"]
     },
     uiComponents: ["TrashListView", "TrashedMemoryCard", "AlertModal", "ToolbarActionBar", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
 
   // ==========================================
@@ -592,7 +592,7 @@ export const iosScreens2: ScreenSpec[] = [
       e2e: ["taps '+' button, creates child profile, verifies avatar bubble appears"]
     },
     uiComponents: ["AvatarBubbleCarousel", "ProfileRowCell", "SegmentedControl", "SearchTextField", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "IOS-36",
@@ -854,7 +854,7 @@ export const iosScreens2: ScreenSpec[] = [
       e2e: ["opens member list, taps on contributor, inspects role settings"]
     },
     uiComponents: ["MembersListView", "MemberRowCell", "RolePillBadge", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "IOS-39",
@@ -939,7 +939,7 @@ export const iosScreens2: ScreenSpec[] = [
       e2e: ["generates invite, taps Copy Link, verifies link in clipboard"]
     },
     uiComponents: ["QRCodeImageView", "CopyLinkBox", "UIActivityViewController", "Menu", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "IOS-40",
@@ -1025,7 +1025,7 @@ export const iosScreens2: ScreenSpec[] = [
       e2e: ["changes contributor to admin, taps Save, verifies badge updates to Admin in member list"]
     },
     uiComponents: ["RoleSelectionRow", "Toggle", "DestructiveButton", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "IOS-41",
@@ -1368,7 +1368,7 @@ export const iosScreens2: ScreenSpec[] = [
       e2e: ["taps book on shelf, verifies detail sheet displays 64 pages, taps Read 3D Book"]
     },
     uiComponents: ["BookPreviewCard", "SpecPillGroup", "ChapterList", "PrimaryActionButton", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "IOS-45",
@@ -1460,7 +1460,7 @@ export const iosScreens2: ScreenSpec[] = [
       e2e: ["completes step 1, verifies transition to Step 2 Memory Selection Tray"]
     },
     uiComponents: ["WizardStepBar", "TextField", "FormatSelectionCard", "SegmentedPicker", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "IOS-46",
@@ -1545,7 +1545,7 @@ export const iosScreens2: ScreenSpec[] = [
       e2e: ["selects 10 photos, verifies counter updates to 10, taps Next"]
     },
     uiComponents: ["SelectableMediaGrid", "CheckmarkOverlay", "SelectionTrayStrip", "FilterChipBar", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "IOS-47",
@@ -1630,7 +1630,7 @@ export const iosScreens2: ScreenSpec[] = [
       e2e: ["drags spread 3 to position 1, verifies new order persists and page numbers recalculate"]
     },
     uiComponents: ["SpreadReorderGrid", "SpreadMiniatureCard", "ChapterDividerView", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "IOS-48",
@@ -1715,7 +1715,7 @@ export const iosScreens2: ScreenSpec[] = [
       e2e: ["selects Heritage Plum and Gold Foil, tilts phone, verifies foil shimmers, taps Finish"]
     },
     uiComponents: ["Cover3DPreviewCanvas", "MaterialSwatchPicker", "FoilSwatchPicker", "TypographySelector", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "IOS-49",
@@ -1884,7 +1884,7 @@ export const iosScreens2: ScreenSpec[] = [
       e2e: ["swipes through 2D spreads, double-taps to zoom in on image"]
     },
     uiComponents: ["PagingSpreadScrollView", "ZoomablePageView", "ThumbnailFilmstripBar", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "IOS-51",
@@ -2062,7 +2062,7 @@ export const iosScreens2: ScreenSpec[] = [
       e2e: ["selects 2 copies, authorizes Apple Pay simulator sheet, verifies navigation to Order Status screen"]
     },
     uiComponents: ["PKPaymentButton", "QuantityStepper", "PriceBreakdownCard", "ShippingMethodPicker", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "IOS-53",
@@ -2145,7 +2145,7 @@ export const iosScreens2: ScreenSpec[] = [
       e2e: ["opens order status view, verifies 'Hand Binding' active, taps Track Package"]
     },
     uiComponents: ["OrderTimelineView", "StatusIllustrationCard", "CarrierTrackingBox", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "IOS-54",

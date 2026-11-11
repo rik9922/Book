@@ -525,8 +525,7 @@ export async function buildBookService(): Promise<FastifyInstance> {
   );
 
   // 1. Create a Book
-  const CreateBookSchema = z.object({
-    spaceId: z.string().uuid(),
+  const CreateBookPayloadSchema = z.object({
     title: z.string().min(1),
     subtitle: z.string().optional(),
     format: BookFormatSchema.default("hardcover_standard_8x10"),
@@ -536,19 +535,19 @@ export async function buildBookService(): Promise<FastifyInstance> {
     spineText: z.string().optional(),
   });
 
-  app.post("/api/v1/books", async (req: FastifyRequest, reply: FastifyReply) => {
-    const userId = await requireAuthUser(req);
-    const parseResult = CreateBookSchema.safeParse(req.body);
-    if (!parseResult.success) {
-      return reply
-        .status(400)
-        .send(createErrorResponse("VALIDATION_ERROR", "Invalid book payload", "corr", parseResult.error.issues));
-    }
+  const CreateBookSchema = CreateBookPayloadSchema.extend({
+    spaceId: z.string().uuid(),
+  });
 
-    const { spaceId, title, subtitle, format, coverColor, foilStamping, coverTitle, spineText } = parseResult.data;
+  async function createAndPersistBook(
+    userId: string,
+    spaceId: string,
+    data: z.infer<typeof CreateBookPayloadSchema>
+  ): Promise<BookDocument> {
     await assertSpaceAccess(spaceId, userId, true);
     const bookId = crypto.randomUUID();
     const now = new Date().toISOString();
+    const { title, subtitle, format, coverColor, foilStamping, coverTitle, spineText } = data;
 
     const book: BookDocument = {
       id: bookId,
@@ -601,8 +600,43 @@ export async function buildBookService(): Promise<FastifyInstance> {
       format,
     });
 
+    return book;
+  }
+
+  app.post("/api/v1/books", async (req: FastifyRequest, reply: FastifyReply) => {
+    const userId = await requireAuthUser(req);
+    const parseResult = CreateBookSchema.safeParse(req.body);
+    if (!parseResult.success) {
+      return reply
+        .status(400)
+        .send(createErrorResponse("VALIDATION_ERROR", "Invalid book payload", "corr", parseResult.error.issues));
+    }
+
+    const { spaceId, ...rest } = parseResult.data;
+    const book = await createAndPersistBook(userId, spaceId, rest);
     return reply.status(201).send(createSuccessResponse(book));
   });
+
+  app.post(
+    "/api/v1/spaces/:spaceId/books",
+    async (req: FastifyRequest<{ Params: { spaceId: string } }>, reply: FastifyReply) => {
+      const userId = await requireAuthUser(req);
+      const spaceCheck = z.string().uuid().safeParse(req.params.spaceId);
+      if (!spaceCheck.success) {
+        return reply
+          .status(400)
+          .send(createErrorResponse("VALIDATION_ERROR", "Valid spaceId UUID is required"));
+      }
+      const parseResult = CreateBookPayloadSchema.safeParse(req.body);
+      if (!parseResult.success) {
+        return reply
+          .status(400)
+          .send(createErrorResponse("VALIDATION_ERROR", "Invalid book payload", "corr", parseResult.error.issues));
+      }
+      const book = await createAndPersistBook(userId, spaceCheck.data, parseResult.data);
+      return reply.status(201).send(createSuccessResponse(book));
+    }
+  );
 
   // 1B. Print Catalog (PWA-71 / ADMIN-16)
   app.get("/api/v1/books/catalog", async (_req, reply) => {

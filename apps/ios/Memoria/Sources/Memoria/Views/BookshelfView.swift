@@ -8,6 +8,9 @@ public struct BookshelfView: View {
     @State private var volumes = BookVolumeRecord.libraryVolumes
     @State private var volumeConfigs: [String: Book3DConfiguration] = [:]
     @State private var activeDestination: LibraryDestination?
+    @State private var showCreatorWizard = false
+    @State private var inspectingVolume: BookVolumeRecord?
+    @State private var isSyncingLibrary = false
 
     private enum LibraryDestination: Identifiable {
         case preview(BookVolumeRecord)
@@ -55,6 +58,15 @@ public struct BookshelfView: View {
             }
             .navigationTitle("Bookshelf")
             .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button {
+                        showCreatorWizard = true
+                    } label: {
+                        Label("Create Book", systemImage: "plus.circle.fill")
+                            .foregroundStyle(MemoriaTheme.plum)
+                    }
+                    .accessibilityLabel("Create Book")
+                }
                 ToolbarItem(placement: .primaryAction) {
                     NavigationLink {
                         PrintOrdersView()
@@ -66,6 +78,30 @@ public struct BookshelfView: View {
             }
             .onAppear {
                 reloadPersistedConfigurations()
+            }
+            .task {
+                await refreshLiveBooks()
+            }
+            .refreshable {
+                await refreshLiveBooks()
+            }
+            .sheet(isPresented: $showCreatorWizard) {
+                BookCreatorWizardView { created in
+                    if !volumes.contains(where: { $0.id == created.id }) {
+                        volumes.insert(created, at: 0)
+                    }
+                    reloadPersistedConfigurations()
+                }
+            }
+            .sheet(item: $inspectingVolume) { volume in
+                BookDetailInspectorSheet(
+                    volume: volume,
+                    configuration: resolvedConfig(for: volume)
+                ) { updated in
+                    if let idx = volumes.firstIndex(where: { $0.id == updated.id }) {
+                        volumes[idx] = updated
+                    }
+                }
             }
             #if os(iOS)
             .fullScreenCover(item: $activeDestination, onDismiss: reloadPersistedConfigurations) { dest in
@@ -168,6 +204,16 @@ public struct BookshelfView: View {
                 .buttonStyle(.bordered)
                 .tint(MemoriaTheme.ink)
                 .accessibilityLabel("Open accessible 2D proof for \(config.coverTitle)")
+
+                Button {
+                    inspectingVolume = volume
+                } label: {
+                    Image(systemName: "info.circle")
+                        .frame(minWidth: 40, minHeight: 40)
+                }
+                .buttonStyle(.bordered)
+                .tint(MemoriaTheme.plum)
+                .accessibilityLabel("Book specifications for \(config.coverTitle)")
             }
         }
         .padding(16)
@@ -241,5 +287,30 @@ public struct BookshelfView: View {
             )
         }
         volumeConfigs = loaded
+    }
+
+    private func refreshLiveBooks() async {
+        guard !isSyncingLibrary else { return }
+        isSyncingLibrary = true
+        defer { isSyncingLibrary = false }
+        guard await MemoriaAPIClient.shared.getAuthToken() != nil else { return }
+        do {
+            let spaces = try await MemoriaAPIClient.shared.fetchSpaces()
+            var liveRecords: [BookVolumeRecord] = []
+            for space in spaces {
+                if let spaceBooks = try? await MemoriaAPIClient.shared.fetchSpaceBooks(spaceId: space.id) {
+                    liveRecords.append(contentsOf: spaceBooks.map { $0.toBookVolumeRecord() })
+                }
+            }
+            if !liveRecords.isEmpty {
+                let sampleFallback = BookVolumeRecord.libraryVolumes.filter { sample in
+                    !liveRecords.contains(where: { $0.id == sample.id })
+                }
+                volumes = liveRecords + sampleFallback
+                reloadPersistedConfigurations()
+            }
+        } catch {
+            // Keep existing local & starter volumes if offline
+        }
     }
 }

@@ -1187,7 +1187,7 @@ export const pwaScreens2: ScreenSpec[] = [
       e2e: ["retries failed file, observes progress update to complete"]
     },
     uiComponents: ["FailureCard", "ConflictResolver", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "PWA-43",
@@ -1360,7 +1360,7 @@ export const pwaScreens2: ScreenSpec[] = [
       e2e: ["starts video, seeks to 00:30 via bookmark, confirms video time"]
     },
     uiComponents: ["VideoPlayer", "CustomControls", "TimestampList", "CaptionOverlay"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "PWA-45",
@@ -1875,7 +1875,7 @@ export const pwaScreens2: ScreenSpec[] = [
       e2e: ["toggles Contributor print permission off, clicks Save, verifies updated state"]
     },
     uiComponents: ["PermissionMatrix", "CheckboxToggle", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "PWA-51",

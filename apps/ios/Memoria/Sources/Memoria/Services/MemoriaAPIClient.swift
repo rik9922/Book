@@ -222,6 +222,154 @@ public struct BookPreflightReportDTO: Decodable, Sendable {
     public let checkedAt: String
 }
 
+public struct BookDocumentElementDTO: Codable, Sendable {
+    public let id: String
+    public let type: String
+    public let content: String
+}
+
+public struct BookDocumentPageDTO: Codable, Sendable {
+    public let id: String
+    public let pageNumber: Int
+    public let layoutType: String
+    public let backgroundColor: String?
+    public let elements: [BookDocumentElementDTO]
+}
+
+public struct BookDocumentSpreadDTO: Identifiable, Codable, Sendable {
+    public let id: String
+    public let spreadIndex: Int
+    public let leftPage: BookDocumentPageDTO?
+    public let rightPage: BookDocumentPageDTO?
+}
+
+public struct BookDocumentDTO: Identifiable, Codable, Sendable {
+    public let id: String
+    public let spaceId: String
+    public let title: String
+    public let subtitle: String?
+    public let format: String
+    public let coverColor: String
+    public let foilStamping: String
+    public let coverTitle: String
+    public let spineText: String?
+    public let version: Int
+    public let isFrozenForPrint: Bool
+    public let frozenEditionHash: String?
+    public let spreads: [BookDocumentSpreadDTO]
+    public let createdAt: String
+    public let updatedAt: String
+
+    public func toBookVolumeRecord() -> BookVolumeRecord {
+        let leather = BookLeatherSwatch.fromHexOrId(coverColor)
+        let foil = BookFoilSwatch.fromRaw(foilStamping)
+        let mappedSpreads: [BookSpreadPreview] = spreads.isEmpty
+            ? Book3DSampleData.sampleSpreads
+            : spreads.enumerated().map { idx, spread in
+                let leftHead = spread.leftPage?.elements.first(where: { $0.type == "heading" })?.content ?? title
+                let leftText = spread.leftPage?.elements.first(where: { $0.type == "caption" || $0.type == "text" })?.content ?? "Preserved family entry"
+                let rightHead = spread.rightPage?.elements.first(where: { $0.type == "heading" })?.content ?? "Chapter \(idx + 1)"
+                let rightText = spread.rightPage?.elements.first(where: { $0.type == "caption" || $0.type == "text" })?.content ?? (subtitle ?? "Curated Memoria Edition")
+                return BookSpreadPreview(
+                    spreadIndex: spread.spreadIndex,
+                    chapterTitle: "Spread \(idx + 1)",
+                    leftPageNumber: idx * 2 + 1,
+                    rightPageNumber: idx * 2 + 2,
+                    leftHeading: leftHead,
+                    leftDate: String(createdAt.prefix(10)),
+                    leftLocation: "Family Archive",
+                    leftBody: leftText,
+                    rightHeading: rightHead,
+                    rightDate: String(updatedAt.prefix(10)),
+                    rightLocation: "Memoria Vault",
+                    rightBody: rightText,
+                    ocrInscription: nil
+                )
+            }
+        let cfg = Book3DConfiguration(
+            bookId: id,
+            leather: leather,
+            foil: foil,
+            paperStock: .warmCotton,
+            ribbonColor: .sage,
+            coverTitle: coverTitle.isEmpty ? title : coverTitle,
+            coverSubtitle: subtitle ?? "Edition v\(version)",
+            spineText: spineText ?? title
+        )
+        return BookVolumeRecord(
+            id: id,
+            editionBadge: isFrozenForPrint ? "Edition Frozen • v\(version)" : "Live Draft • v\(version)",
+            totalPageCount: max(2, mappedSpreads.count * 2),
+            isFrozenForPrint: isFrozenForPrint,
+            format: format,
+            version: version,
+            frozenEditionHash: frozenEditionHash,
+            spaceId: spaceId,
+            defaultConfiguration: cfg,
+            spreads: mappedSpreads
+        )
+    }
+}
+
+public struct OrderQuoteDTO: Codable, Sendable {
+    public let currency: String
+    public let format: String?
+    public let shippingSpeed: String?
+    public let quantity: Int
+    public let unitCents: Int
+    public let subtotalCents: Int
+    public let shippingCents: Int
+    public let taxCents: Int
+    public let totalCents: Int
+    public let estimatedDays: String
+}
+
+public struct OrderTrackingStageDTO: Identifiable, Codable, Sendable {
+    public var id: String { stage }
+    public let stage: String
+    public let completed: Bool
+    public let active: Bool
+}
+
+public struct OrderTrackingDTO: Codable, Sendable {
+    public let orderId: String
+    public let status: String
+    public let carrier: String
+    public let trackingNumber: String?
+    public let trackingUrl: String?
+    public let estimatedDays: String
+    public let timeline: [OrderTrackingStageDTO]
+}
+
+public struct SpaceMemberDTO: Identifiable, Codable, Sendable {
+    public let id: String
+    public let spaceId: String
+    public let userId: String
+    public let role: String
+    public let joinedAt: String
+}
+
+public struct SpaceInvitationItemDTO: Identifiable, Codable, Sendable {
+    public let id: String
+    public let spaceId: String
+    public let inviteeEmail: String
+    public let role: String
+    public let status: String
+    public let expiresAt: String
+}
+
+public struct SpaceInvitationResponseDTO: Decodable, Sendable {
+    public let invitation: SpaceInvitationItemDTO
+    public let inviteToken: String
+}
+
+public struct ShareLinkDTO: Identifiable, Codable, Sendable {
+    public let id: String
+    public let token: String
+    public let hasPassphrase: Bool
+    public let expiresAt: String
+}
+
 public actor MemoriaAPIClient {
     public static let shared = MemoriaAPIClient()
 
@@ -899,6 +1047,286 @@ public actor MemoriaAPIClient {
             throw NSError(domain: "MemoriaAPIClient", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Failed to load OCR transcripts"])
         }
         struct Envelope: Decodable { let success: Bool; let data: [MediaOcrTranscriptDTO] }
+        return try JSONDecoder().decode(Envelope.self, from: data).data
+    }
+
+    // MARK: - Live Books, Curation & Print Fulfillment
+
+    public func fetchSpaceBooks(spaceId: String) async throws -> [BookDocumentDTO] {
+        let (data, httpResponse) = try await performAuthenticatedData(path: "spaces/\(spaceId)/books", method: "GET")
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw NSError(domain: "MemoriaAPIClient", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Failed to fetch space books"])
+        }
+        struct Envelope: Decodable { let success: Bool; let data: [BookDocumentDTO] }
+        return try JSONDecoder().decode(Envelope.self, from: data).data
+    }
+
+    public func createSpaceBook(
+        spaceId: String,
+        title: String,
+        subtitle: String? = nil,
+        format: String = "hardcover_standard_8x10",
+        coverColor: String = "#76556F",
+        foilStamping: String = "gold"
+    ) async throws -> BookDocumentDTO {
+        var payload: [String: Any] = [
+            "title": title,
+            "format": format,
+            "coverColor": coverColor,
+            "foilStamping": foilStamping,
+            "coverTitle": title,
+        ]
+        if let subtitle, !subtitle.isEmpty { payload["subtitle"] = subtitle }
+        let body = try JSONSerialization.data(withJSONObject: payload)
+        let (data, httpResponse) = try await performAuthenticatedData(
+            path: "spaces/\(spaceId)/books",
+            method: "POST",
+            body: body
+        )
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw NSError(domain: "MemoriaAPIClient", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Failed to create book edition"])
+        }
+        struct Envelope: Decodable { let success: Bool; let data: BookDocumentDTO }
+        return try JSONDecoder().decode(Envelope.self, from: data).data
+    }
+
+    public func curateBookMemories(
+        bookId: String,
+        memories: [(id: String, title: String, content: String?, capturedAt: String)],
+        template: String = "editorial_classic"
+    ) async throws -> BookDocumentDTO {
+        let memObjects: [[String: Any]] = memories.map { m in
+            var dict: [String: Any] = [
+                "id": m.id,
+                "title": m.title,
+                "capturedAt": m.capturedAt,
+            ]
+            if let content = m.content { dict["content"] = content }
+            return dict
+        }
+        let body = try JSONSerialization.data(withJSONObject: [
+            "memories": memObjects,
+            "template": template,
+        ])
+        let (data, httpResponse) = try await performAuthenticatedData(
+            path: "books/\(bookId)/curate",
+            method: "POST",
+            body: body
+        )
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw NSError(domain: "MemoriaAPIClient", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Failed to curate memories into book"])
+        }
+        struct Envelope: Decodable { let success: Bool; let data: BookDocumentDTO }
+        return try JSONDecoder().decode(Envelope.self, from: data).data
+    }
+
+    public func reorderBookSpreads(bookId: String, spreadIds: [String]) async throws -> BookDocumentDTO {
+        let body = try JSONSerialization.data(withJSONObject: ["spreadIds": spreadIds])
+        let (data, httpResponse) = try await performAuthenticatedData(
+            path: "books/\(bookId)/spreads/reorder",
+            method: "PUT",
+            body: body
+        )
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw NSError(domain: "MemoriaAPIClient", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Failed to reorder book spreads"])
+        }
+        struct Envelope: Decodable { let success: Bool; let data: BookDocumentDTO }
+        return try JSONDecoder().decode(Envelope.self, from: data).data
+    }
+
+    public func updateBook(
+        bookId: String,
+        coverTitle: String,
+        coverColor: String,
+        foilStamping: String
+    ) async throws -> BookDocumentDTO {
+        let body = try JSONSerialization.data(withJSONObject: [
+            "coverTitle": coverTitle,
+            "coverColor": coverColor,
+            "foilStamping": foilStamping,
+        ])
+        let (data, httpResponse) = try await performAuthenticatedData(
+            path: "books/\(bookId)",
+            method: "PATCH",
+            body: body
+        )
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw NSError(domain: "MemoriaAPIClient", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Failed to update book"])
+        }
+        struct Envelope: Decodable { let success: Bool; let data: BookDocumentDTO }
+        return try JSONDecoder().decode(Envelope.self, from: data).data
+    }
+
+    public func freezeBook(bookId: String) async throws -> BookDocumentDTO {
+        let (data, httpResponse) = try await performAuthenticatedData(
+            path: "books/\(bookId)/freeze",
+            method: "POST",
+            body: Data("{}".utf8)
+        )
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw NSError(domain: "MemoriaAPIClient", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Failed to freeze edition"])
+        }
+        struct Envelope: Decodable { let success: Bool; let data: BookDocumentDTO }
+        return try JSONDecoder().decode(Envelope.self, from: data).data
+    }
+
+    public func fetchOrderQuote(
+        format: String,
+        binding: String,
+        paperWeight: String,
+        quantity: Int,
+        country: String,
+        shippingSpeed: String
+    ) async throws -> OrderQuoteDTO {
+        let body = try JSONSerialization.data(withJSONObject: [
+            "format": format,
+            "binding": binding,
+            "paperWeight": paperWeight,
+            "quantity": quantity,
+            "country": country,
+            "shippingSpeed": shippingSpeed,
+        ])
+        let (data, httpResponse) = try await performAuthenticatedData(
+            path: "orders/quote",
+            method: "POST",
+            body: body
+        )
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw NSError(domain: "MemoriaAPIClient", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Failed to calculate print quote"])
+        }
+        struct Envelope: Decodable { let success: Bool; let data: OrderQuoteDTO }
+        return try JSONDecoder().decode(Envelope.self, from: data).data
+    }
+
+    public func createPrintOrder(
+        spaceId: String,
+        bookId: String,
+        format: String,
+        binding: String,
+        paperWeight: String,
+        quantity: Int,
+        shippingSpeed: String,
+        recipientName: String,
+        line1: String,
+        city: String,
+        postalCode: String,
+        country: String,
+        editionHash: String? = nil
+    ) async throws -> PrintOrderDTO {
+        var printSpec: [String: Any] = [
+            "format": format,
+            "paperWeight": paperWeight,
+            "binding": binding,
+        ]
+        if let editionHash { printSpec["editionHash"] = editionHash }
+        let body = try JSONSerialization.data(withJSONObject: [
+            "spaceId": spaceId,
+            "bookId": bookId,
+            "quantity": quantity,
+            "format": format,
+            "shippingSpeed": shippingSpeed,
+            "shippingAddress": [
+                "recipientName": recipientName,
+                "line1": line1,
+                "city": city,
+                "postalCode": postalCode,
+                "country": country,
+            ],
+            "printSpec": printSpec,
+        ])
+        let (data, httpResponse) = try await performAuthenticatedData(
+            path: "orders",
+            method: "POST",
+            body: body
+        )
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw NSError(domain: "MemoriaAPIClient", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Failed to place print order"])
+        }
+        struct Envelope: Decodable { let success: Bool; let data: PrintOrderDTO }
+        return try JSONDecoder().decode(Envelope.self, from: data).data
+    }
+
+    public func fetchOrderTracking(orderId: String) async throws -> OrderTrackingDTO {
+        let (data, httpResponse) = try await performAuthenticatedData(path: "orders/\(orderId)/tracking", method: "GET")
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw NSError(domain: "MemoriaAPIClient", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Failed to fetch order tracking"])
+        }
+        struct Envelope: Decodable { let success: Bool; let data: OrderTrackingDTO }
+        return try JSONDecoder().decode(Envelope.self, from: data).data
+    }
+
+    public func reorderPrintOrder(orderId: String, quantity: Int = 1) async throws -> PrintOrderDTO {
+        let body = try JSONSerialization.data(withJSONObject: ["quantity": quantity])
+        let (data, httpResponse) = try await performAuthenticatedData(
+            path: "orders/\(orderId)/reorder",
+            method: "POST",
+            body: body
+        )
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw NSError(domain: "MemoriaAPIClient", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Failed to reorder edition"])
+        }
+        struct Envelope: Decodable { let success: Bool; let data: PrintOrderDTO }
+        return try JSONDecoder().decode(Envelope.self, from: data).data
+    }
+
+    // MARK: - Collaboration Governance & Invitations
+
+    public func fetchSpaceMembers(spaceId: String) async throws -> [SpaceMemberDTO] {
+        let (data, httpResponse) = try await performAuthenticatedData(path: "collab/spaces/\(spaceId)/members", method: "GET")
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw NSError(domain: "MemoriaAPIClient", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Failed to fetch space members"])
+        }
+        struct Envelope: Decodable { let success: Bool; let data: [SpaceMemberDTO] }
+        return try JSONDecoder().decode(Envelope.self, from: data).data
+    }
+
+    public func sendSpaceInvitation(spaceId: String, inviteeEmail: String, role: String = "contributor") async throws -> SpaceInvitationResponseDTO {
+        let body = try JSONSerialization.data(withJSONObject: [
+            "inviteeEmail": inviteeEmail,
+            "role": role,
+        ])
+        let (data, httpResponse) = try await performAuthenticatedData(
+            path: "collab/spaces/\(spaceId)/invitations",
+            method: "POST",
+            body: body
+        )
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw NSError(domain: "MemoriaAPIClient", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Failed to send invitation"])
+        }
+        struct Envelope: Decodable { let success: Bool; let data: SpaceInvitationResponseDTO }
+        return try JSONDecoder().decode(Envelope.self, from: data).data
+    }
+
+    public func updateSpaceMemberRole(spaceId: String, userId: String, role: String) async throws -> SpaceMemberDTO {
+        let body = try JSONSerialization.data(withJSONObject: ["role": role])
+        let (data, httpResponse) = try await performAuthenticatedData(
+            path: "collab/spaces/\(spaceId)/members/\(userId)",
+            method: "PATCH",
+            body: body
+        )
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw NSError(domain: "MemoriaAPIClient", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Failed to update member role"])
+        }
+        struct Envelope: Decodable { let success: Bool; let data: SpaceMemberDTO }
+        return try JSONDecoder().decode(Envelope.self, from: data).data
+    }
+
+    public func createShareLink(spaceId: String, passphrase: String? = nil, allowDownloads: Bool = false) async throws -> ShareLinkDTO {
+        var dict: [String: Any] = [
+            "allowDownloads": allowDownloads,
+            "expiresInDays": 30,
+        ]
+        if let passphrase, !passphrase.isEmpty { dict["passphrase"] = passphrase }
+        let body = try JSONSerialization.data(withJSONObject: dict)
+        let (data, httpResponse) = try await performAuthenticatedData(
+            path: "collab/spaces/\(spaceId)/share-links",
+            method: "POST",
+            body: body
+        )
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw NSError(domain: "MemoriaAPIClient", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Failed to create share link"])
+        }
+        struct Envelope: Decodable { let success: Bool; let data: ShareLinkDTO }
         return try JSONDecoder().decode(Envelope.self, from: data).data
     }
 }

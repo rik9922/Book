@@ -780,7 +780,7 @@ export const iosScreens1: ScreenSpec[] = [
       e2e: ["creates profile with photo, verifies saved state in database"]
     },
     uiComponents: ["CreateProfileSheet", "AvatarPickerButton", "DatePickerField", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "IOS-10",
@@ -869,7 +869,7 @@ export const iosScreens1: ScreenSpec[] = [
       e2e: ["selects email, sends invite, completes onboarding, lands on HomeFeed"]
     },
     uiComponents: ["ContactInviteSheet", "RecipientTokenField", "RolePicker", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
 
   // ==========================================
@@ -1120,7 +1120,7 @@ export const iosScreens1: ScreenSpec[] = [
       e2e: ["navigates to space overview, taps + Photo quick action"]
     },
     uiComponents: ["SpaceOverviewView", "ParallaxHeader", "QuickActionGrid", "StatsCard"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "IOS-14",
@@ -1201,7 +1201,7 @@ export const iosScreens1: ScreenSpec[] = [
       e2e: ["opens notifications, taps row, confirms navigation to memory"]
     },
     uiComponents: ["NotificationListView", "NotificationRow", "SwipeActions", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "IOS-15",
@@ -1453,7 +1453,7 @@ export const iosScreens1: ScreenSpec[] = [
       e2e: ["simulates photo capture, verifies image saved to local disk and upload queued"]
     },
     uiComponents: ["CameraViewfinder", "ShutterButton", "PHPickerWrapper", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "IOS-18",
@@ -1711,7 +1711,7 @@ export const iosScreens1: ScreenSpec[] = [
       e2e: ["composes quote, tags person, taps Publish, confirms appears in HomeFeed"]
     },
     uiComponents: ["StoryComposerView", "TextEditor", "TagPersonPill", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "IOS-21",
@@ -1793,7 +1793,7 @@ export const iosScreens1: ScreenSpec[] = [
       e2e: ["initiates 2 uploads, verifies progress bars advance to 100%"]
     },
     uiComponents: ["UploadQueueSheet", "UploadTaskRow", "ProgressBar", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "IOS-22",
@@ -1875,7 +1875,7 @@ export const iosScreens1: ScreenSpec[] = [
       e2e: ["creates memory in airplane mode, turns on network, confirms auto-sync to server"]
     },
     uiComponents: ["OfflineQueueSheet", "PendingMutationRow", "ConflictCard", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
 
   // ==========================================
@@ -2045,7 +2045,7 @@ export const iosScreens1: ScreenSpec[] = [
       e2e: ["pinches grid, verifies column transition from 3 to 2, taps cell"]
     },
     uiComponents: ["MediaGridView", "GridThumbnailCell", "DensityPicker", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "IOS-25",

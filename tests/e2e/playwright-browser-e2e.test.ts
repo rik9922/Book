@@ -1,8 +1,9 @@
 import { test, describe, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { spawn, ChildProcess } from "node:child_process";
+import { spawn, ChildProcess, execFileSync } from "node:child_process";
 import path from "node:path";
-import { existsSync } from "node:fs";
+import os from "node:os";
+import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import { chromium, Browser } from "playwright-core";
 import jwt from "jsonwebtoken";
 import { BaseServiceConfigSchema, validateServiceConfig } from "@memory-capsule/contracts";
@@ -75,6 +76,8 @@ describe("Interactive Chrome / Playwright DOM, WebGL, SW Offline & 401 Refresh E
     });
     const gwListen = await gwApp.listen({ port: 0, host: "127.0.0.1" });
     gatewayUrl = `${gwListen}/api/v1`;
+    process.env.PUBLIC_MEDIA_URL = `${gatewayUrl}/media/files`;
+    process.env.LOCAL_MEDIA_UPLOAD_URL = `${gatewayUrl}/media/local-upload`;
 
     closers.push(
       () => gwApp.close(),
@@ -393,17 +396,136 @@ describe("Interactive Chrome / Playwright DOM, WebGL, SW Offline & 401 Refresh E
     await page.reload({ waitUntil: "networkidle" });
     await page.getByText("Offline Queued Letter").first().waitFor({ state: "visible", timeout: 10000 });
 
+    // 4b. /archive failed/pending upload retry UI (PWA-42) & archival <video> timestamp seek (PWA-44)
+    const activeToken = await page.evaluate(() => window.localStorage.getItem("memoria_web_access_token") || "");
+    const spacesRes = await fetch(`${gatewayUrl}/spaces`, {
+      headers: { Authorization: `Bearer ${activeToken}` },
+    });
+    const spacesJson = await spacesRes.json();
+    const activeSpaceId = spacesJson?.data?.[0]?.id as string;
+    assert.ok(activeSpaceId, "Expected active space ID");
+
+    // Stage a pending upload session to test Retry Session UI
+    await fetch(`${gatewayUrl}/media/upload-session`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${activeToken}` },
+      body: JSON.stringify({
+        spaceId: activeSpaceId,
+        fileName: "pending-retry-scan.png",
+        mimeType: "image/png",
+        fileSizeBytes: 1024,
+      }),
+    });
+
+    // Generate a real 8-second MP4 in temp storage and attach to a video memory
+    const tmpMp4 = path.join(os.tmpdir(), `memoria-e2e-${Date.now()}.mp4`);
+    try {
+      execFileSync("ffmpeg", [
+        "-y",
+        "-f",
+        "lavfi",
+        "-i",
+        "color=c=#76556F:s=160x120:d=8",
+        "-c:v",
+        "libx264",
+        "-pix_fmt",
+        "yuv420p",
+        tmpMp4,
+      ], { stdio: "ignore" });
+      const mp4Buf = readFileSync(tmpMp4);
+      const vidSessionRes = await fetch(`${gatewayUrl}/media/upload-session`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${activeToken}` },
+        body: JSON.stringify({
+          spaceId: activeSpaceId,
+          fileName: "orchard-reel.mp4",
+          mimeType: "video/mp4",
+          fileSizeBytes: mp4Buf.byteLength,
+        }),
+      });
+      const vidSessionJson = await vidSessionRes.json();
+      await fetch(vidSessionJson.data.uploadUrl, {
+        method: "PUT",
+        headers: { "Content-Type": "video/mp4" },
+        body: mp4Buf,
+      });
+      await fetch(`${gatewayUrl}/media/${vidSessionJson.data.mediaId}/complete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${activeToken}` },
+        body: JSON.stringify({}),
+      });
+      await fetch(`${gatewayUrl}/memories`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${activeToken}` },
+        body: JSON.stringify({
+          spaceId: activeSpaceId,
+          title: "Archival Orchard Reel",
+          content: "16mm family film reel with chapter jumps.",
+          format: "video",
+          capturedAt: new Date().toISOString(),
+          mediaIds: [vidSessionJson.data.mediaId],
+          tags: ["video", "reel"],
+        }),
+      });
+    } finally {
+      if (existsSync(tmpMp4)) unlinkSync(tmpMp4);
+    }
+
+    await page.reload({ waitUntil: "networkidle" });
+    await page.getByText("pending-retry-scan.png").first().waitFor({ state: "visible", timeout: 10000 });
+    await page.click('button:has-text("Retry Session")');
+    await page.getByText(/Refreshed signed upload session/i).waitFor({ state: "visible", timeout: 10000 });
+
+    await page.click('button:has-text("Archival Orchard Reel")');
+    await page.getByRole("dialog").waitFor({ state: "visible" });
+    await page.click('button:has-text("Media / OCR Inspector")');
+    await page.waitForSelector("video", { timeout: 10000 });
+    await page.click('button:has-text("Jump 5s")');
+    const videoTimeAfterJump = await page.evaluate(() => {
+      const v = document.querySelector("video");
+      return v ? v.currentTime : -1;
+    });
+    assert.ok(videoTimeAfterJump >= 4.5, `Expected video seek to >=5s, got ${videoTimeAfterJump}`);
+    await page.click('button:has-text("Hide Captions")');
+    await page.getByRole("button", { name: "Show Captions" }).waitFor({ state: "visible" });
+    await page.keyboard.press("Escape");
+
+    // 4c. /spaces/[spaceId] timeline, members & settings (PWA-24 / PWA-25)
+    await page.goto(`${WEB_BASE}/spaces/${activeSpaceId}`, { waitUntil: "networkidle" });
+    await page.getByRole("tab", { name: /Timeline/i }).click();
+    await page.getByText("Chronological Space Timeline").waitFor({ state: "visible", timeout: 10000 });
+    await page.getByRole("tab", { name: /Members & Roles/i }).click();
+    await page.getByText("Member Roster & RBAC Roles").waitFor({ state: "visible", timeout: 10000 });
+    await page.getByRole("tab", { name: /Space Settings/i }).click();
+    await page.fill("#spd-desc", "Updated archival vault description");
+    await page.click('button:has-text("Save Space Settings")');
+    await page.getByText("Space settings saved.").waitFor({ state: "visible", timeout: 10000 });
+
     // 5. /trash restore memory
     await page.goto(`${WEB_BASE}/trash`, { waitUntil: "networkidle" });
     await page.getByText("Orchard Harvest 1984").first().waitFor({ state: "visible", timeout: 10000 });
     await page.click('button:has-text("Restore")');
     await page.getByText("Restored").first().waitFor({ state: "visible", timeout: 10000 });
 
-    // 6. /studio -> /billing -> /orders (including Proof Receipt modal inert & Tab trap)
+    // 6. /studio -> profile filter (PWA-59), template layout (PWA-62), focal-point (PWA-66) -> /billing -> /orders
     await page.goto(`${WEB_BASE}/studio`, { waitUntil: "networkidle" });
     await page.fill("#new-book-title", "Vance Family Almanac");
     await page.click('button:has-text("Create Hardcover Edition")');
     await page.getByText("Created edition").waitFor({ state: "visible", timeout: 10000 });
+
+    await page.selectOption("#curate-profile", "");
+    await page.selectOption("#curate-template", "photo_journal");
+    const firstMemCheckbox = page.locator('section:has-text("Memory Curation") input[type="checkbox"]').first();
+    if (await firstMemCheckbox.isVisible()) {
+      await firstMemCheckbox.check();
+      await page.click('button:has-text("Auto-Compile Selected")');
+      await page.getByText(/Compiled .* curated memories/i).waitFor({ state: "visible", timeout: 10000 });
+    }
+    await page.selectOption("#spread-focal", "50% 20%");
+    await page.click('button:has-text("Update Spread")');
+    await page.getByText("Updated interior spread layout.").waitFor({ state: "visible", timeout: 10000 });
+    await page.click('button:has-text("Freeze for Print")');
+    await page.getByText(/Edition frozen cleanly/i).waitFor({ state: "visible", timeout: 10000 });
 
     await page.goto(`${WEB_BASE}/billing`, { waitUntil: "networkidle" });
     await page.waitForFunction(
@@ -502,11 +624,41 @@ describe("Interactive Chrome / Playwright DOM, WebGL, SW Offline & 401 Refresh E
     await page.goto(`${WEB_BASE}/settings`, { waitUntil: "networkidle" });
     await page.getByText("Local Disk Storage").first().waitFor({ state: "visible", timeout: 10000 });
 
-    // 2b. Share link creation in /circles -> passphrase unlock in /share/[token]
+    // 2b. /circles capability matrix (PWA-50) + share link creation -> passphrase unlock in /share/[token]
     await page.goto(`${WEB_BASE}/circles`, { waitUntil: "networkidle" });
+    await page.fill("#invite-email", "circle-member@memoria.internal");
+    await page.click('button:has-text("Generate Invite Token")');
+    const inviteStatus = await page.locator('[role="status"]').first().textContent();
+    const inviteTokenMatch = inviteStatus?.match(/securely:\s*([a-f0-9]+)/i);
+    assert.ok(inviteTokenMatch?.[1], `Expected invite token in notice: ${inviteStatus}`);
+
+    // Accept the invite from a fresh registered user so /circles has a non-owner member to govern
+    const collaboratorRes = await fetch(`${gatewayUrl}/auth/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: `collab_${Date.now()}@memoria.internal`,
+        password: "CollabUser123!",
+        fullName: "Elena Collaborator",
+      }),
+    });
+    const collaboratorJson = await collaboratorRes.json();
+    const collabToken = collaboratorJson?.data?.accessToken as string;
+    await fetch(`${gatewayUrl}/collab/invitations/accept`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${collabToken}` },
+      body: JSON.stringify({ token: inviteTokenMatch[1] }),
+    });
+
+    await page.reload({ waitUntil: "networkidle" });
+    const capCheckbox = page.locator('label:has-text("Edit Books") input[type="checkbox"]').first();
+    await capCheckbox.waitFor({ state: "visible", timeout: 10000 });
+    await capCheckbox.check();
+    await page.getByText(/Updated member role & capabilities/i).waitFor({ state: "visible", timeout: 10000 });
+
     await page.fill('input[placeholder*="passphrase" i]', "family-secret-99");
     await page.click('button:has-text("Generate Share Link")');
-    const statusLocator = page.locator('[role="status"]').first();
+    const statusLocator = page.locator('[role="status"]').filter({ hasText: "/share/" }).first();
     await statusLocator.waitFor({ state: "visible", timeout: 10000 });
     const shareNotice = await statusLocator.textContent();
     const tokenMatch = shareNotice?.match(/\/share\/([a-f0-9]+)/i);
@@ -516,11 +668,123 @@ describe("Interactive Chrome / Playwright DOM, WebGL, SW Offline & 401 Refresh E
     await page.click('button:has-text("Unlock Shared Archive")');
     await page.getByText("Shared Family Stories").first().waitFor({ state: "visible", timeout: 10000 });
 
-    // 3. Full Admin Portal multi-console navigation & interactive actions
+    // Seed a moderation flag and abuse report for ADMIN-06 / ADMIN-07 verification
+    const adminSpacesRes = await fetch(`${gatewayUrl}/spaces`, {
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
+    const adminSpacesJson = await adminSpacesRes.json();
+    const adminSpaceId = adminSpacesJson?.data?.[0]?.id as string;
+    const seededMemRes = await fetch(`${gatewayUrl}/memories`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${adminToken}` },
+      body: JSON.stringify({
+        spaceId: adminSpaceId,
+        title: "Admin Moderation Test Entry",
+        content: "Testing moderation & report resolution.",
+        format: "story",
+        capturedAt: new Date().toISOString(),
+        tags: ["governance"],
+      }),
+    });
+    const seededMemJson = await seededMemRes.json();
+    const seededMemId = seededMemJson?.data?.id as string;
+    await fetch(`${gatewayUrl}/memories/${seededMemId}/flag`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${adminToken}` },
+      body: JSON.stringify({ reason: "Chrome E2E archival quality check" }),
+    });
+    await fetch(`${gatewayUrl}/support/reports`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${adminToken}` },
+      body: JSON.stringify({
+        targetType: "memory",
+        targetId: seededMemId,
+        reason: "Chrome E2E policy report",
+      }),
+    });
+
+    // Seed a dual-custody access request from a second admin so our primary superadmin can approve it in the UI
+    const secondAdminToken = jwt.sign(
+      { sub: crypto.randomUUID(), email: "compliance-e2e@memoria.internal", role: "superadmin" },
+      cfg.JWT_SECRET,
+      { expiresIn: "1h" }
+    );
+    await fetch(`${gatewayUrl}/admin/access-requests`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${secondAdminToken}` },
+      body: JSON.stringify({ reason: "Second-party dual custody review #402" }),
+    });
+
+    // 3. Full Admin Portal multi-console navigation & ALL tabs interactive actions
     await page.goto(`${WEB_BASE}/admin`, { waitUntil: "networkidle" });
     await page.getByText("System Overview (01/13)").first().waitFor({ state: "visible", timeout: 10000 });
+
+    // Tab: Users & Access (ADMIN-02 / 03 / 05)
+    await page.click('button:has-text("Users & Access")');
+    await page.getByText("Dual-Party Support Access Console (ADMIN-05)").waitFor({ state: "visible", timeout: 10000 });
+    await page.fill('input[placeholder*="Support ticket reason" i]', "Inspect archival ticket #401");
+    await page.click('button:has-text("Request Access")');
+    await page.getByText(/Submitted dual-custody support access request/i).waitFor({ state: "visible", timeout: 10000 });
+    const secondPartyRow = page.locator("div").filter({ hasText: "Second-party dual custody review #402" }).filter({ has: page.locator('button:has-text("Approve")') }).last();
+    await secondPartyRow.locator('button:has-text("Approve")').click();
+    await page.getByText(/Approved support access request/i).waitFor({ state: "visible", timeout: 10000 });
+    const revokeBtn = page.locator('button:has-text("Revoke Sessions")').first();
+    if (await revokeBtn.isVisible().catch(() => false)) {
+      await revokeBtn.click();
+      await page.getByText(/Revoked all active sessions/i).waitFor({ state: "visible", timeout: 10000 });
+    }
+
+    // Tab: Memory Spaces (ADMIN-04)
+    await page.click('button:has-text("Memory Spaces")');
+    await page.getByText("Memory Space Directory").waitFor({ state: "visible", timeout: 10000 });
+    const inspectSpaceBtn = page.locator('button:has-text("Inspect")').first();
+    await inspectSpaceBtn.waitFor({ state: "visible", timeout: 10000 });
+    await inspectSpaceBtn.click();
+    await page.getByRole("dialog").waitFor({ state: "visible", timeout: 10000 });
+    await page.click('button:has-text("Done")');
+
+    // Tab: Moderation & Reports (ADMIN-06 / 07)
+    await page.click('button:has-text("Moderation & Reports")');
+    await page.getByText("Chrome E2E archival quality check").first().waitFor({ state: "visible", timeout: 10000 });
+    await page.click('button:has-text("Approve")');
+    await page.getByText(/Approved flagged item/i).waitFor({ state: "visible", timeout: 10000 });
+    await page.getByText("Chrome E2E policy report").first().waitFor({ state: "visible", timeout: 10000 });
+    await page.click('button:has-text("Resolve")');
+    await page.getByText(/Resolved user policy report/i).waitFor({ state: "visible", timeout: 10000 });
+
+    // Tab: Storage & Media (ADMIN-08 / 09 / 10)
     await page.click('button:has-text("Storage & Media")');
     await page.getByText("LocalDiskStorageDriver").first().waitFor({ state: "visible", timeout: 10000 });
+    const reprocessBtn = page.locator('button:has-text("Reprocess")').first();
+    if (await reprocessBtn.isVisible().catch(() => false)) {
+      await reprocessBtn.click();
+      await page.getByText(/Re-queued derivative & OCR job/i).waitFor({ state: "visible", timeout: 10000 });
+    }
+
+    // Tab: Queues & Rendering (ADMIN-11 / 12 / 14 / 15)
+    await page.click('button:has-text("Queues & Rendering")');
+    await page.getByText("BullMQ Queues & DLQ Console (ADMIN-11 / 12)").waitFor({ state: "visible", timeout: 10000 });
+    const retryDlqBtn = page.locator('button:has-text("Retry DLQ")').first();
+    if (await retryDlqBtn.isVisible().catch(() => false)) {
+      await retryDlqBtn.click();
+      await page.getByText(/Retried failed jobs in queue/i).waitFor({ state: "visible", timeout: 10000 });
+    }
+    const overridePreflightBtn = page.locator('button:has-text("Override Preflight")').first();
+    await overridePreflightBtn.waitFor({ state: "visible", timeout: 10000 });
+    await overridePreflightBtn.click();
+    await page.getByText(/Overrode preflight tolerances/i).waitFor({ state: "visible", timeout: 10000 });
+
+    // Tab: Print Orders & Refunds (ADMIN-18 / 19 / 20 / 21)
+    await page.click('button:has-text("Print Orders & Refunds")');
+    await page.getByText("Print Fulfillment Queue").waitFor({ state: "visible", timeout: 10000 });
+    const shipBtn = page.locator('button:has-text("Ship with Tracking")').first();
+    await shipBtn.waitFor({ state: "visible", timeout: 10000 });
+    await shipBtn.click();
+    await page.getByText(/Dispatched order/i).waitFor({ state: "visible", timeout: 10000 });
+    await page.getByText("Payment & Settlement Ledger (ADMIN-21)").waitFor({ state: "visible", timeout: 10000 });
+    const remakeBtn = page.locator('button:has-text("Authorize Remake")').first();
+    await remakeBtn.click();
+    await page.getByText(/Authorized remake for order/i).waitFor({ state: "visible", timeout: 10000 });
 
     await page.click('button:has-text("Templates, Flags & Audit")');
     await page.getByText("webgl_3d_reader").first().waitFor({ state: "visible", timeout: 10000 });

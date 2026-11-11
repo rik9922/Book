@@ -99,68 +99,7 @@ interface OrderRecord {
   status: string;
   amount: string;
   trackingNumber?: string;
-  isLive?: boolean;
 }
-
-const SAMPLE_SPACES: SpaceRecord[] = [
-  {
-    id: "space-01",
-    name: "The Bennett Family Heritage",
-    type: "family",
-    ownerEmail: "elena.bennett@example.com",
-    memberCount: 8,
-    memoryCount: 142,
-    usedBytesFormatted: "142.4 MB",
-    usedPercentage: 28.5,
-    syncStatus: "synchronized",
-    lastActive: "12 mins ago",
-  },
-  {
-    id: "space-02",
-    name: "Clara's Childhood Milestone Capsule",
-    type: "personal",
-    ownerEmail: "clara.b@example.com",
-    memberCount: 2,
-    memoryCount: 84,
-    usedBytesFormatted: "86.1 MB",
-    usedPercentage: 17.2,
-    syncStatus: "synchronized",
-    lastActive: "2 hours ago",
-  },
-  {
-    id: "space-03",
-    name: "Rostov Ancestral Estate & Letters",
-    type: "heritage",
-    ownerEmail: "dmitri.r@example.com",
-    memberCount: 14,
-    memoryCount: 412,
-    usedBytesFormatted: "418.0 MB",
-    usedPercentage: 83.6,
-    syncStatus: "warning",
-    lastActive: "Just now",
-  },
-];
-
-const INITIAL_ORDERS: OrderRecord[] = [
-  {
-    id: "ORD-8491",
-    bookTitle: "The Bennett Family Heritage Vol. I",
-    spaceName: "The Bennett Family Heritage",
-    recipient: "Elena Bennett • Portland, OR",
-    format: "Standard 8x10 Hardcover (Dusk Plum)",
-    status: "in_production",
-    amount: "$78.00",
-  },
-  {
-    id: "ORD-8492",
-    bookTitle: "Rostov Letters 1938–1964",
-    spaceName: "Rostov Ancestral Estate & Letters",
-    recipient: "Dmitri Rostov • Boston, MA",
-    format: "Grand 12x12 Hardcover (Deep Sage)",
-    status: "preflight_passed",
-    amount: "$96.00",
-  },
-];
 
 type AdminTab =
   | "overview"
@@ -178,8 +117,8 @@ type AdminTab =
 export default function AdminPortalPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedTab, setSelectedTab] = useState<AdminTab>("overview");
-  const [spaces, setSpaces] = useState<SpaceRecord[]>(SAMPLE_SPACES);
-  const [orders, setOrders] = useState<OrderRecord[]>(INITIAL_ORDERS);
+  const [spaces, setSpaces] = useState<SpaceRecord[]>([]);
+  const [orders, setOrders] = useState<OrderRecord[]>([]);
   const [catalog, setCatalog] = useState<PrintCatalogDTO | null>(null);
   const [gatewayStatus, setGatewayStatus] = useState<"checking" | "online" | "offline">("checking");
   const [ocrEngineStatus, setOcrEngineStatus] = useState<string>("Checking...");
@@ -319,7 +258,7 @@ export default function AdminPortalPage() {
     if (ov.status === "fulfilled") setOverviewMetrics(ov.value);
     if (health.status === "fulfilled") setServicesHealth(health.value);
     if (users.status === "fulfilled") setAdminUsers(users.value);
-    if (spList.status === "fulfilled" && spList.value.length > 0) {
+    if (spList.status === "fulfilled") {
       setSpaces(
         spList.value.map((s) => ({
           id: s.id,
@@ -363,7 +302,7 @@ export default function AdminPortalPage() {
         return next;
       });
     }
-    if (ordList.status === "fulfilled" && ordList.value.length > 0) {
+    if (ordList.status === "fulfilled") {
       setOrders(
         ordList.value.map((o) => ({
           id: o.id,
@@ -374,7 +313,6 @@ export default function AdminPortalPage() {
           status: o.status,
           amount: `$${(o.totalCents / 100).toFixed(2)}`,
           trackingNumber: o.trackingNumber,
-          isLive: true,
         }))
       );
     }
@@ -460,10 +398,6 @@ export default function AdminPortalPage() {
   };
 
   const handleShipOrder = async (order: OrderRecord) => {
-    if (!order.isLive) {
-      setOrders((prev) => prev.map((o) => (o.id === order.id ? { ...o, status: "shipped" } : o)));
-      return;
-    }
     const customTracking = trackingInputs[order.id]?.trim() || undefined;
     try {
       await shipAdminOrder(order.id, customTracking);
@@ -475,7 +409,6 @@ export default function AdminPortalPage() {
   };
 
   const handleRefundOrder = async (order: OrderRecord, type: "refund" | "remake") => {
-    if (!order.isLive) return;
     try {
       await refundAdminOrder(order.id, type, `Admin ${type} authorization`);
       setAdminNotice(`Authorized ${type} for order ${order.id.slice(0, 8)}.`);
@@ -609,7 +542,7 @@ export default function AdminPortalPage() {
               <div className="p-4 rounded-2xl bg-[#FAF6F8] border border-[#76556F]/30 flex flex-wrap items-center justify-between gap-3 text-xs">
                 <div>
                   <p className="font-semibold text-[#20242C]">
-                    {hasSession ? "Admin RBAC Session Required for Live Mutations" : "Viewing Sample Operations Preview"}
+                    {hasSession ? "Admin RBAC Session Required for Live Mutations" : "Admin Authentication Required"}
                   </p>
                   <p className="text-[#5C5955]">
                     {hasSession
@@ -661,7 +594,7 @@ export default function AdminPortalPage() {
                     <span>Registered Users</span>
                     <FileText className="w-4 h-4 text-[#5F735E]" aria-hidden="true" />
                   </div>
-                  <p className="text-2xl font-serif font-bold text-[#20242C]">{overviewMetrics?.usersCount ?? 667}</p>
+                  <p className="text-2xl font-serif font-bold text-[#20242C]">{overviewMetrics?.usersCount ?? 0}</p>
                   <span className="text-[11px] text-[#5C5955]">Indexed via PostgreSQL</span>
                 </div>
 
@@ -671,7 +604,7 @@ export default function AdminPortalPage() {
                     <HardDrive className="w-4 h-4 text-[#76556F]" aria-hidden="true" />
                   </div>
                   <p className="text-2xl font-serif font-bold text-[#20242C]">
-                    {storageStats ? `${(storageStats.totalUsedBytes / (1024 * 1024)).toFixed(1)} MB` : "681.3 MB"}
+                    {storageStats ? `${(storageStats.totalUsedBytes / (1024 * 1024)).toFixed(1)} MB` : "0.0 MB"}
                   </p>
                   <span className="text-[11px] text-[#5C5955]">LocalDiskStorageDriver</span>
                 </div>
@@ -735,39 +668,49 @@ export default function AdminPortalPage() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-[#F0ECE1] text-xs">
-                      {filteredSpaces.map((space) => (
-                        <tr key={space.id} className="hover:bg-[#FAF8F5]">
-                          <td className="py-4 px-5">
-                            <div className="font-serif font-bold text-[#20242C] text-sm">{space.name}</div>
-                            <div className="text-[11px] text-[#5C5955]">{space.ownerEmail}</div>
-                          </td>
-                          <td className="py-4 px-4 capitalize">{space.type}</td>
-                          <td className="py-4 px-4">{space.memberCount}</td>
-                          <td className="py-4 px-4">{space.usedBytesFormatted} ({space.usedPercentage}%)</td>
-                          <td className="py-4 px-4">
-                            {space.syncStatus === "synchronized" ? (
-                              <span className="inline-flex items-center gap-1 text-[#5F735E]"><CheckCircle2 className="w-3.5 h-3.5" /> Synchronized</span>
-                            ) : space.syncStatus === "warning" ? (
-                              <span className="inline-flex items-center gap-1 text-[#B6423E]"><AlertTriangle className="w-3.5 h-3.5" /> High Quota</span>
-                            ) : (
-                              <span className="inline-flex items-center gap-1 text-[#76556F]"><Clock className="w-3.5 h-3.5" /> Processing</span>
-                            )}
-                          </td>
-                          <td className="py-4 px-5 text-right">
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                lastInspectTriggerRef.current = e.currentTarget;
-                                setInspectedSpace(space);
-                              }}
-                              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-medium bg-[#F7F4EE] border border-[#E7E2DA]"
-                            >
-                              <SlidersHorizontal className="w-3 h-3" />
-                              Inspect
-                            </button>
+                      {filteredSpaces.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} className="py-8 px-5 text-center text-[#5C5955]">
+                            {adminAuthorized
+                              ? "No memory spaces match your filter yet."
+                              : "Sign in as an administrator to inspect live memory spaces."}
                           </td>
                         </tr>
-                      ))}
+                      ) : (
+                        filteredSpaces.map((space) => (
+                          <tr key={space.id} className="hover:bg-[#FAF8F5]">
+                            <td className="py-4 px-5">
+                              <div className="font-serif font-bold text-[#20242C] text-sm">{space.name}</div>
+                              <div className="text-[11px] text-[#5C5955]">{space.ownerEmail}</div>
+                            </td>
+                            <td className="py-4 px-4 capitalize">{space.type}</td>
+                            <td className="py-4 px-4">{space.memberCount}</td>
+                            <td className="py-4 px-4">{space.usedBytesFormatted} ({space.usedPercentage}%)</td>
+                            <td className="py-4 px-4">
+                              {space.syncStatus === "synchronized" ? (
+                                <span className="inline-flex items-center gap-1 text-[#5F735E]"><CheckCircle2 className="w-3.5 h-3.5" /> Synchronized</span>
+                              ) : space.syncStatus === "warning" ? (
+                                <span className="inline-flex items-center gap-1 text-[#B6423E]"><AlertTriangle className="w-3.5 h-3.5" /> High Quota</span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 text-[#76556F]"><Clock className="w-3.5 h-3.5" /> Processing</span>
+                              )}
+                            </td>
+                            <td className="py-4 px-5 text-right">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  lastInspectTriggerRef.current = e.currentTarget;
+                                  setInspectedSpace(space);
+                                }}
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-medium bg-[#F7F4EE] border border-[#E7E2DA]"
+                              >
+                                <SlidersHorizontal className="w-3 h-3" />
+                                Inspect
+                              </button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
                     </tbody>
                   </table>
                 </div>
@@ -1087,24 +1030,30 @@ export default function AdminPortalPage() {
                     </p>
                   </div>
                   <div className="divide-y divide-[#F0ECE1]">
-                    {orders.map((order) => (
-                      <div key={order.id} className="p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-2">
-                            <span className="font-mono text-xs font-bold text-[#76556F]">{order.id.slice(0, 12)}</span>
-                            <span className="font-serif font-bold text-sm text-[#20242C]">{order.bookTitle}</span>
+                    {orders.length === 0 ? (
+                      <div className="p-6 text-center text-xs text-[#5C5955]">
+                        {adminAuthorized
+                          ? "No physical print orders have been placed yet."
+                          : "Sign in as an administrator to manage live print fulfillment orders."}
+                      </div>
+                    ) : (
+                      orders.map((order) => (
+                        <div key={order.id} className="p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono text-xs font-bold text-[#76556F]">{order.id.slice(0, 12)}</span>
+                              <span className="font-serif font-bold text-sm text-[#20242C]">{order.bookTitle}</span>
+                            </div>
+                            <p className="text-xs text-[#5C5955]">
+                              {order.format} • {order.recipient} • {order.amount} {order.trackingNumber ? `• Track: ${order.trackingNumber}` : ""}
+                            </p>
                           </div>
-                          <p className="text-xs text-[#5C5955]">
-                            {order.format} • {order.recipient} • {order.amount} {order.trackingNumber ? `• Track: ${order.trackingNumber}` : ""}
-                          </p>
-                        </div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="px-3 py-1 rounded-full bg-[#F0ECE1] text-[11px] uppercase font-semibold text-[#20242C]">
-                            {order.status}
-                          </span>
-                          {order.status !== "shipped" && (
-                            <>
-                              {order.isLive && (
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="px-3 py-1 rounded-full bg-[#F0ECE1] text-[11px] uppercase font-semibold text-[#20242C]">
+                              {order.status}
+                            </span>
+                            {order.status !== "shipped" && (
+                              <>
                                 <input
                                   type="text"
                                   aria-label={`Tracking number for ${order.id}`}
@@ -1115,37 +1064,37 @@ export default function AdminPortalPage() {
                                   placeholder="Tracking # (optional)"
                                   className="px-2.5 py-1.5 rounded-lg bg-[#F7F4EE] border border-[#E7E2DA] text-xs w-36"
                                 />
-                              )}
-                              <button
-                                type="button"
-                                onClick={() => handleShipOrder(order)}
-                                className="px-3 py-1.5 rounded-xl bg-[#20242C] text-[#FFFFFF] text-xs font-medium"
-                              >
-                                Ship with Tracking
-                              </button>
-                            </>
-                          )}
-                          {order.isLive && order.status !== "cancelled" && (
-                            <>
-                              <button
-                                type="button"
-                                onClick={() => handleRefundOrder(order, "remake")}
-                                className="px-3 py-1.5 rounded-xl bg-[#F0ECE1] text-[#20242C] text-xs font-medium"
-                              >
-                                Authorize Remake
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleRefundOrder(order, "refund")}
-                                className="px-3 py-1.5 rounded-xl bg-[#FDF2F2] text-[#B6423E] text-xs font-medium"
-                              >
-                                Issue Refund
-                              </button>
-                            </>
-                          )}
+                                <button
+                                  type="button"
+                                  onClick={() => handleShipOrder(order)}
+                                  className="px-3 py-1.5 rounded-xl bg-[#20242C] text-[#FFFFFF] text-xs font-medium"
+                                >
+                                  Ship with Tracking
+                                </button>
+                              </>
+                            )}
+                            {order.status !== "cancelled" && (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRefundOrder(order, "remake")}
+                                  className="px-3 py-1.5 rounded-xl bg-[#F0ECE1] text-[#20242C] text-xs font-medium"
+                                >
+                                  Authorize Remake
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRefundOrder(order, "refund")}
+                                  className="px-3 py-1.5 rounded-xl bg-[#FDF2F2] text-[#B6423E] text-xs font-medium"
+                                >
+                                  Issue Refund
+                                </button>
+                              </>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      ))
+                    )}
                   </div>
                 </div>
 

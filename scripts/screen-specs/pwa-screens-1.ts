@@ -1470,7 +1470,7 @@ export const pwaScreens1: ScreenSpec[] = [
       e2e: ["adds 2 family emails, sends invitations, navigates to first upload"]
     },
     uiComponents: ["InviteRowList", "RoleSelectDropdown", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "PWA-18",
@@ -2065,7 +2065,7 @@ export const pwaScreens1: ScreenSpec[] = [
       e2e: ["updates contributor role to Editor and confirms updated badge"]
     },
     uiComponents: ["MemberTable", "RoleBadge", "InviteModal", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "PWA-25",
@@ -2148,7 +2148,7 @@ export const pwaScreens1: ScreenSpec[] = [
       e2e: ["navigates to settings, requests ZIP export, verifies export job started"]
     },
     uiComponents: ["SettingsLayout", "ExportButton", "DangerZoneCard", "ConfirmModal"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "PWA-26",

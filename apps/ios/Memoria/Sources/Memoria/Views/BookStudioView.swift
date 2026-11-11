@@ -204,5 +204,16 @@ public struct BookStudioView: View {
 
     private func persistSelection() {
         try? BookStatePersistenceService.shared.saveConfiguration(configuration, for: volume.id)
+        if UUID(uuidString: volume.id) != nil {
+            let configCopy = configuration
+            Task {
+                _ = try? await MemoriaAPIClient.shared.updateBook(
+                    bookId: volume.id,
+                    coverTitle: configCopy.coverTitle,
+                    coverColor: configCopy.leather.hexString,
+                    foilStamping: configCopy.foil.rawValue
+                )
+            }
+        }
     }
 }

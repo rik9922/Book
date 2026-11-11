@@ -412,7 +412,7 @@ export function buildGateway(options?: GatewayOptions): FastifyInstance {
   const commerceUrl = options?.commerceServiceUrl || process.env.COMMERCE_SERVICE_URL || "http://localhost:4007";
   const notificationUrl = options?.notificationServiceUrl || process.env.NOTIFICATION_SERVICE_URL || "http://localhost:4008";
 
-  async function forwardGetToUpstream(
+  async function forwardToUpstream(
     req: FastifyRequest,
     reply: FastifyReply,
     upstreamBaseUrl: string
@@ -425,8 +425,20 @@ export function buildGateway(options?: GatewayOptions): FastifyInstance {
     if (correlationId) {
       headers["x-correlation-id"] = correlationId;
     }
+    if (req.headers["content-type"]) {
+      headers["content-type"] = String(req.headers["content-type"]);
+    }
+    const hasBody = req.method !== "GET" && req.method !== "HEAD" && req.body !== undefined;
+    const body = hasBody ? (typeof req.body === "string" ? req.body : JSON.stringify(req.body)) : undefined;
+    if (body && !headers["content-type"]) {
+      headers["content-type"] = "application/json";
+    }
     const target = `${upstreamBaseUrl}${req.url}`;
-    const upstreamRes = await fetch(target, { method: req.method, headers });
+    const upstreamRes = await fetch(target, {
+      method: req.method,
+      headers,
+      ...(body !== undefined ? { body } : {}),
+    });
     const bodyText = await upstreamRes.text();
     const contentType = upstreamRes.headers.get("content-type");
     if (contentType) {
@@ -437,11 +449,15 @@ export function buildGateway(options?: GatewayOptions): FastifyInstance {
 
   // Space-scoped sub-resources owned by Book & Media contexts (must precede /api/v1/spaces proxy to memory-service)
   app.get("/api/v1/spaces/:spaceId/books", async (req, reply) => {
-    return forwardGetToUpstream(req, reply, bookUrl);
+    return forwardToUpstream(req, reply, bookUrl);
+  });
+
+  app.post("/api/v1/spaces/:spaceId/books", async (req, reply) => {
+    return forwardToUpstream(req, reply, bookUrl);
   });
 
   app.get("/api/v1/spaces/:spaceId/media", async (req, reply) => {
-    return forwardGetToUpstream(req, reply, mediaUrl);
+    return forwardToUpstream(req, reply, mediaUrl);
   });
 
   app.register(httpProxy, {

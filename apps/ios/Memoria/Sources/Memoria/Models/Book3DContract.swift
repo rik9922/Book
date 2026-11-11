@@ -136,6 +136,21 @@ public enum BookLeatherSwatch: String, CaseIterable, Identifiable, Sendable, Cod
             Double((hexUInt >> 00) & 0xff) / 255.0
         )
     }
+
+    public static func fromHexOrId(_ value: String) -> BookLeatherSwatch {
+        let lower = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if let exact = BookLeatherSwatch(rawValue: lower) {
+            return exact
+        }
+        switch lower {
+        case "#76556f": return .plum
+        case "#16233b": return .navy
+        case "#3b141c": return .burgundy
+        case "#1c1c1e", "#20242c": return .onyx
+        case "#1b382b", "#304c43": return .emerald
+        default: return .plum
+        }
+    }
 }
 
 public enum BookFoilSwatch: String, CaseIterable, Identifiable, Sendable, Codable {
@@ -143,6 +158,10 @@ public enum BookFoilSwatch: String, CaseIterable, Identifiable, Sendable, Codabl
     case rose
     case silver
     case blindEmboss = "blind_emboss"
+
+    public static func fromRaw(_ value: String) -> BookFoilSwatch {
+        BookFoilSwatch(rawValue: value.lowercased()) ?? .gold
+    }
 
     public var id: String { rawValue }
 
@@ -464,6 +483,10 @@ public struct BookVolumeRecord: Identifiable, Sendable, Equatable, Codable {
     public let editionBadge: String
     public let totalPageCount: Int
     public let isFrozenForPrint: Bool
+    public let format: String
+    public let version: Int
+    public let frozenEditionHash: String?
+    public let spaceId: String?
     public let defaultConfiguration: Book3DConfiguration
     public let spreads: [BookSpreadPreview]
 
@@ -472,6 +495,10 @@ public struct BookVolumeRecord: Identifiable, Sendable, Equatable, Codable {
         editionBadge: String,
         totalPageCount: Int,
         isFrozenForPrint: Bool,
+        format: String = "hardcover_standard_8x10",
+        version: Int = 1,
+        frozenEditionHash: String? = nil,
+        spaceId: String? = nil,
         defaultConfiguration: Book3DConfiguration,
         spreads: [BookSpreadPreview]
     ) {
@@ -479,6 +506,10 @@ public struct BookVolumeRecord: Identifiable, Sendable, Equatable, Codable {
         self.editionBadge = editionBadge
         self.totalPageCount = totalPageCount
         self.isFrozenForPrint = isFrozenForPrint
+        self.format = format
+        self.version = version
+        self.frozenEditionHash = frozenEditionHash
+        self.spaceId = spaceId
         self.defaultConfiguration = defaultConfiguration
         self.spreads = spreads
     }

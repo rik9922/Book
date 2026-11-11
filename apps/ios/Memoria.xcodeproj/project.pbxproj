@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		03DB0094EFC76DD75D3ABEF3 /* BookCreatorWizardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B030DCCC14B9591B6F534A94 /* BookCreatorWizardView.swift */; };
 		04F0850D9FD066C4BF87DCB1 /* MemoriaHeirloomBook_Efficient.usdz in Resources */ = {isa = PBXBuildFile; fileRef = CDB8BB6C8F8A23945C3694B2 /* MemoriaHeirloomBook_Efficient.usdz */; };
 		05B4D6EFA0DDF0C35E9278D7 /* MemoriaHeirloomBook_Premium.usdz in Resources */ = {isa = PBXBuildFile; fileRef = 74C7FC8D7FC570ADB40DC951 /* MemoriaHeirloomBook_Premium.usdz */; };
 		06A81C8E818D9245535EE569 /* Adaptive3DEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5462DDB9BD7DBD096A827AA0 /* Adaptive3DEngineTests.swift */; };
@@ -124,6 +125,7 @@
 		A4A1313A82A0BCAE363141D7 /* PageDeformationController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PageDeformationController.swift; sourceTree = "<group>"; };
 		ACB26199B11CF3D25350B220 /* DeviceCapabilityAnalyzer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceCapabilityAnalyzer.swift; sourceTree = "<group>"; };
 		AF1A3C22B9D973A43B9D34C6 /* BookInteractionController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookInteractionController.swift; sourceTree = "<group>"; };
+		B030DCCC14B9591B6F534A94 /* BookCreatorWizardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookCreatorWizardView.swift; sourceTree = "<group>"; };
 		B0A494B8830F6E2D398605BE /* BookCoverThumbnailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookCoverThumbnailView.swift; sourceTree = "<group>"; };
 		B8C163EC22FED956B38FB094 /* AuthSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthSheetView.swift; sourceTree = "<group>"; };
 		C1BE195B60330E260358A724 /* MediaImportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaImportService.swift; sourceTree = "<group>"; };
@@ -168,6 +170,7 @@
 				A2AF54DCB89CB19776E5818D /* Book3DReaderView.swift */,
 				A00B846A423A8D175D4AEB91 /* Book3DRealityView.swift */,
 				B0A494B8830F6E2D398605BE /* BookCoverThumbnailView.swift */,
+				B030DCCC14B9591B6F534A94 /* BookCreatorWizardView.swift */,
 				19AEDC5562366A80B2C8E901 /* BookPreviewView.swift */,
 				80C980320A5A67ABC6685DCE /* BookshelfView.swift */,
 				1B57F1E422D79CE8A1821689 /* BookStudioView.swift */,
@@ -478,6 +481,7 @@
 				757BDD94BE487002F3AA50F5 /* BookAnimationController.swift in Sources */,
 				B570A52C07EF6BBB8C945E08 /* BookAssetManager.swift in Sources */,
 				502E09DEC7BBCA9AD5CEE02F /* BookCoverThumbnailView.swift in Sources */,
+				03DB0094EFC76DD75D3ABEF3 /* BookCreatorWizardView.swift in Sources */,
 				C1E6E8EE7E30938A5873AE7B /* BookFallbackController.swift in Sources */,
 				2CF459F946783B52AA95E648 /* BookInteractionController.swift in Sources */,
 				286CCC3205218C577BD1504C /* BookPreviewView.swift in Sources */,

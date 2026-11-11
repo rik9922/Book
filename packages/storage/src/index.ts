@@ -33,14 +33,12 @@ export interface StorageDriver {
  */
 export class LocalDiskStorageDriver implements StorageDriver {
   private baseDir: string;
-  private publicBaseUrl: string;
-  private uploadBaseUrl: string;
+  private publicBaseUrlOverride?: string;
   private signingSecret: string;
 
   constructor(baseDir?: string, publicBaseUrl?: string, signingSecret?: string) {
     this.baseDir = baseDir || process.env.LOCAL_STORAGE_PATH || path.join(process.cwd(), "storage_data");
-    this.publicBaseUrl = publicBaseUrl || process.env.PUBLIC_MEDIA_URL || "http://localhost:4003/api/v1/media/files";
-    this.uploadBaseUrl = process.env.LOCAL_MEDIA_UPLOAD_URL || "http://localhost:4003/api/v1/media/local-upload";
+    this.publicBaseUrlOverride = publicBaseUrl;
     this.signingSecret = signingSecret || process.env.SESSION_SECRET || DEFAULT_LOCAL_SESSION_SECRET;
   }
 
@@ -61,7 +59,8 @@ export class LocalDiskStorageDriver implements StorageDriver {
       this.signingSecret
     );
     const cleanKey = encodeURIComponent(key);
-    return `${this.uploadBaseUrl}?key=${cleanKey}&contentType=${encodeURIComponent(contentType)}&expires=${expiresAtEpochSec}&sig=${sig}`;
+    const uploadBaseUrl = process.env.LOCAL_MEDIA_UPLOAD_URL || "http://localhost:4003/api/v1/media/local-upload";
+    return `${uploadBaseUrl}?key=${cleanKey}&contentType=${encodeURIComponent(contentType)}&expires=${expiresAtEpochSec}&sig=${sig}`;
   }
 
   async generateDownloadUrl(key: string, expiresInSeconds = 86400): Promise<string> {
@@ -71,7 +70,8 @@ export class LocalDiskStorageDriver implements StorageDriver {
       this.signingSecret
     );
     const encodedPath = key.split("/").map(encodeURIComponent).join("/");
-    return `${this.publicBaseUrl}/${encodedPath}?expires=${expiresAtEpochSec}&sig=${sig}`;
+    const publicBaseUrl = this.publicBaseUrlOverride || process.env.PUBLIC_MEDIA_URL || "http://localhost:4003/api/v1/media/files";
+    return `${publicBaseUrl}/${encodedPath}?expires=${expiresAtEpochSec}&sig=${sig}`;
   }
 
   async verifyObjectExists(key: string): Promise<{ exists: boolean; sizeBytes?: number }> {

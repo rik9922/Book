@@ -298,6 +298,115 @@ struct Book3DEngineTests {
         #expect(pfUrl.absoluteString == "http://127.0.0.1:4000/api/v1/books/bk-1/preflight")
     }
 
+    @Test("Verify Live Book, Order Quote/Tracking & Collab Governance DTO Decoding")
+    func testLiveBooksCommerceAndGovernanceDTOs() async throws {
+        let bookJson = """
+        {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "spaceId": "22222222-2222-4222-8222-222222222222",
+          "title": "Bennett Chronicle",
+          "subtitle": "1948 - 2026",
+          "format": "hardcover_grand_12x12",
+          "coverColor": "#76556F",
+          "foilStamping": "gold",
+          "coverTitle": "Bennett Chronicle",
+          "spineText": "BENNETT",
+          "version": 2,
+          "isFrozenForPrint": true,
+          "frozenEditionHash": "abcdef1234567890",
+          "spreads": [
+            {
+              "id": "spr-1",
+              "spreadIndex": 0,
+              "leftPage": null,
+              "rightPage": {
+                "id": "pg-1",
+                "pageNumber": 1,
+                "layoutType": "editorial_chapter_title",
+                "backgroundColor": "#F7F4ED",
+                "elements": [
+                  { "id": "el-1", "type": "heading", "content": "Chapter One" },
+                  { "id": "el-2", "type": "caption", "content": "Summer in Sonoma" }
+                ]
+              }
+            }
+          ],
+          "createdAt": "2026-11-11T00:00:00Z",
+          "updatedAt": "2026-11-11T00:00:00Z"
+        }
+        """
+        let bookDto = try JSONDecoder().decode(BookDocumentDTO.self, from: Data(bookJson.utf8))
+        let volume = bookDto.toBookVolumeRecord()
+        #expect(volume.id == bookDto.id)
+        #expect(volume.isFrozenForPrint == true)
+        #expect(volume.frozenEditionHash == "abcdef1234567890")
+        #expect(volume.defaultConfiguration.leather == .plum)
+        #expect(volume.spreads.first?.rightHeading == "Chapter One")
+
+        let quoteJson = """
+        {
+          "currency": "USD",
+          "format": "hardcover_standard_8x10",
+          "shippingSpeed": "priority",
+          "quantity": 2,
+          "unitCents": 5200,
+          "subtotalCents": 10400,
+          "shippingCents": 2100,
+          "taxCents": 0,
+          "totalCents": 12500,
+          "estimatedDays": "2-3 business days"
+        }
+        """
+        let quote = try JSONDecoder().decode(OrderQuoteDTO.self, from: Data(quoteJson.utf8))
+        #expect(quote.totalCents == 12500)
+        #expect(quote.shippingSpeed == "priority")
+
+        let trackingJson = """
+        {
+          "orderId": "ord-1",
+          "status": "in_production",
+          "carrier": "Archival Press Courier",
+          "trackingNumber": "MEM-TRK-001",
+          "trackingUrl": null,
+          "estimatedDays": "5-7 business days",
+          "timeline": [
+            { "stage": "submitted", "completed": true, "active": false },
+            { "stage": "preflight_passed", "completed": true, "active": false },
+            { "stage": "in_production", "completed": true, "active": true },
+            { "stage": "shipped", "completed": false, "active": false },
+            { "stage": "delivered", "completed": false, "active": false }
+          ]
+        }
+        """
+        let tracking = try JSONDecoder().decode(OrderTrackingDTO.self, from: Data(trackingJson.utf8))
+        #expect(tracking.timeline.count == 5)
+        #expect(tracking.trackingNumber == "MEM-TRK-001")
+
+        let inviteJson = """
+        {
+          "invitation": {
+            "id": "inv-1",
+            "spaceId": "spc-1",
+            "inviteeEmail": "elena@family.local",
+            "role": "contributor",
+            "status": "pending",
+            "expiresAt": "2026-11-18T00:00:00Z"
+          },
+          "inviteToken": "tok-abcdef"
+        }
+        """
+        let invite = try JSONDecoder().decode(SpaceInvitationResponseDTO.self, from: Data(inviteJson.utf8))
+        #expect(invite.inviteToken == "tok-abcdef")
+
+        let client = MemoriaAPIClient(baseURL: URL(string: "http://127.0.0.1:4000/api/v1")!)
+        let booksUrl = await client.buildURL(path: "spaces/spc-1/books")
+        let quoteUrl = await client.buildURL(path: "orders/quote")
+        let membersUrl = await client.buildURL(path: "collab/spaces/spc-1/members")
+        #expect(booksUrl.absoluteString == "http://127.0.0.1:4000/api/v1/spaces/spc-1/books")
+        #expect(quoteUrl.absoluteString == "http://127.0.0.1:4000/api/v1/orders/quote")
+        #expect(membersUrl.absoluteString == "http://127.0.0.1:4000/api/v1/collab/spaces/spc-1/members")
+    }
+
     #if os(iOS) && canImport(RealityKit)
     @Test("Verify Bundled MemoriaHeirloomBook.usdz Loads and Matches Node Hierarchy")
     @MainActor
