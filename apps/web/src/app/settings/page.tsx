@@ -43,38 +43,49 @@ export default function SettingsPage() {
   const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
-    const session = getStoredSession();
-    setUser(session.user);
-    setFullNameInput(session.user?.fullName || "");
-    if (typeof window !== "undefined") {
-      setReducedMotion(localStorage.getItem(REDUCED_MOTION_KEY) === "true");
-    }
+    const loadSettings = () => {
+      const session = getStoredSession();
+      setUser(session.user);
+      setFullNameInput(session.user?.fullName || "");
+      if (typeof window !== "undefined") {
+        setReducedMotion(localStorage.getItem(REDUCED_MOTION_KEY) === "true");
+      }
 
-    if (session.accessToken) {
-      apiRequest<{ spaces?: MemorySpaceDTO[]; items?: MemorySpaceDTO[] } | MemorySpaceDTO[]>("/spaces")
-        .then((res) => {
-          const list = Array.isArray(res) ? res : res.spaces || res.items || [];
-          setSpaces(list);
-          if (list[0]) {
-            getStorageBreakdown(list[0].id).then(setStorageInfo).catch(() => undefined);
-          }
-        })
-        .catch(() => {
-          setSpaces([]);
-        });
-      getPreferences()
-        .then((p) => {
-          if (typeof p.reducedMotion === "boolean") setReducedMotion(p.reducedMotion);
-          if (p.language) setLanguage(p.language);
-        })
-        .catch(() => undefined);
-      getPrivacySettings()
-        .then((pr) => {
-          if (typeof pr.signedLinkTtlSeconds === "number") setSignedLinkTtl(pr.signedLinkTtlSeconds);
-          if (typeof pr.allowPublicGallery === "boolean") setAllowPublicGallery(pr.allowPublicGallery);
-        })
-        .catch(() => undefined);
-    }
+      if (session.accessToken) {
+        apiRequest<{ spaces?: MemorySpaceDTO[]; items?: MemorySpaceDTO[] } | MemorySpaceDTO[]>("/spaces")
+          .then((res) => {
+            const list = Array.isArray(res) ? res : res.spaces || res.items || [];
+            setSpaces(list);
+            if (list[0]) {
+              getStorageBreakdown(list[0].id).then(setStorageInfo).catch(() => undefined);
+            }
+          })
+          .catch(() => {
+            setSpaces([]);
+          });
+        getPreferences()
+          .then((p) => {
+            if (typeof p.reducedMotion === "boolean") setReducedMotion(p.reducedMotion);
+            if (p.language) setLanguage(p.language);
+          })
+          .catch(() => undefined);
+        getPrivacySettings()
+          .then((pr) => {
+            if (typeof pr.signedLinkTtlSeconds === "number") setSignedLinkTtl(pr.signedLinkTtlSeconds);
+            if (typeof pr.allowPublicGallery === "boolean") setAllowPublicGallery(pr.allowPublicGallery);
+          })
+          .catch(() => undefined);
+      } else {
+        setSpaces([]);
+        setStorageInfo(null);
+      }
+    };
+
+    loadSettings();
+    const unsubscribe = subscribeAuthChange(() => {
+      loadSettings();
+    });
+    return unsubscribe;
   }, []);
 
   const handleToggleReducedMotion = () => {
