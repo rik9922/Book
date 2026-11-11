@@ -13,7 +13,9 @@ import {
   listProfiles,
   MemoryDTO,
   MemorySpaceDTO,
+  openAuthModal,
   SpaceProfileDTO,
+  subscribeAuthChange,
   updateProfile,
 } from "@/lib/api";
 
@@ -77,6 +79,10 @@ export default function ProfilesPage() {
       }
     };
     init();
+    const unsubscribe = subscribeAuthChange(() => {
+      init();
+    });
+    return unsubscribe;
   }, [loadProfiles]);
 
   useEffect(() => {
