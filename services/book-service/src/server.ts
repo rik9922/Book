@@ -1003,6 +1003,7 @@ export async function buildBookService(): Promise<FastifyInstance> {
           memoryIds?: string[];
           template?: string;
           theme?: string;
+          preserveOrder?: boolean;
         };
       }>,
       reply
@@ -1050,9 +1051,11 @@ export async function buildBookService(): Promise<FastifyInstance> {
           : ("quote_spread" as const);
       const bgColor = templateName === "fine_art_spread" ? "#FBF9F5" : "#F7F4ED";
 
-      const sorted = [...memories].sort(
-        (a, b) => new Date(a.capturedAt || 0).getTime() - new Date(b.capturedAt || 0).getTime()
-      );
+      const sorted = req.body?.preserveOrder
+        ? [...memories]
+        : [...memories].sort(
+            (a, b) => new Date(a.capturedAt || 0).getTime() - new Date(b.capturedAt || 0).getTime()
+          );
       const baseIndex = book.spreads.length;
       const createdSpreads: BookSpread[] = [];
       for (let i = 0; i < sorted.length; i++) {

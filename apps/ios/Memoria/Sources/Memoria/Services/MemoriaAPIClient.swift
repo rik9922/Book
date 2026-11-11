@@ -1093,7 +1093,8 @@ public actor MemoriaAPIClient {
     public func curateBookMemories(
         bookId: String,
         memories: [(id: String, title: String, content: String?, capturedAt: String)],
-        template: String = "editorial_classic"
+        template: String = "editorial_classic",
+        preserveOrder: Bool = true
     ) async throws -> BookDocumentDTO {
         let memObjects: [[String: Any]] = memories.map { m in
             var dict: [String: Any] = [
@@ -1107,6 +1108,7 @@ public actor MemoriaAPIClient {
         let body = try JSONSerialization.data(withJSONObject: [
             "memories": memObjects,
             "template": template,
+            "preserveOrder": preserveOrder,
         ])
         let (data, httpResponse) = try await performAuthenticatedData(
             path: "books/\(bookId)/curate",

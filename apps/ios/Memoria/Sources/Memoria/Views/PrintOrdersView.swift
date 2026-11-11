@@ -339,6 +339,7 @@ public struct PrintOrderCheckoutSheet: View {
             .onChange(of: paperWeight) { _, _ in Task { await refreshQuote() } }
             .onChange(of: quantity) { _, _ in Task { await refreshQuote() } }
             .onChange(of: shippingSpeed) { _, _ in Task { await refreshQuote() } }
+            .onChange(of: country) { _, _ in Task { await refreshQuote() } }
         }
     }
 
@@ -348,7 +349,13 @@ public struct PrintOrderCheckoutSheet: View {
         let paperSurcharge = paperWeight == "170gsm_lustre" ? 400 : 0
         let unit = base + bindSurcharge + paperSurcharge
         let sub = unit * quantity
-        let ship = (country.uppercased() == "US" ? 900 : 2400) + (shippingSpeed == "priority" ? 1200 : 0)
+        let isDomestic = country.trimmingCharacters(in: .whitespacesAndNewlines).uppercased() == "US"
+        let baseShipping = isDomestic ? 900 : 2400
+        let prioritySurcharge = shippingSpeed == "priority" ? (isDomestic ? 1200 : 1800) : 0
+        let ship = baseShipping + prioritySurcharge
+        let days = shippingSpeed == "priority"
+            ? (isDomestic ? "2-3 business days" : "4-6 business days")
+            : (isDomestic ? "5-7 business days" : "10-14 business days")
         return OrderQuoteDTO(
             currency: "USD",
             format: format,
@@ -359,7 +366,7 @@ public struct PrintOrderCheckoutSheet: View {
             shippingCents: ship,
             taxCents: 0,
             totalCents: sub + ship,
-            estimatedDays: shippingSpeed == "priority" ? "2-3 business days" : "5-7 business days"
+            estimatedDays: days
         )
     }
 
@@ -408,7 +415,11 @@ public struct PrintOrderCheckoutSheet: View {
         errorMessage = nil
         statusMessage = nil
         let targetSpaceId = selectedSpaceId.isEmpty ? "e8cf4fc3-137e-4397-883d-21cd6a7cb61f" : selectedSpaceId
-        let targetBookId = UUID(uuidString: selectedBookId) != nil ? selectedBookId : (books.first?.id ?? UUID().uuidString)
+        guard let targetBookId = (UUID(uuidString: selectedBookId) != nil ? selectedBookId : books.first?.id) else {
+            errorMessage = "Sign in and create a book edition in your space before placing a physical print order."
+            isSubmitting = false
+            return
+        }
         do {
             let order = try await MemoriaAPIClient.shared.createPrintOrder(
                 spaceId: targetSpaceId,

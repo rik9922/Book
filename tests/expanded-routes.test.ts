@@ -933,4 +933,103 @@ describe("Expanded Screen Inventory Backend Routes Suite", () => {
       await Promise.all([identityApp.close(), memoryApp.close(), commerceApp.close(), notificationApp.close(), gatewayApp.close()]);
     }
   });
+
+  test("10. Book Space Route, Preserve-Order Curation & Postgres listBooks Spread Hydration via Gateway", async () => {
+    const [identityApp, memoryApp, bookApp] = await Promise.all([
+      buildIdentityService(),
+      buildMemoryService(),
+      buildBookService(),
+    ]);
+    const [idUrl, memUrl, bookUrl] = await Promise.all([
+      identityApp.listen({ port: 0, host: "127.0.0.1" }),
+      memoryApp.listen({ port: 0, host: "127.0.0.1" }),
+      bookApp.listen({ port: 0, host: "127.0.0.1" }),
+    ]);
+    const gatewayApp = buildGateway({
+      enableGrpcRouting: false,
+      identityServiceUrl: idUrl,
+      memoryServiceUrl: memUrl,
+      bookServiceUrl: bookUrl,
+    });
+    const gwUrl = await gatewayApp.listen({ port: 0, host: "127.0.0.1" });
+
+    try {
+      const regRes = await fetch(`${gwUrl}/api/v1/auth/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: `book_reg_${Date.now()}@memoria.internal`,
+          password: "StrongPassword123!",
+          fullName: "Book Curator",
+        }),
+      });
+      const regJson: any = await regRes.json();
+      assert.equal(regRes.status, 201);
+      const token = regJson.data.accessToken as string;
+
+      const spRes = await fetch(`${gwUrl}/api/v1/spaces`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ name: "Book Regression Vault", type: "family" }),
+      });
+      const spJson: any = await spRes.json();
+      assert.equal(spRes.status, 201);
+      const spaceId = spJson.data.id as string;
+
+      // Create space-scoped book via gateway
+      const createBookRes = await fetch(`${gwUrl}/api/v1/spaces/${spaceId}/books`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          title: "Custom Sequence Anthology",
+          subtitle: "2026 -> 2020",
+          format: "hardcover_standard_8x10",
+          coverColor: "#76556F",
+          foilStamping: "gold",
+        }),
+      });
+      const createBookJson: any = await createBookRes.json();
+      assert.equal(createBookRes.status, 201);
+      const bookId = createBookJson.data.id as string;
+
+      // Curate with preserveOrder: true putting 2026 memory BEFORE 2020 memory
+      const curateRes = await fetch(`${gwUrl}/api/v1/books/${bookId}/curate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          template: "editorial_classic",
+          preserveOrder: true,
+          memories: [
+            { id: crypto.randomUUID(), title: "Later 2026 Entry", content: "First spread", capturedAt: "2026-06-01T00:00:00Z" },
+            { id: crypto.randomUUID(), title: "Earlier 2020 Entry", content: "Second spread", capturedAt: "2020-06-01T00:00:00Z" },
+          ],
+        }),
+      });
+      const curateJson: any = await curateRes.json();
+      assert.equal(curateRes.status, 200);
+      assert.equal(curateJson.data.spreads.length, 3);
+      assert.equal(
+        curateJson.data.spreads[1].leftPage.elements.find((e: any) => e.type === "heading").content,
+        "Later 2026 Entry",
+        "preserveOrder: true must keep caller's custom sequence"
+      );
+
+      // List space books via gateway -> PostgresBookRepository.listBooks must return hydrated spreads!
+      const listRes = await fetch(`${gwUrl}/api/v1/spaces/${spaceId}/books`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const listJson: any = await listRes.json();
+      assert.equal(listRes.status, 200);
+      const listedBook = listJson.data.find((b: any) => b.id === bookId);
+      assert.ok(listedBook, "Created book must appear in space books list");
+      assert.equal(listedBook.spreads.length, 3, "PostgresBookRepository.listBooks must hydrate persisted spreads");
+
+      await fetch(`${gwUrl}/api/v1/spaces/${spaceId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    } finally {
+      await Promise.all([gatewayApp.close(), identityApp.close(), memoryApp.close(), bookApp.close()]);
+    }
+  });
 });

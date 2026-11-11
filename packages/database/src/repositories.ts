@@ -999,7 +999,26 @@ export class PostgresBookRepository implements BookRepository {
        FROM books WHERE space_id = $1 ORDER BY updated_at DESC`,
       [spaceId]
     );
-    return res.rows.map((b: any) => ({ ...b, spreads: [] }));
+    if (res.rows.length === 0) return [];
+    const bookIds = res.rows.map((b: any) => b.id);
+    const spreadsRes = await this.db.query(
+      `SELECT id, book_id as "bookId", spread_index as "spreadIndex", left_page as "leftPage", right_page as "rightPage"
+       FROM book_spreads WHERE book_id = ANY($1) ORDER BY spread_index ASC`,
+      [bookIds]
+    );
+    const spreadsByBook = new Map<string, BookSpread[]>();
+    for (const s of spreadsRes.rows) {
+      const spread: BookSpread = {
+        id: s.id,
+        spreadIndex: s.spreadIndex,
+        leftPage: typeof s.leftPage === "string" ? JSON.parse(s.leftPage) : s.leftPage,
+        rightPage: typeof s.rightPage === "string" ? JSON.parse(s.rightPage) : s.rightPage,
+      };
+      const existing = spreadsByBook.get(s.bookId) || [];
+      existing.push(spread);
+      spreadsByBook.set(s.bookId, existing);
+    }
+    return res.rows.map((b: any) => ({ ...b, spreads: spreadsByBook.get(b.id) || [] }));
   }
 
   async updateBook(

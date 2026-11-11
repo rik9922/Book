@@ -108,6 +108,12 @@ final class MemoriaUITests: XCTestCase {
         XCTAssertTrue(govBtn.waitForExistence(timeout: 3))
         govBtn.tap()
         XCTAssertTrue(app.navigationBars["Space Governance"].waitForExistence(timeout: 3))
+        let govEmail = app.textFields["Recipient Email"].firstMatch
+        if govEmail.waitForExistence(timeout: 2) {
+            govEmail.tap()
+            govEmail.typeText("clara@family.local")
+            XCTAssertTrue(app.buttons["Send Invitation"].isEnabled)
+        }
         app.buttons["Close"].firstMatch.tap()
 
         let profilesBtn = app.buttons["People & Profiles Directory"].firstMatch
@@ -143,21 +149,47 @@ final class MemoriaUITests: XCTestCase {
         let step2Btn = app.buttons["Continue to Memory Selection (IOS-46)"].firstMatch
         if step2Btn.waitForExistence(timeout: 3) && step2Btn.isEnabled {
             step2Btn.tap()
+            let mem1 = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Prologue'")).firstMatch
+            if mem1.waitForExistence(timeout: 3) { mem1.tap() }
+            let mem2 = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Autumn Harvest'")).firstMatch
+            if mem2.waitForExistence(timeout: 2) { mem2.tap() }
             let step3Btn = app.buttons["Continue to Spread Reordering (IOS-47)"].firstMatch
             if step3Btn.waitForExistence(timeout: 3) {
                 step3Btn.tap()
+                let moveUpBtn = app.buttons["Move Autumn Harvest in Sonoma up"].firstMatch
+                if moveUpBtn.waitForExistence(timeout: 2) && moveUpBtn.isEnabled {
+                    moveUpBtn.tap()
+                }
                 let step4Btn = app.buttons["Continue to Template & Cover (IOS-48)"].firstMatch
                 if step4Btn.waitForExistence(timeout: 3) {
                     step4Btn.tap()
+                    let createSubmitBtn = app.buttons["Create & Curate Heirloom Book"].firstMatch
+                    if createSubmitBtn.waitForExistence(timeout: 3) && createSubmitBtn.isEnabled {
+                        createSubmitBtn.tap()
+                    } else {
+                        app.buttons["Close"].firstMatch.tap()
+                    }
+                } else {
+                    app.buttons["Close"].firstMatch.tap()
                 }
+            } else {
+                app.buttons["Close"].firstMatch.tap()
             }
+        } else {
+            app.buttons["Close"].firstMatch.tap()
         }
-        app.buttons["Close"].firstMatch.tap()
+
+        XCTAssertTrue(app.staticTexts["UI Test Anthology"].waitForExistence(timeout: 4), "Wizard should append created book to Bookshelf")
 
         let specsBtn = app.buttons["Book specifications for The Bennett Heritage"].firstMatch
         if specsBtn.waitForExistence(timeout: 3) {
             specsBtn.tap()
             XCTAssertTrue(app.navigationBars["Book Specifications"].waitForExistence(timeout: 3))
+            let runPreflightBtn = app.buttons["Run Automated Preflight"].firstMatch
+            if runPreflightBtn.waitForExistence(timeout: 2) {
+                runPreflightBtn.tap()
+                XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS '300 DPI'")).firstMatch.waitForExistence(timeout: 3))
+            }
             app.buttons["Close"].firstMatch.tap()
         }
 
@@ -172,6 +204,8 @@ final class MemoriaUITests: XCTestCase {
         if studioBtn.waitForExistence(timeout: 3) {
             studioBtn.tap()
             XCTAssertTrue(app.navigationBars["Book Studio"].waitForExistence(timeout: 3))
+            let saveBtn = app.buttons["Save"].firstMatch
+            if saveBtn.waitForExistence(timeout: 2) { saveBtn.tap() }
             app.buttons["Close"].firstMatch.tap()
         }
 
@@ -183,6 +217,10 @@ final class MemoriaUITests: XCTestCase {
             if newOrderBtn.waitForExistence(timeout: 3) {
                 newOrderBtn.tap()
                 XCTAssertTrue(app.navigationBars["Print Checkout"].waitForExistence(timeout: 3))
+                let priorityBtn = app.buttons["Priority Insured Courier"].firstMatch
+                if priorityBtn.waitForExistence(timeout: 2) { priorityBtn.tap() }
+                let standardBtn = app.buttons["Standard Archival Parcel"].firstMatch
+                if standardBtn.waitForExistence(timeout: 2) { standardBtn.tap() }
                 app.buttons["Close"].firstMatch.tap()
             }
             app.navigationBars.buttons.element(boundBy: 0).tap()
