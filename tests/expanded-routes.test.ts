@@ -119,10 +119,25 @@ describe("Expanded Screen Inventory Backend Routes Suite", () => {
       method: "PATCH",
       url: `/api/v1/spaces/${space.id}/profiles/${prof.id}`,
       headers,
-      payload: { relationship: "Eldest Daughter" },
+      payload: { relationship: "Eldest Daughter", birthDate: "2018-04-05" },
     });
     assert.equal(profPatch.statusCode, 200);
-    assert.equal(JSON.parse(profPatch.body).data.relationship, "Eldest Daughter");
+    const patchedProf = JSON.parse(profPatch.body).data;
+    assert.equal(patchedProf.relationship, "Eldest Daughter");
+    assert.equal(patchedProf.type, "child", "Partial PATCH omitting type must preserve existing profile type");
+    assert.ok(String(patchedProf.birthDate).startsWith("2018-04-05"));
+
+    const profClearPatch = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/spaces/${space.id}/profiles/${prof.id}`,
+      headers,
+      payload: { relationship: null, birthDate: null },
+    });
+    assert.equal(profClearPatch.statusCode, 200);
+    const clearedProf = JSON.parse(profClearPatch.body).data;
+    assert.equal(clearedProf.type, "child");
+    assert.ok(!clearedProf.relationship);
+    assert.ok(!clearedProf.birthDate);
 
     // Create memory
     const memRes = await app.inject({
@@ -178,6 +193,68 @@ describe("Expanded Screen Inventory Backend Routes Suite", () => {
     });
     assert.equal(colAdd.statusCode, 200);
     assert.ok(JSON.parse(colAdd.body).data.memoryIds.includes(memory.id));
+
+    const mem2Res = await app.inject({
+      method: "POST",
+      url: "/api/v1/memories",
+      headers,
+      payload: {
+        spaceId: space.id,
+        title: "Bellagio Harbor Morning",
+        content: "Coffee by the ferry dock.",
+        format: "story",
+        capturedAt: new Date().toISOString(),
+        associatedProfileIds: [prof.id],
+      },
+    });
+    assert.equal(mem2Res.statusCode, 201);
+    const memory2 = JSON.parse(mem2Res.body).data;
+
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/spaces/${space.id}/collections/${collection.id}/memories`,
+      headers,
+      payload: { memoryId: memory2.id, sortOrder: 1 },
+    });
+
+    const reorderRes = await app.inject({
+      method: "PUT",
+      url: `/api/v1/spaces/${space.id}/collections/${collection.id}/reorder`,
+      headers,
+      payload: { memoryIds: [memory2.id, memory.id] },
+    });
+    assert.equal(reorderRes.statusCode, 200);
+
+    const colDetailRes = await app.inject({
+      method: "GET",
+      url: `/api/v1/spaces/${space.id}/collections/${collection.id}`,
+      headers,
+    });
+    assert.equal(colDetailRes.statusCode, 200);
+    const colDetail = JSON.parse(colDetailRes.body).data;
+    assert.deepEqual(
+      colDetail.memories.map((m: any) => m.id),
+      [memory2.id, memory.id],
+      "Collection detail must preserve reordered sort_order"
+    );
+
+    const colClearDesc = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/spaces/${space.id}/collections/${collection.id}`,
+      headers,
+      payload: { title: "Summer Retreats Revised", description: null },
+    });
+    assert.equal(colClearDesc.statusCode, 200);
+    assert.equal(JSON.parse(colClearDesc.body).data.title, "Summer Retreats Revised");
+    assert.ok(!JSON.parse(colClearDesc.body).data.description);
+
+    await app.inject({
+      method: "DELETE",
+      url: `/api/v1/spaces/${space.id}/collections/${collection.id}/memories/${memory2.id}`,
+      headers,
+    });
+    await app.inject({ method: "DELETE", url: `/api/v1/memories/${memory2.id}`, headers });
+    await app.inject({ method: "DELETE", url: `/api/v1/memories/${memory2.id}/permanent`, headers });
 
     // Export Bundle with SHA-256 verification
     const exportRes = await app.inject({

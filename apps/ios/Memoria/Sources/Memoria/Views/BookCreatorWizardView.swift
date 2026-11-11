@@ -303,13 +303,13 @@ public struct BookCreatorWizardView: View {
             loaded = remote
         } else {
             let local = LocalStorageService.shared.loadLocalMemories(forSpaceId: spaceId)
-            if !local.isEmpty {
-                loaded = local
-            } else {
-                loaded = [
-                    Memory(spaceId: spaceId, authorId: "local", title: "Prologue • Family Hearth", content: "Three generations gathered under the wisteria pergola."),
-                    Memory(spaceId: spaceId, authorId: "local", title: "Autumn Harvest in Sonoma", content: "Pressed Kodachrome reels and cider ledger notes."),
-                ]
+            let samples = [
+                Memory(id: "local-sample-1", spaceId: spaceId, authorId: "local", title: "Prologue • Family Hearth", content: "Three generations gathered under the wisteria pergola."),
+                Memory(id: "local-sample-2", spaceId: spaceId, authorId: "local", title: "Autumn Harvest in Sonoma", content: "Pressed Kodachrome reels and cider ledger notes."),
+            ]
+            loaded = local
+            for sample in samples where !loaded.contains(where: { $0.id == sample.id }) {
+                loaded.append(sample)
             }
         }
         for preselected in initialSelectedMemories where !loaded.contains(where: { $0.id == preselected.id }) {

@@ -489,6 +489,144 @@ struct Book3DEngineTests {
         #expect(profMemsUrl.absoluteString == "http://127.0.0.1:4000/api/v1/spaces/spc-1/memories?profileId=prof-1")
     }
 
+    @Test("Verify MediaEditParameters Persistence & API Client Collection/Profile/Media Mutations via URLProtocol")
+    func testCollectionProfileAndMediaAPIMutations() async throws {
+        // 1. Verify MediaEditParameters durable persistence
+        let mediaId = "test-media-\(UUID().uuidString)"
+        let edits = MediaEditParameters(rotateDegrees: 90, warmth: 0.6, cropPreset: "square_1_1", filterPreset: "Archival Warm")
+        try LocalStorageService.shared.saveMediaEditsLocally(edits, forMediaId: mediaId)
+        let loadedEdits = LocalStorageService.shared.loadLocalMediaEdits(forMediaId: mediaId)
+        #expect(loadedEdits == edits)
+
+        // 2. Verify HTTP method, URL, Authorization header, and JSON body serialization
+        final class StubRecorder: @unchecked Sendable {
+            private let lock = NSLock()
+            private var requests: [(method: String, url: String, auth: String?, body: [String: Any])] = []
+            private var nextJSON: Data = Data("{\"success\":true,\"data\":{}}".utf8)
+
+            func setNextJSON(_ data: Data) {
+                lock.lock()
+                defer { lock.unlock() }
+                nextJSON = data
+            }
+
+            func recordAndRespond(request: URLRequest) -> (Data, HTTPURLResponse) {
+                lock.lock()
+                defer { lock.unlock() }
+                let rawBody = request.httpBody ?? request.httpBodyStream.flatMap { stream -> Data? in
+                    stream.open()
+                    defer { stream.close() }
+                    var buffer = [UInt8](repeating: 0, count: 4096)
+                    var collected = Data()
+                    while stream.hasBytesAvailable {
+                        let read = stream.read(&buffer, maxLength: buffer.count)
+                        if read > 0 { collected.append(buffer, count: read) } else { break }
+                    }
+                    return collected
+                }
+                let parsedBody = (rawBody.flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any]) ?? [:]
+                requests.append((
+                    method: request.httpMethod ?? "GET",
+                    url: request.url?.absoluteString ?? "",
+                    auth: request.value(forHTTPHeaderField: "Authorization"),
+                    body: parsedBody
+                ))
+                let resp = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!
+                return (nextJSON, resp)
+            }
+
+            func lastRequest() -> (method: String, url: String, auth: String?, body: [String: Any])? {
+                lock.lock()
+                defer { lock.unlock() }
+                return requests.last
+            }
+        }
+
+        final class StubURLProtocol: URLProtocol, @unchecked Sendable {
+            nonisolated(unsafe) static var recorder: StubRecorder?
+            override class func canInit(with request: URLRequest) -> Bool { true }
+            override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+            override func startLoading() {
+                guard let recorder = Self.recorder else {
+                    client?.urlProtocol(self, didFailWithError: NSError(domain: "Stub", code: 500))
+                    return
+                }
+                let (data, response) = recorder.recordAndRespond(request: request)
+                client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+                client?.urlProtocol(self, didLoad: data)
+                client?.urlProtocolDidFinishLoading(self)
+            }
+            override func stopLoading() {}
+        }
+
+        let recorder = StubRecorder()
+        StubURLProtocol.recorder = recorder
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [StubURLProtocol.self]
+        let session = URLSession(configuration: config)
+        let client = MemoriaAPIClient(
+            baseURL: URL(string: "http://127.0.0.1:4000/api/v1")!,
+            urlSession: session,
+            useKeychain: false
+        )
+        await client.setAuthToken("jwt-test-token")
+
+        let colPayload = """
+        {"success":true,"data":{"id":"col-1","spaceId":"spc-1","title":"Updated","description":null,"coverMemoryId":null,"memoryIds":["mem-2","mem-1"],"createdAt":"2026-11-11T00:00:00Z","updatedAt":"2026-11-11T00:00:00Z"}}
+        """
+        recorder.setNextJSON(Data(colPayload.utf8))
+        let updatedCol = try await client.updateCollection(spaceId: "spc-1", collectionId: "col-1", title: "Updated", clearDescription: true)
+        #expect(updatedCol.title == "Updated")
+        let req1 = recorder.lastRequest()
+        #expect(req1?.method == "PATCH")
+        #expect(req1?.url == "http://127.0.0.1:4000/api/v1/spaces/spc-1/collections/col-1")
+        #expect(req1?.auth == "Bearer jwt-test-token")
+        #expect(req1?.body["description"] is NSNull)
+
+        recorder.setNextJSON(Data(colPayload.utf8))
+        let reordered = try await client.reorderCollectionMemories(spaceId: "spc-1", collectionId: "col-1", memoryIds: ["mem-2", "mem-1"])
+        #expect(reordered.memoryIds == ["mem-2", "mem-1"])
+        let req2 = recorder.lastRequest()
+        #expect(req2?.method == "PUT")
+        #expect(req2?.url == "http://127.0.0.1:4000/api/v1/spaces/spc-1/collections/col-1/reorder")
+        #expect((req2?.body["memoryIds"] as? [String]) == ["mem-2", "mem-1"])
+
+        recorder.setNextJSON(Data(colPayload.utf8))
+        _ = try await client.addMemoryToCollection(spaceId: "spc-1", collectionId: "col-1", memoryId: "mem-1", sortOrder: 1)
+        #expect(recorder.lastRequest()?.method == "POST")
+        #expect(recorder.lastRequest()?.url == "http://127.0.0.1:4000/api/v1/spaces/spc-1/collections/col-1/memories")
+
+        recorder.setNextJSON(Data("{\"success\":true,\"data\":{\"removed\":true}}".utf8))
+        try await client.removeMemoryFromCollection(spaceId: "spc-1", collectionId: "col-1", memoryId: "mem-1")
+        #expect(recorder.lastRequest()?.method == "DELETE")
+        #expect(recorder.lastRequest()?.url == "http://127.0.0.1:4000/api/v1/spaces/spc-1/collections/col-1/memories/mem-1")
+
+        let profPayload = """
+        {"success":true,"data":{"id":"prof-1","spaceId":"spc-1","name":"Eleanor","relationship":"Grandmother","type":"parent","birthDate":null}}
+        """
+        recorder.setNextJSON(Data(profPayload.utf8))
+        let updatedProf = try await client.updateProfile(spaceId: "spc-1", profileId: "prof-1", relationship: "Grandmother", clearBirthDate: true)
+        #expect(updatedProf.type == "parent")
+        let reqProf = recorder.lastRequest()
+        #expect(reqProf?.method == "PATCH")
+        #expect(reqProf?.url == "http://127.0.0.1:4000/api/v1/spaces/spc-1/profiles/prof-1")
+        #expect(reqProf?.body["birthDate"] is NSNull)
+        #expect(reqProf?.body["type"] == nil)
+
+        recorder.setNextJSON(Data("{\"success\":true,\"data\":{\"deleted\":true}}".utf8))
+        try await client.deleteProfile(spaceId: "spc-1", profileId: "prof-1")
+        #expect(recorder.lastRequest()?.method == "DELETE")
+        #expect(recorder.lastRequest()?.url == "http://127.0.0.1:4000/api/v1/spaces/spc-1/profiles/prof-1")
+
+        try await client.deleteCollection(spaceId: "spc-1", collectionId: "col-1")
+        #expect(recorder.lastRequest()?.method == "DELETE")
+        #expect(recorder.lastRequest()?.url == "http://127.0.0.1:4000/api/v1/spaces/spc-1/collections/col-1")
+
+        try await client.applyMediaNonDestructiveEdit(mediaId: "med-1", rotateDegrees: 90, warmth: 0.6, cropPreset: "square_1_1")
+        #expect(recorder.lastRequest()?.method == "POST")
+        #expect(recorder.lastRequest()?.url == "http://127.0.0.1:4000/api/v1/media/med-1/derivatives")
+    }
+
     #if os(iOS) && canImport(RealityKit)
     @Test("Verify Bundled MemoriaHeirloomBook.usdz Loads and Matches Node Hierarchy")
     @MainActor

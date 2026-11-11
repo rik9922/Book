@@ -56,6 +56,25 @@ public struct MemoryReactionState: Codable, Sendable, Equatable {
     }
 }
 
+public struct MediaEditParameters: Codable, Sendable, Equatable {
+    public var rotateDegrees: Int
+    public var warmth: Double
+    public var cropPreset: String
+    public var filterPreset: String
+
+    public init(
+        rotateDegrees: Int = 0,
+        warmth: Double = 0.0,
+        cropPreset: String = "original",
+        filterPreset: String = "Original"
+    ) {
+        self.rotateDegrees = rotateDegrees
+        self.warmth = warmth
+        self.cropPreset = cropPreset
+        self.filterPreset = filterPreset
+    }
+}
+
 public struct PendingMutation: Codable, Identifiable, Sendable {
     public let id: String
     public let entityType: String
@@ -222,6 +241,27 @@ public final class LocalStorageService: @unchecked Sendable {
             return decoded
         }
         return MemoryReactionState()
+    }
+
+    public func saveMediaEditsLocally(_ edits: MediaEditParameters, forMediaId mediaId: String) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        let sanitized = mediaId.replacingOccurrences(of: "/", with: "_")
+        let fileURL = archiveDirectory.appendingPathComponent("media_edits_\(sanitized).json")
+        let data = try JSONEncoder().encode(edits)
+        try writeProtected(data, to: fileURL)
+    }
+
+    public func loadLocalMediaEdits(forMediaId mediaId: String) -> MediaEditParameters? {
+        lock.lock()
+        defer { lock.unlock() }
+        let sanitized = mediaId.replacingOccurrences(of: "/", with: "_")
+        let fileURL = archiveDirectory.appendingPathComponent("media_edits_\(sanitized).json")
+        if let data = try? Data(contentsOf: fileURL),
+           let decoded = try? JSONDecoder().decode(MediaEditParameters.self, from: data) {
+            return decoded
+        }
+        return nil
     }
 
     // MARK: - Durable Offline Pending Mutation Queue (Never deleted by clearCache)

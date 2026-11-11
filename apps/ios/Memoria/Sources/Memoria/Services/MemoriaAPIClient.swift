@@ -443,17 +443,30 @@ public actor MemoriaAPIClient {
     private static let refreshTokenKey = "memoria_refresh_token"
 
     public private(set) var baseURL: URL
+    private let urlSession: URLSession
+    private let useKeychain: Bool
     private var authToken: String?
     private var refreshTokenValue: String?
 
-    public init(baseURL: URL? = nil) {
+    public init(
+        baseURL: URL? = nil,
+        urlSession: URLSession = .shared,
+        useKeychain: Bool = true
+    ) {
         if let provided = baseURL {
             self.baseURL = provided
         } else {
             self.baseURL = Self.resolveDefaultBaseURL()
         }
-        self.authToken = KeychainTokenStore.shared.read(forKey: Self.accessTokenKey)
-        self.refreshTokenValue = KeychainTokenStore.shared.read(forKey: Self.refreshTokenKey)
+        self.urlSession = urlSession
+        self.useKeychain = useKeychain
+        if useKeychain {
+            self.authToken = KeychainTokenStore.shared.read(forKey: Self.accessTokenKey)
+            self.refreshTokenValue = KeychainTokenStore.shared.read(forKey: Self.refreshTokenKey)
+        } else {
+            self.authToken = nil
+            self.refreshTokenValue = nil
+        }
     }
 
     public static func resolveDefaultBaseURL() -> URL {
@@ -480,18 +493,24 @@ public actor MemoriaAPIClient {
 
     public func setAuthToken(_ token: String, refreshToken: String? = nil) {
         self.authToken = token
-        KeychainTokenStore.shared.save(token, forKey: Self.accessTokenKey)
+        if useKeychain {
+            KeychainTokenStore.shared.save(token, forKey: Self.accessTokenKey)
+        }
         if let refreshToken {
             self.refreshTokenValue = refreshToken
-            KeychainTokenStore.shared.save(refreshToken, forKey: Self.refreshTokenKey)
+            if useKeychain {
+                KeychainTokenStore.shared.save(refreshToken, forKey: Self.refreshTokenKey)
+            }
         }
     }
 
     public func clearAuthSession() {
         self.authToken = nil
         self.refreshTokenValue = nil
-        KeychainTokenStore.shared.delete(forKey: Self.accessTokenKey)
-        KeychainTokenStore.shared.delete(forKey: Self.refreshTokenKey)
+        if useKeychain {
+            KeychainTokenStore.shared.delete(forKey: Self.accessTokenKey)
+            KeychainTokenStore.shared.delete(forKey: Self.refreshTokenKey)
+        }
     }
 
     public func getAuthToken() -> String? {
@@ -535,7 +554,7 @@ public actor MemoriaAPIClient {
         req.setValue(nil, forHTTPHeaderField: "Authorization")
         req.httpBody = try? JSONSerialization.data(withJSONObject: ["refreshToken": refreshToken])
 
-        guard let (data, resp) = try? await URLSession.shared.data(for: req),
+        guard let (data, resp) = try? await urlSession.data(for: req),
               let http = resp as? HTTPURLResponse,
               (200...299).contains(http.statusCode) else {
             return false
@@ -564,13 +583,13 @@ public actor MemoriaAPIClient {
     ) async throws -> (Data, HTTPURLResponse) {
         var req = createRequest(path: path, queryItems: queryItems, method: method)
         req.httpBody = body
-        var (data, response) = try await URLSession.shared.data(for: req)
+        var (data, response) = try await urlSession.data(for: req)
 
         if let http = response as? HTTPURLResponse, http.statusCode == 401 {
             if await refreshSessionIfPossible() {
                 var retryReq = createRequest(path: path, queryItems: queryItems, method: method)
                 retryReq.httpBody = body
-                (data, response) = try await URLSession.shared.data(for: retryReq)
+                (data, response) = try await urlSession.data(for: retryReq)
             }
         }
 
@@ -590,7 +609,7 @@ public actor MemoriaAPIClient {
         var request = createRequest(path: "auth/login", method: "POST")
         request.httpBody = try JSONSerialization.data(withJSONObject: ["email": email, "password": password])
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await urlSession.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode) else {
             throw NSError(domain: "MemoriaAPIClient", code: (response as? HTTPURLResponse)?.statusCode ?? 401, userInfo: [NSLocalizedDescriptionKey: "Invalid email or password"])
         }
@@ -612,7 +631,7 @@ public actor MemoriaAPIClient {
             "fullName": fullName,
         ])
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await urlSession.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode) else {
             throw NSError(domain: "MemoriaAPIClient", code: (response as? HTTPURLResponse)?.statusCode ?? 400, userInfo: [NSLocalizedDescriptionKey: "Registration failed"])
         }
@@ -630,7 +649,7 @@ public actor MemoriaAPIClient {
         if let refresh = refreshTokenValue {
             var request = createRequest(path: "auth/logout", method: "POST")
             request.httpBody = try? JSONSerialization.data(withJSONObject: ["refreshToken": refresh])
-            _ = try? await URLSession.shared.data(for: request)
+            _ = try? await urlSession.data(for: request)
         }
         clearAuthSession()
     }
@@ -716,7 +735,7 @@ public actor MemoriaAPIClient {
         putReq.setValue(mimeType, forHTTPHeaderField: "Content-Type")
         putReq.httpBody = fileData
 
-        let (_, putResp) = try await URLSession.shared.data(for: putReq)
+        let (_, putResp) = try await urlSession.data(for: putReq)
         guard let httpPutResp = putResp as? HTTPURLResponse, (200...299).contains(httpPutResp.statusCode) else {
             throw NSError(domain: "MemoriaAPIClient", code: (putResp as? HTTPURLResponse)?.statusCode ?? 500, userInfo: [NSLocalizedDescriptionKey: "Failed to upload media binary"])
         }
@@ -794,7 +813,7 @@ public actor MemoriaAPIClient {
 
     public func fetchBook3DManifest() async throws -> Book3DManifestDTO {
         let request = createRequest(path: "books/3d/manifest", method: "GET")
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await urlSession.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode) else {
             throw NSError(
                 domain: "MemoriaAPIClient",
@@ -858,13 +877,23 @@ public actor MemoriaAPIClient {
         name: String? = nil,
         relationship: String? = nil,
         type: String? = nil,
-        birthDate: String? = nil
+        birthDate: String? = nil,
+        clearRelationship: Bool = false,
+        clearBirthDate: Bool = false
     ) async throws -> SpaceProfileDTO {
         var payload: [String: Any] = [:]
         if let name { payload["name"] = name }
-        if let relationship { payload["relationship"] = relationship }
+        if clearRelationship {
+            payload["relationship"] = NSNull()
+        } else if let relationship {
+            payload["relationship"] = relationship
+        }
         if let type { payload["type"] = type }
-        if let birthDate, !birthDate.isEmpty { payload["birthDate"] = birthDate }
+        if clearBirthDate {
+            payload["birthDate"] = NSNull()
+        } else if let birthDate, !birthDate.isEmpty {
+            payload["birthDate"] = birthDate
+        }
         let body = try JSONSerialization.data(withJSONObject: payload)
         let (data, httpResponse) = try await performAuthenticatedData(
             path: "spaces/\(spaceId)/profiles/\(profileId)",
@@ -926,11 +955,16 @@ public actor MemoriaAPIClient {
         collectionId: String,
         title: String? = nil,
         description: String? = nil,
-        coverMemoryId: String? = nil
+        coverMemoryId: String? = nil,
+        clearDescription: Bool = false
     ) async throws -> CollectionDTO {
         var payload: [String: Any] = [:]
         if let title { payload["title"] = title }
-        if let description { payload["description"] = description }
+        if clearDescription {
+            payload["description"] = NSNull()
+        } else if let description {
+            payload["description"] = description
+        }
         if let coverMemoryId { payload["coverMemoryId"] = coverMemoryId }
         let body = try JSONSerialization.data(withJSONObject: payload)
         let (data, httpResponse) = try await performAuthenticatedData(
@@ -940,6 +974,24 @@ public actor MemoriaAPIClient {
         )
         guard (200...299).contains(httpResponse.statusCode) else {
             throw NSError(domain: "MemoriaAPIClient", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Failed to update collection"])
+        }
+        struct Envelope: Decodable { let success: Bool; let data: CollectionDTO }
+        return try JSONDecoder().decode(Envelope.self, from: data).data
+    }
+
+    public func reorderCollectionMemories(
+        spaceId: String,
+        collectionId: String,
+        memoryIds: [String]
+    ) async throws -> CollectionDTO {
+        let body = try JSONSerialization.data(withJSONObject: ["memoryIds": memoryIds])
+        let (data, httpResponse) = try await performAuthenticatedData(
+            path: "spaces/\(spaceId)/collections/\(collectionId)/reorder",
+            method: "PUT",
+            body: body
+        )
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw NSError(domain: "MemoriaAPIClient", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Failed to reorder collection memories"])
         }
         struct Envelope: Decodable { let success: Bool; let data: CollectionDTO }
         return try JSONDecoder().decode(Envelope.self, from: data).data
@@ -1046,7 +1098,7 @@ public actor MemoriaAPIClient {
 
     public func fetchBookCatalog() async throws -> PrintCatalogDTO {
         let request = createRequest(path: "books/catalog", method: "GET")
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await urlSession.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode) else {
             throw NSError(domain: "MemoriaAPIClient", code: (response as? HTTPURLResponse)?.statusCode ?? 500, userInfo: [NSLocalizedDescriptionKey: "Failed to load catalog"])
         }
@@ -1066,7 +1118,7 @@ public actor MemoriaAPIClient {
     public func forgotPassword(email: String) async throws {
         var request = createRequest(path: "auth/forgot-password", method: "POST")
         request.httpBody = try JSONSerialization.data(withJSONObject: ["email": email])
-        let (_, response) = try await URLSession.shared.data(for: request)
+        let (_, response) = try await urlSession.data(for: request)
         guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
             throw NSError(domain: "MemoriaAPIClient", code: (response as? HTTPURLResponse)?.statusCode ?? 400, userInfo: [NSLocalizedDescriptionKey: "Failed to send password reset instructions"])
         }

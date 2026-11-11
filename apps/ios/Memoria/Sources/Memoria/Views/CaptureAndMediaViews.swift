@@ -108,7 +108,9 @@ public struct VideoCaptureTrimView: View {
         isSaving = true
         defer { isSaving = false }
         let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        let summary = "[Trim \(Int(trimStart))s–\(Int(trimEnd))s] " + notes.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanNotes = notes.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimHeader = "[Trim \(Int(trimStart))s–\(Int(trimEnd))s]"
+        let summary = cleanNotes.isEmpty ? trimHeader : "\(trimHeader) \(cleanNotes)"
         let hasAuth = await MemoriaAPIClient.shared.getAuthToken() != nil
         guard hasAuth else {
             let localMemory = Memory(
@@ -418,12 +420,17 @@ public struct CoreImageEditorView: View {
     @State private var warmth: Double = 0.0
     @State private var cropPreset: String = "original"
     @State private var filterPreset: String = "Original"
+    @State private var sourceCGImage: CGImage?
+    @State private var renderedPreview: CGImage?
     @State private var isSaving = false
     @State private var statusMessage: String?
     @State private var errorMessage: String?
 
     private let cropPresets = ["original", "square_1_1", "portrait_4_5", "book_spread_8_10"]
     private let filterPresets = ["Original", "Archival Warm", "Faded Print", "High Contrast B&W"]
+    #if canImport(CoreImage)
+    private static let sharedCIContext = CIContext()
+    #endif
 
     public init(mediaId: String) {
         self.mediaId = mediaId
@@ -450,25 +457,21 @@ public struct CoreImageEditorView: View {
 
                 Section("Non-Destructive Archival Preview (IOS-28)") {
                     VStack(spacing: 12) {
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(
-                                LinearGradient(
-                                    colors: [
-                                        Color(red: min(1.0, 0.94 + warmth * 0.04), green: 0.91, blue: max(0.75, 0.87 - warmth * 0.08)),
-                                        filterPreset == "High Contrast B&W" ? Color.gray.opacity(0.35) : MemoriaTheme.plumLight,
-                                    ],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                )
-                            )
-                            .frame(height: 180)
-                            .overlay {
-                                Image(systemName: "photo.artframe")
-                                    .font(.system(size: 56))
-                                    .foregroundStyle(filterPreset == "High Contrast B&W" ? MemoriaTheme.ink : MemoriaTheme.plum)
-                                    .rotationEffect(.degrees(Double(rotateDegrees)))
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(MemoriaTheme.surfacePrimary)
+                                .frame(height: 200)
+                            if let renderedPreview {
+                                Image(decorative: renderedPreview, scale: 1.0)
+                                    .resizable()
+                                    .scaledToFit()
+                                    .frame(maxHeight: 184)
+                                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                            } else {
+                                ProgressView("Rendering CoreImage preview...")
                             }
-                        Text("Original master SHA-256 preserved • \(filterPreset) • Crop: \(cropPreset)")
+                        }
+                        Text("Original master SHA-256 preserved • \(filterPreset) • \(rotateDegrees)° • Crop: \(cropPreset)")
                             .font(.caption)
                             .foregroundStyle(MemoriaTheme.textSecondary)
                     }
@@ -480,6 +483,7 @@ public struct CoreImageEditorView: View {
                         Spacer()
                         Button("Rotate +90°") {
                             rotateDegrees = (rotateDegrees + 90) % 360
+                            renderCoreImagePreview()
                         }
                         .foregroundStyle(MemoriaTheme.plum)
                     }
@@ -489,6 +493,9 @@ public struct CoreImageEditorView: View {
                             .font(.subheadline)
                         Slider(value: $warmth, in: -1.0...1.0, step: 0.1)
                             .tint(MemoriaTheme.warning)
+                            .onChange(of: warmth) { _, _ in
+                                renderCoreImagePreview()
+                            }
                     }
 
                     Picker("Filter Preset", selection: $filterPreset) {
@@ -500,6 +507,7 @@ public struct CoreImageEditorView: View {
                         if next == "Archival Warm" { warmth = 0.6 }
                         else if next == "Faded Print" { warmth = 0.2 }
                         else if next == "Original" { warmth = 0.0 }
+                        renderCoreImagePreview()
                     }
 
                     Picker("Aspect Preset", selection: $cropPreset) {
@@ -507,12 +515,16 @@ public struct CoreImageEditorView: View {
                             Text(preset).tag(preset)
                         }
                     }
+                    .onChange(of: cropPreset) { _, _ in
+                        renderCoreImagePreview()
+                    }
 
                     Button("Reset Adjustments") {
                         rotateDegrees = 0
                         warmth = 0.0
                         cropPreset = "original"
                         filterPreset = "Original"
+                        renderCoreImagePreview()
                     }
                     .foregroundStyle(MemoriaTheme.textSecondary)
                 }
@@ -520,6 +532,9 @@ public struct CoreImageEditorView: View {
             .scrollContentBackground(.hidden)
             .background(MemoriaTheme.canvas)
             .navigationTitle("Photo Editor")
+            .task {
+                await loadInitialStateAndImage()
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Close") { dismiss() }
@@ -535,14 +550,137 @@ public struct CoreImageEditorView: View {
         }
     }
 
+    private func loadInitialStateAndImage() async {
+        if let saved = LocalStorageService.shared.loadLocalMediaEdits(forMediaId: mediaId) {
+            rotateDegrees = saved.rotateDegrees
+            warmth = saved.warmth
+            cropPreset = saved.cropPreset
+            filterPreset = saved.filterPreset
+        }
+
+        let hasAuth = await MemoriaAPIClient.shared.getAuthToken() != nil
+        if hasAuth, UUID(uuidString: mediaId) != nil,
+           let asset = try? await MemoriaAPIClient.shared.fetchMediaAsset(mediaId: mediaId),
+           let urlStr = asset.publicUrl,
+           let url = URL(string: urlStr),
+           let (data, _) = try? await URLSession.shared.data(from: url) {
+            #if canImport(CoreImage)
+            if let ciImg = CIImage(data: data),
+               let cgImg = Self.sharedCIContext.createCGImage(ciImg, from: ciImg.extent) {
+                sourceCGImage = cgImg
+                renderCoreImagePreview()
+                return
+            }
+            #endif
+        }
+
+        if sourceCGImage == nil {
+            sourceCGImage = Self.makeSpecimenCGImage()
+        }
+        renderCoreImagePreview()
+    }
+
+    private func renderCoreImagePreview() {
+        guard let baseCG = sourceCGImage else { return }
+        #if canImport(CoreImage)
+        var image = CIImage(cgImage: baseCG)
+
+        if cropPreset == "square_1_1" {
+            let side = min(image.extent.width, image.extent.height)
+            let cropRect = CGRect(
+                x: image.extent.midX - side / 2,
+                y: image.extent.midY - side / 2,
+                width: side,
+                height: side
+            )
+            image = image.cropped(to: cropRect)
+        } else if cropPreset == "portrait_4_5" {
+            let w = min(image.extent.width, image.extent.height * 0.8)
+            let h = w * 1.25
+            let cropRect = CGRect(x: image.extent.midX - w / 2, y: image.extent.midY - h / 2, width: w, height: h)
+            image = image.cropped(to: cropRect)
+        } else if cropPreset == "book_spread_8_10" {
+            let h = min(image.extent.height, image.extent.width * 0.8)
+            let w = h * 1.25
+            let cropRect = CGRect(x: image.extent.midX - w / 2, y: image.extent.midY - h / 2, width: w, height: h)
+            image = image.cropped(to: cropRect)
+        }
+
+        if filterPreset == "Faded Print", let fade = CIFilter(name: "CIPhotoEffectFade") {
+            fade.setValue(image, forKey: kCIInputImageKey)
+            if let output = fade.outputImage { image = output }
+        } else if filterPreset == "High Contrast B&W", let noir = CIFilter(name: "CIPhotoEffectNoir") {
+            noir.setValue(image, forKey: kCIInputImageKey)
+            if let output = noir.outputImage { image = output }
+        }
+
+        if abs(warmth) > 0.01, let tempFilter = CIFilter(name: "CITemperatureAndTint") {
+            tempFilter.setValue(image, forKey: kCIInputImageKey)
+            tempFilter.setValue(CIVector(x: 6500 + warmth * 2200, y: 0), forKey: "inputTargetNeutral")
+            tempFilter.setValue(CIVector(x: 6500, y: 0), forKey: "inputNeutral")
+            if let output = tempFilter.outputImage { image = output }
+        }
+
+        let normalizedRot = ((rotateDegrees % 360) + 360) % 360
+        if normalizedRot == 90 {
+            image = image.oriented(.right)
+        } else if normalizedRot == 180 {
+            image = image.oriented(.down)
+        } else if normalizedRot == 270 {
+            image = image.oriented(.left)
+        }
+
+        renderedPreview = Self.sharedCIContext.createCGImage(image, from: image.extent) ?? baseCG
+        #else
+        renderedPreview = baseCG
+        #endif
+    }
+
+    private static func makeSpecimenCGImage() -> CGImage? {
+        let width = 320
+        let height = 220
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        guard let ctx = CGContext(
+            data: nil,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: width * 4,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else {
+            return nil
+        }
+        ctx.setFillColor(red: 0.96, green: 0.94, blue: 0.90, alpha: 1.0)
+        ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
+
+        ctx.setFillColor(red: 0.46, green: 0.33, blue: 0.44, alpha: 0.9)
+        ctx.fillEllipse(in: CGRect(x: 44, y: 50, width: 120, height: 120))
+
+        ctx.setFillColor(red: 0.52, green: 0.58, blue: 0.51, alpha: 0.85)
+        ctx.fill(CGRect(x: 150, y: 40, width: 120, height: 140))
+
+        ctx.setFillColor(red: 0.85, green: 0.59, blue: 0.24, alpha: 0.9)
+        ctx.fillEllipse(in: CGRect(x: 200, y: 125, width: 52, height: 52))
+        return ctx.makeImage()
+    }
+
     private func saveEdits() async {
         isSaving = true
         defer { isSaving = false }
         errorMessage = nil
         statusMessage = nil
 
+        let params = MediaEditParameters(
+            rotateDegrees: rotateDegrees,
+            warmth: warmth,
+            cropPreset: cropPreset,
+            filterPreset: filterPreset
+        )
+
         let hasAuth = await MemoriaAPIClient.shared.getAuthToken() != nil
         guard hasAuth else {
+            try? LocalStorageService.shared.saveMediaEditsLocally(params, forMediaId: mediaId)
             statusMessage = "Non-destructive derivative parameters saved locally."
             return
         }
@@ -554,6 +692,7 @@ public struct CoreImageEditorView: View {
                 warmth: warmth,
                 cropPreset: cropPreset
             )
+            try? LocalStorageService.shared.saveMediaEditsLocally(params, forMediaId: mediaId)
             statusMessage = "Non-destructive derivative parameters saved."
         } catch {
             errorMessage = error.localizedDescription
@@ -573,6 +712,7 @@ public struct MediaPlaybackView: View {
     @State private var zoomScale: CGFloat = 1.0
     @State private var resolvedUrl: URL?
     @State private var ocrText: String?
+    @State private var loadError: String?
     @State private var playbackTimer: Task<Void, Never>?
     #if canImport(AVFoundation)
     @State private var player: AVPlayer?
@@ -651,13 +791,28 @@ public struct MediaPlaybackView: View {
                         .memoriaCard()
                     }
 
+                    if let loadError {
+                        Text(loadError)
+                            .font(.caption)
+                            .foregroundStyle(MemoriaTheme.error)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding()
+                            .memoriaCard()
+                    }
+
                     if memory.format == .video || memory.format == .audio {
                         VStack(spacing: 12) {
-                            Slider(value: $progress, in: 0...1)
-                                .tint(MemoriaTheme.plum)
+                            Slider(value: $progress, in: 0...1) { editing in
+                                if !editing {
+                                    seekPlayer(toProgress: progress)
+                                }
+                            }
+                            .tint(MemoriaTheme.plum)
                             HStack(spacing: 12) {
                                 Button {
-                                    progress = max(0, progress - 0.15)
+                                    let next = max(0, progress - 0.15)
+                                    progress = next
+                                    seekPlayer(toProgress: next)
                                 } label: {
                                     Image(systemName: "gobackward.15")
                                 }
@@ -674,7 +829,9 @@ public struct MediaPlaybackView: View {
                                 .tint(MemoriaTheme.plum)
 
                                 Button {
-                                    progress = min(1, progress + 0.15)
+                                    let next = min(1, progress + 0.15)
+                                    progress = next
+                                    seekPlayer(toProgress: next)
                                 } label: {
                                     Image(systemName: "goforward.15")
                                 }
@@ -724,9 +881,10 @@ public struct MediaPlaybackView: View {
                                 let total = max(1, transcriptSegments.count)
                                 let segStart = Double(idx) / Double(total)
                                 let segEnd = Double(idx + 1) / Double(total)
-                                let isActive = progress >= segStart && progress <= segEnd
+                                let isActive = progress >= segStart && (idx == total - 1 ? progress <= segEnd : progress < segEnd)
                                 Button {
                                     progress = segStart
+                                    seekPlayer(toProgress: segStart)
                                 } label: {
                                     Text(segment)
                                         .font(.footnote)
@@ -780,27 +938,49 @@ public struct MediaPlaybackView: View {
 
     private func loadMedia() async {
         guard let mediaId = memory.mediaIds.first else { return }
-        if let asset = try? await MemoriaAPIClient.shared.fetchMediaAsset(mediaId: mediaId),
-           let urlStr = asset.publicUrl,
-           let url = URL(string: urlStr) {
-            resolvedUrl = url
-            #if canImport(AVFoundation)
-            if memory.format == .video || memory.format == .audio {
-                player = AVPlayer(url: url)
+        let hasAuth = await MemoriaAPIClient.shared.getAuthToken() != nil
+        guard hasAuth, UUID(uuidString: mediaId) != nil else { return }
+        do {
+            let asset = try await MemoriaAPIClient.shared.fetchMediaAsset(mediaId: mediaId)
+            if let urlStr = asset.publicUrl, let url = URL(string: urlStr) {
+                resolvedUrl = url
+                #if canImport(AVFoundation)
+                if memory.format == .video || memory.format == .audio {
+                    player = AVPlayer(url: url)
+                }
+                #endif
             }
-            #endif
+            if let transcripts = try? await MemoriaAPIClient.shared.fetchMediaOcr(mediaId: mediaId),
+               let first = transcripts.first {
+                ocrText = first.extractedText
+            }
+            loadError = nil
+        } catch {
+            loadError = error.localizedDescription
         }
-        if let transcripts = try? await MemoriaAPIClient.shared.fetchMediaOcr(mediaId: mediaId),
-           let first = transcripts.first {
-            ocrText = first.extractedText
-        }
+    }
+
+    private func seekPlayer(toProgress targetProgress: Double) {
+        #if canImport(AVFoundation)
+        guard let player,
+              let item = player.currentItem else { return }
+        let duration = item.duration.seconds
+        guard duration.isFinite && duration > 0 else { return }
+        let targetTime = CMTime(seconds: duration * max(0, min(1, targetProgress)), preferredTimescale: 600)
+        player.seek(to: targetTime)
+        #endif
     }
 
     private func togglePlay() {
         isPlaying.toggle()
         #if canImport(AVFoundation)
         if let player {
-            if isPlaying { player.play() } else { player.pause() }
+            if isPlaying {
+                player.play()
+                player.rate = Float(playbackSpeed)
+            } else {
+                player.pause()
+            }
         }
         #endif
         if isPlaying {
@@ -808,7 +988,7 @@ public struct MediaPlaybackView: View {
                 while !Task.isCancelled && progress < 1.0 {
                     try? await Task.sleep(nanoseconds: 250_000_000)
                     if !Task.isCancelled {
-                        progress = min(1.0, progress + 0.05)
+                        progress = min(1.0, progress + (0.05 * playbackSpeed))
                     }
                 }
                 if progress >= 1.0 { isPlaying = false }

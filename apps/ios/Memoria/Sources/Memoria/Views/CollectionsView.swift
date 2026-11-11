@@ -291,43 +291,83 @@ public struct CollectionDetailView: View {
                     }
                     .padding(.vertical, 4)
                 } else {
-                    ForEach(curatedMemories) { memory in
-                        NavigationLink {
-                            MemoryDetailView(memory: memory)
-                        } label: {
-                            VStack(alignment: .leading, spacing: 4) {
-                                HStack {
-                                    Text(memory.title)
-                                        .font(.headline)
-                                        .foregroundStyle(MemoriaTheme.ink)
-                                    Spacer()
-                                    Text(memory.format.rawValue.uppercased())
-                                        .font(.caption2.weight(.semibold))
-                                        .padding(.horizontal, 6)
-                                        .padding(.vertical, 2)
-                                        .background(MemoriaTheme.sageLight)
-                                        .foregroundStyle(MemoriaTheme.sageFunc)
-                                        .clipShape(Capsule())
+                    ForEach(Array(curatedMemories.enumerated()), id: \.element.id) { index, memory in
+                        HStack(spacing: 8) {
+                            NavigationLink {
+                                MemoryDetailView(memory: memory) { updatedMemory in
+                                    if let idx = curatedMemories.firstIndex(where: { $0.id == updatedMemory.id }) {
+                                        curatedMemories[idx] = updatedMemory
+                                    }
+                                    if let idx = spaceMemories.firstIndex(where: { $0.id == updatedMemory.id }) {
+                                        spaceMemories[idx] = updatedMemory
+                                    }
                                 }
-                                Text(String(memory.capturedAt.prefix(10)))
-                                    .font(.caption2)
-                                    .foregroundStyle(MemoriaTheme.textSecondary)
-                                if showTimelineView, let bodyText = memory.content, !bodyText.isEmpty {
-                                    Text(bodyText)
-                                        .font(.caption)
-                                        .foregroundStyle(MemoriaTheme.textPrimary)
-                                        .lineLimit(2)
+                            } label: {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    HStack {
+                                        Text(memory.title)
+                                            .font(.headline)
+                                            .foregroundStyle(MemoriaTheme.ink)
+                                        Spacer()
+                                        Text(memory.format.rawValue.uppercased())
+                                            .font(.caption2.weight(.semibold))
+                                            .padding(.horizontal, 6)
+                                            .padding(.vertical, 2)
+                                            .background(MemoriaTheme.sageLight)
+                                            .foregroundStyle(MemoriaTheme.sageFunc)
+                                            .clipShape(Capsule())
+                                    }
+                                    Text(String(memory.capturedAt.prefix(10)))
+                                        .font(.caption2)
+                                        .foregroundStyle(MemoriaTheme.textSecondary)
+                                    if showTimelineView, let bodyText = memory.content, !bodyText.isEmpty {
+                                        Text(bodyText)
+                                            .font(.caption)
+                                            .foregroundStyle(MemoriaTheme.textPrimary)
+                                            .lineLimit(2)
+                                    }
+                                }
+                                .padding(.vertical, 3)
+                            }
+
+                            if curatedMemories.count > 1 {
+                                VStack(spacing: 4) {
+                                    Button {
+                                        Task { await moveMemory(at: index, direction: -1) }
+                                    } label: {
+                                        Image(systemName: "arrow.up.circle")
+                                            .font(.subheadline)
+                                    }
+                                    .buttonStyle(.borderless)
+                                    .tint(MemoriaTheme.plum)
+                                    .disabled(index == 0)
+                                    .accessibilityLabel("Move \(memory.title) up in collection")
+
+                                    Button {
+                                        Task { await moveMemory(at: index, direction: 1) }
+                                    } label: {
+                                        Image(systemName: "arrow.down.circle")
+                                            .font(.subheadline)
+                                    }
+                                    .buttonStyle(.borderless)
+                                    .tint(MemoriaTheme.plum)
+                                    .disabled(index == curatedMemories.count - 1)
+                                    .accessibilityLabel("Move \(memory.title) down in collection")
                                 }
                             }
-                            .padding(.vertical, 3)
                         }
                         .swipeActions(edge: .trailing) {
                             Button(role: .destructive) {
-                                Task { await removeMemory(memory) }
+                                Task { _ = await removeMemory(memory) }
                             } label: {
                                 Label("Remove", systemImage: "minus.circle")
                             }
                         }
+                    }
+                    .onMove { source, destination in
+                        var reordered = curatedMemories
+                        reordered.move(fromOffsets: source, toOffset: destination)
+                        Task { await applyReorder(reordered) }
                     }
                 }
             }
@@ -354,10 +394,10 @@ public struct CollectionDetailView: View {
                 spaceMemories: spaceMemories,
                 curatedIds: Set(curatedMemories.map(\.id)),
                 onAdd: { mem in
-                    Task { await addMemory(mem) }
+                    await addMemory(mem)
                 },
                 onRemove: { mem in
-                    Task { await removeMemory(mem) }
+                    await removeMemory(mem)
                 }
             )
         }
@@ -371,7 +411,10 @@ public struct CollectionDetailView: View {
                 },
                 onDeleted: { deletedId in
                     onDeleted?(deletedId)
-                    dismiss()
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(150))
+                        dismiss()
+                    }
                 }
             )
         }
@@ -390,10 +433,14 @@ public struct CollectionDetailView: View {
         let hasAuthToken = await MemoriaAPIClient.shared.getAuthToken() != nil
         guard hasAuthToken else {
             let local = LocalStorageService.shared.loadLocalMemories(forSpaceId: spaceId)
-            let fallback = local.isEmpty ? Self.offlineSpaceSampleMemories(spaceId: spaceId) : local
-            spaceMemories = fallback
-            let idSet = Set(collection.memoryIds ?? [])
-            curatedMemories = fallback.filter { idSet.contains($0.id) }
+            let samples = Self.offlineSpaceSampleMemories(spaceId: spaceId)
+            var merged = local
+            for sample in samples where !merged.contains(where: { $0.id == sample.id }) {
+                merged.append(sample)
+            }
+            spaceMemories = merged
+            let memById = Dictionary(uniqueKeysWithValues: merged.map { ($0.id, $0) })
+            curatedMemories = (collection.memoryIds ?? []).compactMap { memById[$0] }
             errorMessage = nil
             return
         }
@@ -416,8 +463,8 @@ public struct CollectionDetailView: View {
             if let hydrated = detail.memories {
                 curatedMemories = hydrated
             } else {
-                let idSet = Set(detail.memoryIds ?? [])
-                curatedMemories = allSpaceMems.filter { idSet.contains($0.id) }
+                let memById = Dictionary(uniqueKeysWithValues: allSpaceMems.map { ($0.id, $0) })
+                curatedMemories = (detail.memoryIds ?? []).compactMap { memById[$0] }
             }
             errorMessage = nil
         } catch {
@@ -425,8 +472,9 @@ public struct CollectionDetailView: View {
         }
     }
 
-    private func addMemory(_ memory: Memory) async {
-        guard !curatedMemories.contains(where: { $0.id == memory.id }) else { return }
+    @discardableResult
+    private func addMemory(_ memory: Memory) async -> Bool {
+        guard !curatedMemories.contains(where: { $0.id == memory.id }) else { return true }
         let hasAuthToken = await MemoriaAPIClient.shared.getAuthToken() != nil
         guard hasAuthToken else {
             curatedMemories.append(memory)
@@ -443,7 +491,7 @@ public struct CollectionDetailView: View {
                 updatedAt: ISO8601DateFormatter().string(from: Date())
             )
             onUpdated?(collection)
-            return
+            return true
         }
         do {
             let updated = try await MemoriaAPIClient.shared.addMemoryToCollection(
@@ -456,12 +504,15 @@ public struct CollectionDetailView: View {
             curatedMemories.append(memory)
             onUpdated?(updated)
             errorMessage = nil
+            return true
         } catch {
             errorMessage = error.localizedDescription
+            return false
         }
     }
 
-    private func removeMemory(_ memory: Memory) async {
+    @discardableResult
+    private func removeMemory(_ memory: Memory) async -> Bool {
         let hasAuthToken = await MemoriaAPIClient.shared.getAuthToken() != nil
         guard hasAuthToken else {
             curatedMemories.removeAll { $0.id == memory.id }
@@ -477,7 +528,7 @@ public struct CollectionDetailView: View {
                 updatedAt: ISO8601DateFormatter().string(from: Date())
             )
             onUpdated?(collection)
-            return
+            return true
         }
         do {
             try await MemoriaAPIClient.shared.removeMemoryFromCollection(
@@ -498,6 +549,49 @@ public struct CollectionDetailView: View {
                 updatedAt: ISO8601DateFormatter().string(from: Date())
             )
             onUpdated?(collection)
+            errorMessage = nil
+            return true
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
+        }
+    }
+
+    private func moveMemory(at index: Int, direction: Int) async {
+        let target = index + direction
+        guard curatedMemories.indices.contains(index), curatedMemories.indices.contains(target) else { return }
+        var reordered = curatedMemories
+        reordered.swapAt(index, target)
+        await applyReorder(reordered)
+    }
+
+    private func applyReorder(_ reordered: [Memory]) async {
+        let nextIds = reordered.map(\.id)
+        let hasAuthToken = await MemoriaAPIClient.shared.getAuthToken() != nil
+        guard hasAuthToken else {
+            curatedMemories = reordered
+            collection = CollectionDTO(
+                id: collection.id,
+                spaceId: collection.spaceId,
+                title: collection.title,
+                description: collection.description,
+                coverMemoryId: collection.coverMemoryId,
+                memoryIds: nextIds,
+                createdAt: collection.createdAt,
+                updatedAt: ISO8601DateFormatter().string(from: Date())
+            )
+            onUpdated?(collection)
+            return
+        }
+        do {
+            let updated = try await MemoriaAPIClient.shared.reorderCollectionMemories(
+                spaceId: spaceId,
+                collectionId: collection.id,
+                memoryIds: nextIds
+            )
+            curatedMemories = reordered
+            collection = updated
+            onUpdated?(updated)
             errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
@@ -533,8 +627,9 @@ private struct CollectionMemoryPickerSheet: View {
 
     let spaceMemories: [Memory]
     @State var curatedIds: Set<String>
-    let onAdd: (Memory) -> Void
-    let onRemove: (Memory) -> Void
+    @State private var isMutating = false
+    let onAdd: (Memory) async -> Bool
+    let onRemove: (Memory) async -> Bool
 
     var body: some View {
         NavigationStack {
@@ -548,12 +643,19 @@ private struct CollectionMemoryPickerSheet: View {
                         ForEach(spaceMemories) { memory in
                             let included = curatedIds.contains(memory.id)
                             Button {
-                                if included {
-                                    curatedIds.remove(memory.id)
-                                    onRemove(memory)
-                                } else {
-                                    curatedIds.insert(memory.id)
-                                    onAdd(memory)
+                                guard !isMutating else { return }
+                                isMutating = true
+                                Task {
+                                    defer { isMutating = false }
+                                    if included {
+                                        if await onRemove(memory) {
+                                            curatedIds.remove(memory.id)
+                                        }
+                                    } else {
+                                        if await onAdd(memory) {
+                                            curatedIds.insert(memory.id)
+                                        }
+                                    }
                                 }
                             } label: {
                                 HStack {
@@ -570,6 +672,7 @@ private struct CollectionMemoryPickerSheet: View {
                                         .foregroundStyle(included ? MemoriaTheme.sageFunc : MemoriaTheme.plum)
                                 }
                             }
+                            .disabled(isMutating)
                         }
                     }
                 }
@@ -703,7 +806,8 @@ private struct EditCollectionSheet: View {
                 spaceId: spaceId,
                 collectionId: collection.id,
                 title: trimmed,
-                description: desc.isEmpty ? nil : desc
+                description: desc.isEmpty ? nil : desc,
+                clearDescription: desc.isEmpty
             )
             onUpdated(updated)
             dismiss()

@@ -283,7 +283,11 @@ public struct ProfileDetailView: View {
                 } else {
                     ForEach(taggedMemories) { memory in
                         NavigationLink {
-                            MemoryDetailView(memory: memory)
+                            MemoryDetailView(memory: memory) { updatedMemory in
+                                if let idx = taggedMemories.firstIndex(where: { $0.id == updatedMemory.id }) {
+                                    taggedMemories[idx] = updatedMemory
+                                }
+                            }
                         } label: {
                             VStack(alignment: .leading, spacing: 4) {
                                 HStack {
@@ -351,7 +355,10 @@ public struct ProfileDetailView: View {
                 },
                 onDeleted: { deletedId in
                     onDeleted?(deletedId)
-                    dismiss()
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(150))
+                        dismiss()
+                    }
                 }
             )
         }
@@ -549,7 +556,9 @@ public struct ProfileEditorSheet: View {
                     name: cleanName,
                     relationship: cleanRel.isEmpty ? nil : cleanRel,
                     type: profileType,
-                    birthDate: birthStr
+                    birthDate: birthStr,
+                    clearRelationship: cleanRel.isEmpty,
+                    clearBirthDate: !hasBirthDate
                 )
             } else {
                 saved = try await MemoriaAPIClient.shared.createProfile(

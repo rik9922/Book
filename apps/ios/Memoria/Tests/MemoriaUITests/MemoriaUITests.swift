@@ -8,6 +8,7 @@ final class MemoriaUITests: XCTestCase {
     @MainActor
     func testLivingArchiveTabNavigationAndKeyWorkflows() throws {
         let app = XCUIApplication()
+        app.launchArguments = ["-UITestResetLocalArchive"]
         app.launch()
 
         // 1. Wait past IOS-01 LaunchSplashView into TabView Archive tab
@@ -80,13 +81,34 @@ final class MemoriaUITests: XCTestCase {
             if firstPick.waitForExistence(timeout: 2) {
                 firstPick.tap()
             }
+            let secondPick = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Autumn Harvest'")).firstMatch
+            if secondPick.waitForExistence(timeout: 2) {
+                secondPick.tap()
+            }
             app.buttons["Done"].firstMatch.tap()
+
+            // IOS-33: Reorder curated memories in CollectionDetailView
+            let moveCollectionUp = app.buttons["Move Autumn Harvest in Sonoma up in collection"].firstMatch
+            if moveCollectionUp.waitForExistence(timeout: 3) && moveCollectionUp.isEnabled {
+                moveCollectionUp.tap()
+            }
 
             let editColBtn = app.buttons["Edit"].firstMatch
             if editColBtn.waitForExistence(timeout: 2) {
                 editColBtn.tap()
                 XCTAssertTrue(app.navigationBars["Edit Collection"].waitForExistence(timeout: 3))
-                app.buttons["Cancel"].firstMatch.tap()
+                let editColTitle = app.textFields["Collection Title"].firstMatch
+                if editColTitle.waitForExistence(timeout: 2) {
+                    editColTitle.tap()
+                    editColTitle.typeText(" 2026")
+                }
+                let saveColBtn = app.buttons["Save"].firstMatch
+                if saveColBtn.waitForExistence(timeout: 2) && saveColBtn.isEnabled {
+                    saveColBtn.tap()
+                    XCTAssertTrue(app.navigationBars["Summer Heritage Album 2026"].waitForExistence(timeout: 3))
+                } else {
+                    app.buttons["Cancel"].firstMatch.tap()
+                }
             }
 
             let printBookBtn = app.buttons["Print as Book"].firstMatch
@@ -213,7 +235,7 @@ final class MemoriaUITests: XCTestCase {
         if fwdBtn.waitForExistence(timeout: 2) { fwdBtn.tap() }
         app.buttons["Done"].firstMatch.tap()
 
-        // IOS-28: Attach local specimen & open CoreImage Editor
+        // IOS-28: Attach local specimen & open CoreImage Editor (and verify local persistence across close/reopen)
         let attachBtn = app.buttons["Attach Local Media Specimen"].firstMatch
         if attachBtn.waitForExistence(timeout: 2) {
             attachBtn.tap()
@@ -230,6 +252,14 @@ final class MemoriaUITests: XCTestCase {
         applyBtn.tap()
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Non-destructive derivative'")).firstMatch.waitForExistence(timeout: 4))
         app.buttons["Close"].firstMatch.tap()
+
+        // Re-open CoreImage Editor to confirm persisted 90° rotation
+        if editPhotoBtn.waitForExistence(timeout: 2) {
+            editPhotoBtn.tap()
+            XCTAssertTrue(app.navigationBars["Photo Editor"].waitForExistence(timeout: 3))
+            XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS '90°'")).firstMatch.waitForExistence(timeout: 3))
+            app.buttons["Close"].firstMatch.tap()
+        }
 
         // IOS-42: Emotional Reactions & Family Reflections Sheet
         let heartBtn = app.buttons["Heart reaction"].firstMatch
@@ -334,9 +364,15 @@ final class MemoriaUITests: XCTestCase {
             XCTAssertTrue(editProfileBtn.waitForExistence(timeout: 2))
             editProfileBtn.tap()
             XCTAssertTrue(app.navigationBars["Edit Profile"].waitForExistence(timeout: 3))
+            let editRelField = app.textFields["Relationship (e.g. Grandmother, Daughter)"].firstMatch
+            if editRelField.waitForExistence(timeout: 2) {
+                editRelField.tap()
+                editRelField.typeText(" Matriarch")
+            }
             let saveEditBtn = app.buttons["Save"].firstMatch
             XCTAssertTrue(saveEditBtn.waitForExistence(timeout: 2) && saveEditBtn.isEnabled)
             saveEditBtn.tap()
+            XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Matriarch'")).firstMatch.waitForExistence(timeout: 3))
 
             let genBioBtn = app.buttons["Generate Biography Book"].firstMatch
             if genBioBtn.waitForExistence(timeout: 2) {
@@ -374,37 +410,26 @@ final class MemoriaUITests: XCTestCase {
             titleField.typeText("UI Test Anthology")
         }
         let step2Btn = app.buttons["Continue to Memory Selection (IOS-46)"].firstMatch
-        if step2Btn.waitForExistence(timeout: 3) && step2Btn.isEnabled {
-            step2Btn.tap()
-            let mem1 = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Prologue'")).firstMatch
-            if mem1.waitForExistence(timeout: 3) { mem1.tap() }
-            let mem2 = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Autumn Harvest'")).firstMatch
-            if mem2.waitForExistence(timeout: 2) { mem2.tap() }
-            let step3Btn = app.buttons["Continue to Spread Reordering (IOS-47)"].firstMatch
-            if step3Btn.waitForExistence(timeout: 3) {
-                step3Btn.tap()
-                let moveUpBtn = app.buttons["Move Autumn Harvest in Sonoma up"].firstMatch
-                if moveUpBtn.waitForExistence(timeout: 2) && moveUpBtn.isEnabled {
-                    moveUpBtn.tap()
-                }
-                let step4Btn = app.buttons["Continue to Template & Cover (IOS-48)"].firstMatch
-                if step4Btn.waitForExistence(timeout: 3) {
-                    step4Btn.tap()
-                    let createSubmitBtn = app.buttons["Create & Curate Heirloom Book"].firstMatch
-                    if createSubmitBtn.waitForExistence(timeout: 3) && createSubmitBtn.isEnabled {
-                        createSubmitBtn.tap()
-                    } else {
-                        app.buttons["Close"].firstMatch.tap()
-                    }
-                } else {
-                    app.buttons["Close"].firstMatch.tap()
-                }
-            } else {
-                app.buttons["Close"].firstMatch.tap()
-            }
-        } else {
-            app.buttons["Close"].firstMatch.tap()
-        }
+        XCTAssertTrue(step2Btn.waitForExistence(timeout: 3) && step2Btn.isEnabled)
+        step2Btn.tap()
+        let mem1 = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Prologue'")).firstMatch
+        XCTAssertTrue(mem1.waitForExistence(timeout: 3))
+        mem1.tap()
+        let mem2 = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Autumn Harvest'")).firstMatch
+        XCTAssertTrue(mem2.waitForExistence(timeout: 2))
+        mem2.tap()
+        let step3Btn = app.buttons["Continue to Spread Reordering (IOS-47)"].firstMatch
+        XCTAssertTrue(step3Btn.waitForExistence(timeout: 3))
+        step3Btn.tap()
+        let moveUpBtn = app.buttons["Move Autumn Harvest in Sonoma up"].firstMatch
+        XCTAssertTrue(moveUpBtn.waitForExistence(timeout: 2) && moveUpBtn.isEnabled)
+        moveUpBtn.tap()
+        let step4Btn = app.buttons["Continue to Template & Cover (IOS-48)"].firstMatch
+        XCTAssertTrue(step4Btn.waitForExistence(timeout: 3))
+        step4Btn.tap()
+        let createSubmitBtn = app.buttons["Create & Curate Heirloom Book"].firstMatch
+        XCTAssertTrue(createSubmitBtn.waitForExistence(timeout: 3) && createSubmitBtn.isEnabled)
+        createSubmitBtn.tap()
 
         XCTAssertTrue(app.staticTexts["UI Test Anthology"].waitForExistence(timeout: 4), "Wizard should append created book to Bookshelf")
 

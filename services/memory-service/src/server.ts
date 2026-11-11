@@ -169,6 +169,7 @@ class InMemoryMemoryTestRepo implements MemoryRepository {
 
 class InMemoryCollectionTestRepo implements CollectionRepository {
   private collections = new Map<string, CollectionRecord>();
+  private sortOrders = new Map<string, Map<string, number>>();
   async createCollection(col: Omit<CollectionRecord, "createdAt" | "updatedAt" | "memoryIds">): Promise<CollectionRecord> {
     const now = new Date().toISOString();
     const record: CollectionRecord = { ...col, memoryIds: [], createdAt: now, updatedAt: now };
@@ -189,18 +190,23 @@ class InMemoryCollectionTestRepo implements CollectionRepository {
     return merged;
   }
   async deleteCollection(id: string): Promise<boolean> {
+    this.sortOrders.delete(id);
     return this.collections.delete(id);
   }
-  async addMemory(collectionId: string, memoryId: string): Promise<void> {
+  async addMemory(collectionId: string, memoryId: string, sortOrder = 0): Promise<void> {
     const existing = this.collections.get(collectionId);
     if (!existing) return;
-    const ids = new Set(existing.memoryIds || []);
-    ids.add(memoryId);
-    this.collections.set(collectionId, { ...existing, memoryIds: Array.from(ids), updatedAt: new Date().toISOString() });
+    const orderMap = this.sortOrders.get(collectionId) || new Map<string, number>();
+    orderMap.set(memoryId, sortOrder);
+    this.sortOrders.set(collectionId, orderMap);
+    const ids = Array.from(new Set([...(existing.memoryIds || []), memoryId]));
+    ids.sort((a, b) => (orderMap.get(a) ?? 0) - (orderMap.get(b) ?? 0));
+    this.collections.set(collectionId, { ...existing, memoryIds: ids, updatedAt: new Date().toISOString() });
   }
   async removeMemory(collectionId: string, memoryId: string): Promise<boolean> {
     const existing = this.collections.get(collectionId);
     if (!existing) return false;
+    this.sortOrders.get(collectionId)?.delete(memoryId);
     const next = (existing.memoryIds || []).filter((id) => id !== memoryId);
     this.collections.set(collectionId, { ...existing, memoryIds: next });
     return true;
@@ -532,9 +538,16 @@ export async function buildMemoryService(): Promise<FastifyInstance> {
   // 2. Create Profile inside Space
   const CreateProfileSchema = z.object({
     name: z.string().min(1),
-    relationship: z.string().optional(),
+    relationship: z.string().nullable().optional(),
     type: z.enum(["child", "parent", "pet", "individual", "couple"]).default("individual"),
-    birthDate: z.string().optional(),
+    birthDate: z.string().nullable().optional(),
+  });
+
+  const UpdateProfileSchema = z.object({
+    name: z.string().min(1).optional(),
+    relationship: z.string().nullable().optional(),
+    type: z.enum(["child", "parent", "pet", "individual", "couple"]).optional(),
+    birthDate: z.string().nullable().optional(),
   });
 
   app.post(
@@ -559,9 +572,9 @@ export async function buildMemoryService(): Promise<FastifyInstance> {
         id: profileId,
         spaceId: req.params.spaceId,
         name: parseResult.data.name,
-        relationship: parseResult.data.relationship,
+        relationship: parseResult.data.relationship || undefined,
         type: parseResult.data.type,
-        birthDate: parseResult.data.birthDate,
+        birthDate: parseResult.data.birthDate || undefined,
         createdAt: now,
         updatedAt: now,
       };
@@ -601,12 +614,17 @@ export async function buildMemoryService(): Promise<FastifyInstance> {
       if (!existing || existing.spaceId !== req.params.spaceId) {
         return reply.status(404).send(createErrorResponse("PROFILE_NOT_FOUND", "Profile not found"));
       }
-      const parsed = CreateProfileSchema.partial().safeParse(req.body);
+      const parsed = UpdateProfileSchema.safeParse(req.body);
       if (!parsed.success) {
         return reply.status(400).send(createErrorResponse("VALIDATION_ERROR", "Invalid profile update payload"));
       }
+      const updates: Partial<Pick<SpaceProfile, "name" | "relationship" | "type" | "birthDate" | "avatarMediaId">> = {};
+      if (parsed.data.name !== undefined) updates.name = parsed.data.name;
+      if (parsed.data.type !== undefined) updates.type = parsed.data.type;
+      if (parsed.data.relationship !== undefined) updates.relationship = parsed.data.relationship || undefined;
+      if (parsed.data.birthDate !== undefined) updates.birthDate = parsed.data.birthDate || undefined;
       const updated = spaceRepo.updateProfile
-        ? await spaceRepo.updateProfile(existing.id, parsed.data)
+        ? await spaceRepo.updateProfile(existing.id, updates)
         : existing;
       return reply.status(200).send(createSuccessResponse(updated));
     }
