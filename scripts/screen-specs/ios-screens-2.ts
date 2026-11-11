@@ -1107,7 +1107,7 @@ export const iosScreens2: ScreenSpec[] = [
       e2e: ["pulls down to refresh activity feed, verifies spinner spins and new items appear"]
     },
     uiComponents: ["ActivityFeedView", "ActivityRowCell", "ThumbnailPreviewStrip", "UIRefreshControl"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "IOS-42",
@@ -1284,7 +1284,7 @@ export const iosScreens2: ScreenSpec[] = [
       e2e: ["taps 3D book model on shelf, verifies selection banner updates, taps Open Volume"]
     },
     uiComponents: ["RealityView", "BookshelfSceneEntity", "BookModel3D", "BookDetailBanner", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "IOS-44",
@@ -1800,7 +1800,7 @@ export const iosScreens2: ScreenSpec[] = [
       e2e: ["swipes left to turn page, verifies page curl animation executes smoothly and page index advances to 2"]
     },
     uiComponents: ["RealityView", "PageCurlEntity", "SpatialAudioPlayer", "PageScrubberBar", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "IOS-50",
@@ -1967,7 +1967,7 @@ export const iosScreens2: ScreenSpec[] = [
       e2e: ["runs preflight on book, inspects warning on page 14, proceeds to checkout"]
     },
     uiComponents: ["PreflightChecklistView", "ChecklistStatusRow", "WarningDetailCallout", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
 
   // ==========================================
@@ -2233,7 +2233,7 @@ export const iosScreens2: ScreenSpec[] = [
       e2e: ["toggles Face ID lock, locks app, verifies Face ID prompt appears on re-entry"]
     },
     uiComponents: ["AccountProfileCard", "Toggle", "ListRowNavigation", "DestructiveButton", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "IOS-55",
@@ -2317,7 +2317,7 @@ export const iosScreens2: ScreenSpec[] = [
       e2e: ["taps Clear Local Cache, confirms dialog, verifies cache size resets to 0 MB"]
     },
     uiComponents: ["StorageUsageGauge", "StorageCategoryBreakdownBar", "ActionCard", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "IOS-56",
@@ -2410,6 +2410,6 @@ export const iosScreens2: ScreenSpec[] = [
       e2e: ["fills out support form, attaches logs, taps Submit, verifies success confirmation alert"]
     },
     uiComponents: ["FAQAccordionView", "SearchTextField", "Picker", "TextEditor", "Toggle", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   }
 ];

@@ -11,6 +11,7 @@ import {
   fetchSpaces,
   getStoredSession,
   MemorySpaceDTO,
+  saveOnboardingPurpose,
   SpaceProfileDTO,
   uploadFileToMediaService,
 } from "@/lib/api";
@@ -283,7 +284,12 @@ export default function OnboardingPage() {
             </div>
             <button
               type="button"
-              onClick={() => setStep(2)}
+              onClick={() => {
+                if (signedIn) {
+                  saveOnboardingPurpose(purpose).catch(() => undefined);
+                }
+                setStep(2);
+              }}
               className="min-h-[44px] inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#20242C] text-white text-xs font-semibold"
             >
               Continue to Create Space

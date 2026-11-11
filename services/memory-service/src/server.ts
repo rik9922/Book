@@ -845,6 +845,23 @@ export async function buildMemoryService(): Promise<FastifyInstance> {
         location: parseResult.data.location === null ? undefined : parseResult.data.location,
       });
 
+      if (dbUrl && updated) {
+        await db.query(
+          `INSERT INTO memory_revisions (id, memory_id, space_id, editor_id, title, content, captured_at, change_summary)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+          [
+            crypto.randomUUID(),
+            memory.id,
+            memory.spaceId,
+            userId,
+            updated.title,
+            updated.content || null,
+            updated.capturedAt || null,
+            `Updated fields: ${Object.keys(parseResult.data).join(", ")}`,
+          ]
+        ).catch((err) => logger.warn({ err }, "[Memory] Non-fatal revision insert warning"));
+      }
+
       return reply.status(200).send(createSuccessResponse(updated));
     }
   );
@@ -1103,6 +1120,296 @@ export async function buildMemoryService(): Promise<FastifyInstance> {
       };
       const sha256 = crypto.createHash("sha256").update(JSON.stringify(payload)).digest("hex");
       return reply.status(200).send(createSuccessResponse({ ...payload, integritySha256: sha256 }));
+    }
+  );
+
+  // ==========================================
+  // TIMELINE, CALENDAR, ACTIVITY, HISTORY & COLLECTION REORDER
+  // ==========================================
+
+  const ADMIN_ROLES = new Set(["superadmin", "admin", "ops_admin", "compliance_officer", "support_agent"]);
+  const memRevisions = new Map<string, Array<Record<string, any>>>();
+  const memModerationFlags: Array<Record<string, any>> = [];
+
+  async function requireAdminUser(req: FastifyRequest): Promise<string> {
+    try {
+      const claims: any = await req.jwtVerify();
+      const userId = claims?.sub || claims?.userId;
+      const role = typeof claims?.role === "string" ? claims.role : "member";
+      if (!userId || !ADMIN_ROLES.has(role)) {
+        throw new ForbiddenError("Administrative privileges required");
+      }
+      return userId;
+    } catch (err) {
+      if (err instanceof ForbiddenError) throw err;
+      throw new UnauthorizedError("Valid admin token required");
+    }
+  }
+
+  // Chronological Year/Month Timeline (PWA-23 / PWA-34 / IOS-23)
+  app.get(
+    "/api/v1/spaces/:spaceId/timeline",
+    async (req: FastifyRequest<{ Params: { spaceId: string } }>, reply) => {
+      const userId = await requireAuthUser(req);
+      await assertSpaceAccess(req.params.spaceId, userId, false);
+      const memories = await memoryRepo.listMemories(req.params.spaceId);
+      const sorted = [...memories].sort(
+        (a, b) => new Date(b.capturedAt).getTime() - new Date(a.capturedAt).getTime()
+      );
+      const groupsMap = new Map<string, Memory[]>();
+      for (const m of sorted) {
+        const key = new Date(m.capturedAt).toISOString().slice(0, 7); // YYYY-MM
+        const bucket = groupsMap.get(key) || [];
+        bucket.push(m);
+        groupsMap.set(key, bucket);
+      }
+      const groups = Array.from(groupsMap.entries()).map(([yearMonth, items]) => ({
+        yearMonth,
+        year: yearMonth.slice(0, 4),
+        items,
+      }));
+      return reply.status(200).send(createSuccessResponse({ total: sorted.length, groups }));
+    }
+  );
+
+  // Calendar Heatmap & Anniversaries (PWA-35 / IOS-25)
+  app.get(
+    "/api/v1/spaces/:spaceId/calendar",
+    async (
+      req: FastifyRequest<{ Params: { spaceId: string }; Querystring: { year?: string; month?: string } }>,
+      reply
+    ) => {
+      const userId = await requireAuthUser(req);
+      await assertSpaceAccess(req.params.spaceId, userId, false);
+      const [memories, profiles] = await Promise.all([
+        memoryRepo.listMemories(req.params.spaceId),
+        spaceRepo.listProfiles(req.params.spaceId),
+      ]);
+      const days: Record<string, Memory[]> = {};
+      for (const m of memories) {
+        const d = new Date(m.capturedAt).toISOString().slice(0, 10);
+        if (req.query.year && !d.startsWith(req.query.year)) continue;
+        if (req.query.month && d.slice(5, 7) !== req.query.month.padStart(2, "0")) continue;
+        days[d] = days[d] || [];
+        days[d].push(m);
+      }
+      const anniversaries = profiles
+        .filter((p) => Boolean(p.birthDate))
+        .map((p) => ({
+          profileId: p.id,
+          name: p.name,
+          relationship: p.relationship,
+          birthDate: p.birthDate,
+        }));
+      return reply.status(200).send(createSuccessResponse({ days, anniversaries, totalMemories: memories.length }));
+    }
+  );
+
+  // Space Activity Stream (PWA-53 / IOS-41)
+  app.get(
+    "/api/v1/spaces/:spaceId/activity",
+    async (req: FastifyRequest<{ Params: { spaceId: string } }>, reply) => {
+      const userId = await requireAuthUser(req);
+      await assertSpaceAccess(req.params.spaceId, userId, false);
+      const [memories, collections, profiles] = await Promise.all([
+        memoryRepo.listMemories(req.params.spaceId),
+        collectionRepo.listCollections(req.params.spaceId),
+        spaceRepo.listProfiles(req.params.spaceId),
+      ]);
+      const feed = [
+        ...memories.map((m) => ({
+          id: `mem-${m.id}`,
+          kind: "memory_created",
+          title: m.title,
+          actorId: m.authorId,
+          timestamp: m.createdAt,
+        })),
+        ...collections.map((c) => ({
+          id: `col-${c.id}`,
+          kind: "collection_updated",
+          title: c.title,
+          actorId: userId,
+          timestamp: c.updatedAt,
+        })),
+        ...profiles.map((p) => ({
+          id: `prof-${p.id}`,
+          kind: "profile_added",
+          title: p.name,
+          actorId: userId,
+          timestamp: p.createdAt,
+        })),
+      ].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+      return reply.status(200).send(createSuccessResponse(feed.slice(0, 50)));
+    }
+  );
+
+  // Memory Change History (PWA-54)
+  app.get(
+    "/api/v1/memories/:memoryId/history",
+    async (req: FastifyRequest<{ Params: { memoryId: string } }>, reply) => {
+      const userId = await requireAuthUser(req);
+      const mem = await memoryRepo.findMemoryById(req.params.memoryId);
+      if (!mem) {
+        return reply.status(404).send(createErrorResponse("MEMORY_NOT_FOUND", "Memory not found"));
+      }
+      await assertSpaceAccess(mem.spaceId, userId, false);
+      if (dbUrl) {
+        const res = await db.query(
+          `SELECT id, memory_id as "memoryId", editor_id as "editorId", title, content,
+                  captured_at::text as "capturedAt", change_summary as "changeSummary", created_at::text as "createdAt"
+           FROM memory_revisions WHERE memory_id = $1 ORDER BY created_at DESC`,
+          [mem.id]
+        );
+        return reply.status(200).send(
+          createSuccessResponse([
+            ...res.rows,
+            {
+              id: `initial-${mem.id}`,
+              memoryId: mem.id,
+              editorId: mem.authorId,
+              title: mem.title,
+              content: mem.content || "",
+              capturedAt: mem.capturedAt,
+              changeSummary: "Initial preservation",
+              createdAt: mem.createdAt,
+            },
+          ])
+        );
+      }
+      return reply.status(200).send(
+        createSuccessResponse([
+          ...(memRevisions.get(mem.id) || []),
+          {
+            id: `initial-${mem.id}`,
+            memoryId: mem.id,
+            editorId: mem.authorId,
+            title: mem.title,
+            content: mem.content || "",
+            capturedAt: mem.capturedAt,
+            changeSummary: "Initial preservation",
+            createdAt: mem.createdAt,
+          },
+        ])
+      );
+    }
+  );
+
+  // Offline Batch Sync Endpoint (IOS-22)
+  app.post(
+    "/api/v1/memories/sync/batch",
+    async (
+      req: FastifyRequest<{
+        Body: { mutations: Array<{ spaceId: string; title: string; content?: string; format?: Memory["format"]; capturedAt?: string }> };
+      }>,
+      reply
+    ) => {
+      const userId = await requireAuthUser(req);
+      const mutations = Array.isArray(req.body?.mutations) ? req.body.mutations : [];
+      const synced: Memory[] = [];
+      for (const item of mutations.slice(0, 25)) {
+        if (!item.spaceId || !item.title) continue;
+        await assertSpaceAccess(item.spaceId, userId, true);
+        const now = new Date().toISOString();
+        const mem: Memory = {
+          id: crypto.randomUUID(),
+          spaceId: item.spaceId,
+          authorId: userId,
+          title: item.title,
+          content: item.content,
+          format: item.format || "story",
+          capturedAt: item.capturedAt || now,
+          isFavorite: false,
+          associatedProfileIds: [],
+          mediaIds: [],
+          tags: ["offline-synced"],
+          createdAt: now,
+          updatedAt: now,
+        };
+        await memoryRepo.createMemory(mem);
+        synced.push(mem);
+      }
+      return reply.status(200).send(createSuccessResponse({ syncedCount: synced.length, items: synced }));
+    }
+  );
+
+  // Single Collection Detail & Reorder (PWA-30 / IOS-33)
+  app.get(
+    "/api/v1/spaces/:spaceId/collections/:collectionId",
+    async (req: FastifyRequest<{ Params: { spaceId: string; collectionId: string } }>, reply) => {
+      const userId = await requireAuthUser(req);
+      await assertSpaceAccess(req.params.spaceId, userId, false);
+      const col = await collectionRepo.findCollectionById(req.params.collectionId);
+      if (!col || col.spaceId !== req.params.spaceId) {
+        return reply.status(404).send(createErrorResponse("COLLECTION_NOT_FOUND", "Collection not found"));
+      }
+      const allMemories = await memoryRepo.listMemories(req.params.spaceId);
+      const memMap = new Map(allMemories.map((m) => [m.id, m]));
+      const orderedMemories = (col.memoryIds || []).map((id) => memMap.get(id)).filter(Boolean);
+      return reply.status(200).send(createSuccessResponse({ ...col, memories: orderedMemories }));
+    }
+  );
+
+  app.put(
+    "/api/v1/spaces/:spaceId/collections/:collectionId/reorder",
+    async (
+      req: FastifyRequest<{ Params: { spaceId: string; collectionId: string }; Body: { memoryIds: string[] } }>,
+      reply
+    ) => {
+      const userId = await requireAuthUser(req);
+      await assertSpaceAccess(req.params.spaceId, userId, true);
+      const col = await collectionRepo.findCollectionById(req.params.collectionId);
+      if (!col || col.spaceId !== req.params.spaceId) {
+        return reply.status(404).send(createErrorResponse("COLLECTION_NOT_FOUND", "Collection not found"));
+      }
+      const ids = Array.isArray(req.body?.memoryIds) ? req.body.memoryIds : [];
+      for (let i = 0; i < ids.length; i++) {
+        await collectionRepo.addMemory(col.id, ids[i], i);
+      }
+      const updated = await collectionRepo.findCollectionById(col.id);
+      return reply.status(200).send(createSuccessResponse(updated));
+    }
+  );
+
+  // ==========================================
+  // ADMIN SPACES & CONTENT MODERATION (ADMIN-04 / ADMIN-06)
+  // ==========================================
+
+  app.get("/api/v1/admin/spaces", async (req: FastifyRequest, reply) => {
+    await requireAdminUser(req);
+    const spaces = await spaceRepo.listSpaces();
+    return reply.status(200).send(createSuccessResponse(spaces));
+  });
+
+  app.get("/api/v1/admin/moderation", async (req: FastifyRequest, reply) => {
+    await requireAdminUser(req);
+    if (dbUrl) {
+      const res = await db.query(
+        `SELECT id, space_id as "spaceId", memory_id as "memoryId", media_id as "mediaId",
+                reason, status, resolved_by as "resolvedBy", resolved_at::text as "resolvedAt", created_at::text as "createdAt"
+         FROM moderation_flags ORDER BY created_at DESC LIMIT 100`
+      );
+      return reply.status(200).send(createSuccessResponse(res.rows));
+    }
+    return reply.status(200).send(createSuccessResponse(memModerationFlags));
+  });
+
+  app.post(
+    "/api/v1/admin/moderation/:flagId/resolve",
+    async (req: FastifyRequest<{ Params: { flagId: string }; Body: { decision: "approved" | "quarantined" } }>, reply) => {
+      const adminId = await requireAdminUser(req);
+      const decision = req.body?.decision === "quarantined" ? "quarantined" : "approved";
+      if (dbUrl) {
+        const res = await db.query(
+          `UPDATE moderation_flags SET status = $1, resolved_by = $2, resolved_at = NOW() WHERE id = $3
+           RETURNING id, status, resolved_by as "resolvedBy", resolved_at::text as "resolvedAt"`,
+          [decision, adminId, req.params.flagId]
+        );
+        if (!res.rows[0]) {
+          return reply.status(404).send(createErrorResponse("FLAG_NOT_FOUND", "Moderation flag not found"));
+        }
+        return reply.status(200).send(createSuccessResponse(res.rows[0]));
+      }
+      return reply.status(200).send(createSuccessResponse({ id: req.params.flagId, status: decision, resolvedBy: adminId }));
     }
   );
 

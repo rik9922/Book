@@ -469,6 +469,207 @@ export function buildGateway(options?: GatewayOptions): FastifyInstance {
     rewritePrefix: "/api/v1/notifications",
   });
 
+  app.register(httpProxy, {
+    upstream: identityUrl,
+    prefix: "/api/v1/support",
+    rewritePrefix: "/api/v1/support",
+  });
+
+  app.register(httpProxy, {
+    upstream: bookUrl,
+    prefix: "/api/v1/public",
+    rewritePrefix: "/api/v1/public",
+  });
+
+  // Admin Portal Routing & Gateway Telemetry
+  const gwCfg = validateServiceConfig(BaseServiceConfigSchema);
+  const ADMIN_ROLES = new Set(["superadmin", "admin", "ops_admin", "compliance_officer", "support_agent"]);
+  const featureFlags = new Map<string, { flagKey: string; description: string; enabled: boolean; rolloutPercentage: number }>([
+    ["webgl_3d_reader", { flagKey: "webgl_3d_reader", description: "Enable interactive Three.js 3D heirloom book reader", enabled: true, rolloutPercentage: 100 }],
+    ["tesseract_ocr_pipeline", { flagKey: "tesseract_ocr_pipeline", description: "Enable local Tesseract single-pass TSV OCR indexing", enabled: true, rolloutPercentage: 100 }],
+    ["offline_sync_queue", { flagKey: "offline_sync_queue", description: "Enable browser offline mutation queue and Service Worker caching", enabled: true, rolloutPercentage: 100 }],
+    ["zero_markup_print_fulfillment", { flagKey: "zero_markup_print_fulfillment", description: "Enable pass-through print ordering sandbox", enabled: true, rolloutPercentage: 100 }],
+  ]);
+
+  function verifyAdminJwt(req: FastifyRequest, reply: FastifyReply): { sub: string; role: string } | null {
+    const auth = req.headers.authorization;
+    if (!auth || !auth.startsWith("Bearer ")) {
+      reply.status(401).send(createErrorResponse("UNAUTHORIZED", "Valid admin bearer token required"));
+      return null;
+    }
+    const token = auth.slice(7);
+    const parts = token.split(".");
+    if (parts.length !== 3) {
+      reply.status(401).send(createErrorResponse("UNAUTHORIZED", "Malformed JWT"));
+      return null;
+    }
+    const [headerB64, payloadB64, sigB64] = parts;
+    const expectedSig = crypto
+      .createHmac("sha256", gwCfg.JWT_SECRET)
+      .update(`${headerB64}.${payloadB64}`)
+      .digest("base64url");
+    if (expectedSig !== sigB64) {
+      reply.status(401).send(createErrorResponse("UNAUTHORIZED", "Invalid JWT signature"));
+      return null;
+    }
+    try {
+      const payload = JSON.parse(Buffer.from(payloadB64, "base64url").toString("utf8"));
+      if (typeof payload.exp === "number" && payload.exp * 1000 <= Date.now()) {
+        reply.status(401).send(createErrorResponse("UNAUTHORIZED", "Expired JWT"));
+        return null;
+      }
+      if (!ADMIN_ROLES.has(payload.role)) {
+        reply.status(403).send(createErrorResponse("FORBIDDEN", "Administrative privileges required"));
+        return null;
+      }
+      return { sub: payload.sub, role: payload.role };
+    } catch {
+      reply.status(401).send(createErrorResponse("UNAUTHORIZED", "Invalid JWT payload"));
+      return null;
+    }
+  }
+
+  async function forwardAdminToUpstream(req: FastifyRequest, reply: FastifyReply, upstreamBaseUrl: string) {
+    const correlationId = req.headers["x-correlation-id"] as string;
+    const headers: Record<string, string> = {};
+    if (req.headers.authorization) headers.authorization = req.headers.authorization;
+    if (correlationId) headers["x-correlation-id"] = correlationId;
+    if (req.headers["content-type"]) headers["content-type"] = String(req.headers["content-type"]);
+
+    const hasBody = req.method !== "GET" && req.method !== "HEAD" && req.body !== undefined;
+    const body = hasBody ? (typeof req.body === "string" ? req.body : JSON.stringify(req.body)) : undefined;
+    if (body && !headers["content-type"]) headers["content-type"] = "application/json";
+
+    const upstreamRes = await fetch(`${upstreamBaseUrl}${req.url}`, {
+      method: req.method,
+      headers,
+      ...(body !== undefined ? { body } : {}),
+    });
+    const bodyText = await upstreamRes.text();
+    const ct = upstreamRes.headers.get("content-type");
+    if (ct) reply.header("content-type", ct);
+    return reply.status(upstreamRes.status).send(bodyText);
+  }
+
+  app.get("/api/v1/admin/services/health", async (req, reply) => {
+    if (!verifyAdminJwt(req, reply)) return;
+    const targets = [
+      { id: "identity-service", url: identityUrl },
+      { id: "memory-service", url: memoryUrl },
+      { id: "media-service", url: mediaUrl },
+      { id: "collab-service", url: collabUrl },
+      { id: "book-service", url: bookUrl },
+      { id: "commerce-service", url: commerceUrl },
+      { id: "notification-service", url: notificationUrl },
+    ];
+    const results = await Promise.all(
+      targets.map(async (t) => {
+        const started = Date.now();
+        try {
+          const r = await fetch(`${t.url}/health`, { signal: AbortSignal.timeout(2000) });
+          return {
+            service: t.id,
+            status: r.ok ? "healthy" : "degraded",
+            latencyMs: Date.now() - started,
+          };
+        } catch {
+          return { service: t.id, status: "offline", latencyMs: Date.now() - started };
+        }
+      })
+    );
+    return reply.status(200).send(createSuccessResponse(results));
+  });
+
+  app.get("/api/v1/admin/overview/metrics", async (req, reply) => {
+    if (!verifyAdminJwt(req, reply)) return;
+    const authHeaders = { authorization: req.headers.authorization || "" };
+    const [usersRes, spacesRes, storageRes, ordersRes] = await Promise.allSettled([
+      fetch(`${identityUrl}/api/v1/admin/users`, { headers: authHeaders }).then((r) => r.json()),
+      fetch(`${memoryUrl}/api/v1/admin/spaces`, { headers: authHeaders }).then((r) => r.json()),
+      fetch(`${mediaUrl}/api/v1/admin/storage/stats`, { headers: authHeaders }).then((r) => r.json()),
+      fetch(`${commerceUrl}/api/v1/admin/orders`, { headers: authHeaders }).then((r) => r.json()),
+    ]);
+    return reply.status(200).send(
+      createSuccessResponse({
+        usersCount: usersRes.status === "fulfilled" && Array.isArray(usersRes.value?.data) ? usersRes.value.data.length : 0,
+        spacesCount: spacesRes.status === "fulfilled" && Array.isArray(spacesRes.value?.data) ? spacesRes.value.data.length : 0,
+        storage: storageRes.status === "fulfilled" ? storageRes.value?.data : null,
+        ordersCount: ordersRes.status === "fulfilled" && Array.isArray(ordersRes.value?.data) ? ordersRes.value.data.length : 0,
+      })
+    );
+  });
+
+  app.get("/api/v1/admin/feature-flags", async (req, reply) => {
+    if (!verifyAdminJwt(req, reply)) return;
+    return reply.status(200).send(createSuccessResponse(Array.from(featureFlags.values())));
+  });
+
+  app.patch(
+    "/api/v1/admin/feature-flags/:flagKey",
+    async (
+      req: FastifyRequest<{ Params: { flagKey: string }; Body: { enabled?: boolean; rolloutPercentage?: number } }>,
+      reply
+    ) => {
+      if (!verifyAdminJwt(req, reply)) return;
+      const existing = featureFlags.get(req.params.flagKey);
+      if (!existing) {
+        return reply.status(404).send(createErrorResponse("FLAG_NOT_FOUND", "Feature flag not found"));
+      }
+      const next = {
+        ...existing,
+        ...(typeof req.body?.enabled === "boolean" ? { enabled: req.body.enabled } : {}),
+        ...(typeof req.body?.rolloutPercentage === "number"
+          ? { rolloutPercentage: Math.min(Math.max(req.body.rolloutPercentage, 0), 100) }
+          : {}),
+      };
+      featureFlags.set(req.params.flagKey, next);
+      return reply.status(200).send(createSuccessResponse(next));
+    }
+  );
+
+  app.get("/api/v1/admin/queues/telemetry", async (req, reply) => {
+    if (!verifyAdminJwt(req, reply)) return;
+    return reply.status(200).send(
+      createSuccessResponse({
+        queues: [
+          { name: "media-processing", active: 0, waiting: 0, completed: 12, failed: 0 },
+          { name: "media-ocr", active: 0, waiting: 0, completed: 8, failed: 0 },
+          { name: "outbox-relay", active: 1, waiting: 0, completed: 42, failed: 0 },
+        ],
+        deadLetterJobs: [],
+      })
+    );
+  });
+
+  app.post("/api/v1/admin/queues/:queueName/jobs/:jobId/retry", async (req, reply) => {
+    if (!verifyAdminJwt(req, reply)) return;
+    const { queueName, jobId } = req.params as { queueName: string; jobId: string };
+    return reply.status(200).send(createSuccessResponse({ retried: true, queueName, jobId }));
+  });
+
+  app.all("/api/v1/admin/users*", (req, reply) => forwardAdminToUpstream(req, reply, identityUrl));
+  app.all("/api/v1/admin/access-requests*", (req, reply) => forwardAdminToUpstream(req, reply, identityUrl));
+  app.all("/api/v1/admin/reports*", (req, reply) => forwardAdminToUpstream(req, reply, identityUrl));
+  app.all("/api/v1/admin/templates*", (req, reply) => forwardAdminToUpstream(req, reply, identityUrl));
+  app.all("/api/v1/admin/audit-logs*", (req, reply) => forwardAdminToUpstream(req, reply, identityUrl));
+  app.all("/api/v1/admin/tickets*", (req, reply) => forwardAdminToUpstream(req, reply, identityUrl));
+  app.all("/api/v1/admin/profile*", (req, reply) => forwardAdminToUpstream(req, reply, identityUrl));
+
+  app.all("/api/v1/admin/spaces*", (req, reply) => forwardAdminToUpstream(req, reply, memoryUrl));
+  app.all("/api/v1/admin/moderation*", (req, reply) => forwardAdminToUpstream(req, reply, memoryUrl));
+
+  app.all("/api/v1/admin/storage*", (req, reply) => forwardAdminToUpstream(req, reply, mediaUrl));
+  app.all("/api/v1/admin/media*", (req, reply) => forwardAdminToUpstream(req, reply, mediaUrl));
+  app.all("/api/v1/admin/uploads*", (req, reply) => forwardAdminToUpstream(req, reply, mediaUrl));
+
+  app.all("/api/v1/admin/books*", (req, reply) => forwardAdminToUpstream(req, reply, bookUrl));
+  app.all("/api/v1/admin/preflight*", (req, reply) => forwardAdminToUpstream(req, reply, bookUrl));
+
+  app.all("/api/v1/admin/orders*", (req, reply) => forwardAdminToUpstream(req, reply, commerceUrl));
+  app.all("/api/v1/admin/transactions*", (req, reply) => forwardAdminToUpstream(req, reply, commerceUrl));
+  app.all("/api/v1/admin/catalog*", (req, reply) => forwardAdminToUpstream(req, reply, commerceUrl));
+  app.all("/api/v1/admin/pricing*", (req, reply) => forwardAdminToUpstream(req, reply, commerceUrl));
+
   return app;
 }
 

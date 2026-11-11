@@ -8,6 +8,8 @@ import { buildMemoryService } from "../services/memory-service/src/server.ts";
 import { buildCollabService } from "../services/collab-service/src/server.ts";
 import { buildBookService } from "../services/book-service/src/server.ts";
 import { buildCommerceService } from "../services/commerce-service/src/server.ts";
+import { buildMediaService } from "../services/media-service/src/server.ts";
+import { buildGateway } from "../services/api-gateway/src/server.ts";
 
 describe("Expanded Screen Inventory Backend Routes Suite", () => {
   const cfg = validateServiceConfig(BaseServiceConfigSchema);
@@ -393,6 +395,296 @@ describe("Expanded Screen Inventory Backend Routes Suite", () => {
       await memoryApp.inject({ method: "DELETE", url: `/api/v1/spaces/${spaceId}`, headers });
     } finally {
       await Promise.all([memoryApp.close(), bookApp.close(), commerceApp.close(), collabApp.close()]);
+    }
+  });
+
+  test("5. Full Expansion Suite: Dynamic Order Pricing Parity, Book Curate/Chapters/Proof/Editions, Collab Roles/Share Links, Memory Timeline/History/Batch, Media Storage", async () => {
+    const memoryApp = await buildMemoryService();
+    const bookApp = await buildBookService();
+    const commerceApp = await buildCommerceService();
+    const collabApp = await buildCollabService();
+    const mediaApp = await buildMediaService();
+
+    const ownerId = crypto.randomUUID();
+    const token = signToken(ownerId, "expansion-owner@memoria.internal");
+    const headers = { authorization: `Bearer ${token}` };
+
+    try {
+      // Space setup
+      const spRes = await memoryApp.inject({
+        method: "POST",
+        url: "/api/v1/spaces",
+        headers,
+        payload: { name: "Expansion Vault", type: "family" },
+      });
+      assert.equal(spRes.statusCode, 201);
+      const spaceId = JSON.parse(spRes.body).data.id;
+
+      // Batch offline memory sync + edit revision history + timeline/calendar/activity
+      const batchRes = await memoryApp.inject({
+        method: "POST",
+        url: "/api/v1/memories/sync/batch",
+        headers,
+        payload: {
+          mutations: [
+            { spaceId, title: "Batch Heirloom Letter", content: "Initial draft", format: "story" },
+          ],
+        },
+      });
+      assert.equal(batchRes.statusCode, 200);
+      const batchData = JSON.parse(batchRes.body).data;
+      assert.equal(batchData.syncedCount, 1);
+      const memId = batchData.items[0].id;
+
+      const patchMem = await memoryApp.inject({
+        method: "PATCH",
+        url: `/api/v1/memories/${memId}`,
+        headers,
+        payload: { title: "Batch Heirloom Letter (Revised)", content: "Updated narrative" },
+      });
+      assert.equal(patchMem.statusCode, 200);
+
+      const histRes = await memoryApp.inject({ method: "GET", url: `/api/v1/memories/${memId}/history`, headers });
+      assert.equal(histRes.statusCode, 200);
+      assert.ok(JSON.parse(histRes.body).data.length >= 1, "Expected memory revision history entry after PATCH");
+
+      const tlRes = await memoryApp.inject({ method: "GET", url: `/api/v1/spaces/${spaceId}/timeline`, headers });
+      assert.equal(tlRes.statusCode, 200);
+      assert.ok(JSON.parse(tlRes.body).data.total >= 1);
+
+      const calRes = await memoryApp.inject({ method: "GET", url: `/api/v1/spaces/${spaceId}/calendar`, headers });
+      assert.equal(calRes.statusCode, 200);
+      assert.ok(JSON.parse(calRes.body).data.totalMemories >= 1);
+
+      const actRes = await memoryApp.inject({ method: "GET", url: `/api/v1/spaces/${spaceId}/activity`, headers });
+      assert.equal(actRes.statusCode, 200);
+      assert.ok(Array.isArray(JSON.parse(actRes.body).data));
+
+      // Collab custom roles & passphrase-protected share links
+      const roleCreate = await collabApp.inject({
+        method: "POST",
+        url: `/api/v1/collab/spaces/${spaceId}/roles`,
+        headers,
+        payload: { name: "Archivist", permissions: { can_create_memories: true, can_edit_books: true, can_invite: false } },
+      });
+      assert.equal(roleCreate.statusCode, 201);
+
+      const shareCreate = await collabApp.inject({
+        method: "POST",
+        url: `/api/v1/collab/spaces/${spaceId}/share-links`,
+        headers,
+        payload: { label: "Reunion Link", passphrase: "vault-pass-2026" },
+      });
+      assert.equal(shareCreate.statusCode, 201);
+      const shareLink = JSON.parse(shareCreate.body).data;
+
+      const badVerify = await collabApp.inject({
+        method: "POST",
+        url: `/api/v1/collab/share-links/${shareLink.token}/verify`,
+        payload: { passphrase: "wrong" },
+      });
+      assert.equal(badVerify.statusCode, 403);
+
+      const okVerify = await collabApp.inject({
+        method: "POST",
+        url: `/api/v1/collab/share-links/${shareLink.token}/verify`,
+        payload: { passphrase: "vault-pass-2026" },
+      });
+      assert.equal(okVerify.statusCode, 200);
+      assert.equal(JSON.parse(okVerify.body).data.valid, true);
+
+      // Book Studio: public books, curate, chapters, spread reorder, 2D proof, clone next edition
+      const pubBooks = await bookApp.inject({ method: "GET", url: "/api/v1/public/books" });
+      assert.equal(pubBooks.statusCode, 200);
+      assert.ok(JSON.parse(pubBooks.body).data.items.length >= 2);
+
+      const bookRes = await bookApp.inject({
+        method: "POST",
+        url: "/api/v1/books",
+        headers,
+        payload: { spaceId, title: "Winter Almanac", format: "hardcover_grand_12x12" },
+      });
+      assert.equal(bookRes.statusCode, 201);
+      const bookId = JSON.parse(bookRes.body).data.id;
+
+      const curateRes = await bookApp.inject({
+        method: "POST",
+        url: `/api/v1/books/${bookId}/curate`,
+        headers,
+        payload: { memoryIds: [memId], theme: "heirloom_serif" },
+      });
+      assert.equal(curateRes.statusCode, 200);
+      assert.ok(JSON.parse(curateRes.body).data.spreads.length >= 1);
+
+      const chapRes = await bookApp.inject({
+        method: "PUT",
+        url: `/api/v1/books/${bookId}/chapters`,
+        headers,
+        payload: { chapters: [{ title: "Early Years", sortOrder: 0, memoryIds: [memId] }] },
+      });
+      assert.equal(chapRes.statusCode, 200);
+
+      const proofRes = await bookApp.inject({ method: "GET", url: `/api/v1/books/${bookId}/proof`, headers });
+      assert.equal(proofRes.statusCode, 200);
+      assert.equal(JSON.parse(proofRes.body).data.bleedMm, 3);
+
+      const editionRes = await bookApp.inject({
+        method: "POST",
+        url: `/api/v1/books/${bookId}/editions`,
+        headers,
+        payload: { label: "Second Printing" },
+      });
+      assert.equal(editionRes.statusCode, 201);
+
+      // Commerce: Quote vs POST /orders exact parity!
+      const quotePayload = {
+        format: "hardcover_grand_12x12",
+        quantity: 2,
+        printSpec: { paperWeight: "170gsm_lustre", binding: "french_morocco" },
+        shippingSpeed: "priority",
+      };
+      const quoteRes = await commerceApp.inject({
+        method: "POST",
+        url: "/api/v1/orders/quote",
+        headers,
+        payload: quotePayload,
+      });
+      assert.equal(quoteRes.statusCode, 200);
+      const quote = JSON.parse(quoteRes.body).data;
+
+      const orderRes = await commerceApp.inject({
+        method: "POST",
+        url: "/api/v1/orders",
+        headers,
+        payload: {
+          spaceId,
+          bookId,
+          quantity: 2,
+          shippingSpeed: "priority",
+          printSpec: { format: "hardcover_grand_12x12", paperWeight: "170gsm_lustre", binding: "french_morocco" },
+          shippingAddress: {
+            recipientName: "Elena Vance",
+            line1: "100 Oak St",
+            city: "Portland",
+            postalCode: "97205",
+            country: "US",
+          },
+        },
+      });
+      assert.equal(orderRes.statusCode, 201);
+      const order = JSON.parse(orderRes.body).data;
+      assert.equal(order.totalCents, quote.totalCents, "POST /orders totalCents must match POST /orders/quote exactly");
+
+      const trackRes = await commerceApp.inject({ method: "GET", url: `/api/v1/orders/${order.id}/tracking`, headers });
+      assert.equal(trackRes.statusCode, 200);
+      assert.ok(Array.isArray(JSON.parse(trackRes.body).data.timeline));
+
+      const reorderRes = await commerceApp.inject({ method: "POST", url: `/api/v1/orders/${order.id}/reorder`, headers, payload: {} });
+      assert.equal(reorderRes.statusCode, 201);
+      assert.equal(JSON.parse(reorderRes.body).data.totalCents, order.totalCents);
+
+      // Media storage breakdown
+      const storageRes = await mediaApp.inject({
+        method: "GET",
+        url: `/api/v1/media/spaces/${spaceId}/storage/breakdown`,
+        headers,
+      });
+      assert.equal(storageRes.statusCode, 200);
+      assert.equal(typeof JSON.parse(storageRes.body).data.usedBytes, "number");
+
+      await memoryApp.inject({ method: "DELETE", url: `/api/v1/spaces/${spaceId}`, headers });
+    } finally {
+      await Promise.all([memoryApp.close(), bookApp.close(), commerceApp.close(), collabApp.close(), mediaApp.close()]);
+    }
+  });
+
+  test("6. Identity Preferences/Tickets & Strict Admin RBAC Across Services + Gateway", async () => {
+    const identityApp = await buildIdentityService();
+    const commerceApp = await buildCommerceService();
+    const gatewayApp = buildGateway();
+
+    const regularUserId = crypto.randomUUID();
+    const regularToken = signToken(regularUserId, "regular@memoria.internal");
+    const superAdminToken = jwt.sign(
+      { sub: crypto.randomUUID(), email: "superadmin@memoria.internal", role: "superadmin" },
+      cfg.JWT_SECRET,
+      { expiresIn: "1h" }
+    );
+
+    try {
+      // Non-admin blocked across Identity Admin, Commerce Admin, and Gateway Admin!
+      const idForbidden = await identityApp.inject({
+        method: "GET",
+        url: "/api/v1/admin/users",
+        headers: { authorization: `Bearer ${regularToken}` },
+      });
+      assert.equal(idForbidden.statusCode, 403);
+
+      const comForbidden = await commerceApp.inject({
+        method: "GET",
+        url: "/api/v1/admin/orders",
+        headers: { authorization: `Bearer ${regularToken}` },
+      });
+      assert.equal(comForbidden.statusCode, 403);
+
+      const gwForbidden = await gatewayApp.inject({
+        method: "GET",
+        url: "/api/v1/admin/overview/metrics",
+        headers: { authorization: `Bearer ${regularToken}` },
+      });
+      assert.equal(gwForbidden.statusCode, 403);
+
+      // Superadmin allowed across Identity Admin, Commerce Admin, Gateway Admin
+      const idUsers = await identityApp.inject({
+        method: "GET",
+        url: "/api/v1/admin/users",
+        headers: { authorization: `Bearer ${superAdminToken}` },
+      });
+      assert.equal(idUsers.statusCode, 200);
+
+      const catalogList = await commerceApp.inject({
+        method: "GET",
+        url: "/api/v1/admin/catalog/formats",
+        headers: { authorization: `Bearer ${superAdminToken}` },
+      });
+      assert.equal(catalogList.statusCode, 200);
+      assert.ok(JSON.parse(catalogList.body).data.length >= 1);
+
+      const gwMetrics = await gatewayApp.inject({
+        method: "GET",
+        url: "/api/v1/admin/overview/metrics",
+        headers: { authorization: `Bearer ${superAdminToken}` },
+      });
+      assert.equal(gwMetrics.statusCode, 200);
+
+      const flagToggle = await gatewayApp.inject({
+        method: "PATCH",
+        url: "/api/v1/admin/feature-flags/webgl_3d_reader",
+        headers: { authorization: `Bearer ${superAdminToken}` },
+        payload: { enabled: true, rolloutPercentage: 100 },
+      });
+      assert.equal(flagToggle.statusCode, 200);
+
+      // Support ticket creation + admin reply
+      const ticketRes = await identityApp.inject({
+        method: "POST",
+        url: "/api/v1/support/tickets",
+        headers: { authorization: `Bearer ${regularToken}` },
+        payload: { subject: "Foil Stamp Query", category: "print_orders", message: "Can we switch silver to gold?" },
+      });
+      assert.equal(ticketRes.statusCode, 201);
+      const ticketId = JSON.parse(ticketRes.body).data.id;
+
+      const replyRes = await identityApp.inject({
+        method: "POST",
+        url: `/api/v1/admin/tickets/${ticketId}/reply`,
+        headers: { authorization: `Bearer ${superAdminToken}` },
+        payload: { message: "Updated your edition foil specification.", newStatus: "resolved" },
+      });
+      assert.equal(replyRes.statusCode, 201);
+      assert.equal(JSON.parse(replyRes.body).data.status, "resolved");
+    } finally {
+      await Promise.all([identityApp.close(), commerceApp.close(), gatewayApp.close()]);
     }
   });
 });

@@ -182,8 +182,17 @@ describe("Microservices Lifecycle & Domain Services Suite", () => {
     });
     assert.equal(createRes.statusCode, 201);
     const order = JSON.parse(createRes.body).data;
-    assert.equal(order.totalCents, 13600);
+    // Standard 8x10 ($48) + french_morocco (+$20) + 170gsm_lustre (+$4) = $72/ea × 2 + $9 US shipping = $153.00 (15300 cents)
+    assert.equal(order.totalCents, 15300);
     assert.equal(order.status, "submitted");
+
+    const trackRes = await app.inject({
+      method: "GET",
+      url: `/api/v1/orders/${order.id}/tracking`,
+      headers: { authorization: `Bearer ${token}` },
+    });
+    assert.equal(trackRes.statusCode, 200);
+    assert.equal(JSON.parse(trackRes.body).data.timeline.length, 5);
 
     const statusRes = await app.inject({
       method: "PATCH",

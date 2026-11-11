@@ -847,6 +847,304 @@ export async function buildBookService(): Promise<FastifyInstance> {
     return reply.status(200).send(createSuccessResponse(report));
   });
 
+  // ==========================================
+  // PUBLIC GALLERY, CHAPTERS, REORDER, PROOFING & EDITIONS
+  // ==========================================
+
+  app.get("/api/v1/public/books", async (_req, reply) => {
+    return reply.status(200).send(
+      createSuccessResponse({
+        items: [
+          {
+            id: "sample",
+            title: "The Bennett Heritage",
+            subtitle: "1948 — 2026 • Memoria Volume I",
+            format: "hardcover_standard_8x10",
+            coverColor: "#76556F",
+            foilStamping: "gold",
+            pageCount: 48,
+            curator: "Bennett Family Archive",
+          },
+          {
+            id: "sample-tuscany",
+            title: "Summer in Tuscany 1948",
+            subtitle: "Handwritten Letters & Postcards",
+            format: "hardcover_square_8x8",
+            coverColor: "#304C43",
+            foilStamping: "gold",
+            pageCount: 36,
+            curator: "Vance Heritage Vault",
+          },
+          {
+            id: "sample-clara",
+            title: "Clara: Years One Through Five",
+            subtitle: "Childhood Milestones & Drawings",
+            format: "hardcover_grand_12x12",
+            coverColor: "#20242C",
+            foilStamping: "silver",
+            pageCount: 64,
+            curator: "Clara's Milestone Capsule",
+          },
+        ],
+      })
+    );
+  });
+
+  const memChapters = new Map<string, Array<{ id: string; title: string; subtitle?: string; sortOrder: number }>>();
+
+  app.get("/api/v1/books/:id/chapters", async (req: FastifyRequest<{ Params: { id: string } }>, reply) => {
+    const userId = await requireAuthUser(req);
+    const book = await bookRepo.findBookById(req.params.id);
+    if (!book) return reply.status(404).send(createErrorResponse("BOOK_NOT_FOUND", "Book does not exist"));
+    await assertSpaceAccess(book.spaceId, userId, false);
+    if (dbUrl) {
+      const res = await db.query(
+        `SELECT id, title, subtitle, sort_order as "sortOrder" FROM book_chapters WHERE book_id = $1 ORDER BY sort_order ASC`,
+        [book.id]
+      );
+      return reply.status(200).send(createSuccessResponse(res.rows));
+    }
+    return reply.status(200).send(createSuccessResponse(memChapters.get(book.id) || []));
+  });
+
+  app.put(
+    "/api/v1/books/:id/chapters",
+    async (
+      req: FastifyRequest<{ Params: { id: string }; Body: { chapters: Array<{ id?: string; title: string; subtitle?: string }> } }>,
+      reply
+    ) => {
+      const userId = await requireAuthUser(req);
+      const book = await bookRepo.findBookById(req.params.id);
+      if (!book) return reply.status(404).send(createErrorResponse("BOOK_NOT_FOUND", "Book does not exist"));
+      await assertSpaceAccess(book.spaceId, userId, true);
+      if (book.isFrozenForPrint) {
+        return reply.status(409).send(createErrorResponse("BOOK_FROZEN", "Cannot modify frozen edition"));
+      }
+      const chapters = (req.body?.chapters || []).map((c, idx) => ({
+        id: c.id || crypto.randomUUID(),
+        title: c.title,
+        subtitle: c.subtitle || "",
+        sortOrder: idx,
+      }));
+      if (dbUrl) {
+        await db.query(`DELETE FROM book_chapters WHERE book_id = $1`, [book.id]);
+        for (const c of chapters) {
+          await db.query(
+            `INSERT INTO book_chapters (id, book_id, title, subtitle, sort_order) VALUES ($1, $2, $3, $4, $5)`,
+            [c.id, book.id, c.title, c.subtitle || null, c.sortOrder]
+          );
+        }
+      } else {
+        memChapters.set(book.id, chapters);
+      }
+      return reply.status(200).send(createSuccessResponse(chapters));
+    }
+  );
+
+  // Auto-Curate & Generate Initial Spreads from Selected Memories (PWA-60 / PWA-62 / IOS-46)
+  app.post(
+    "/api/v1/books/:id/curate",
+    async (
+      req: FastifyRequest<{
+        Params: { id: string };
+        Body: { memories: Array<{ id: string; title: string; content?: string; capturedAt?: string }>; template?: string };
+      }>,
+      reply
+    ) => {
+      const userId = await requireAuthUser(req);
+      const book = await bookRepo.findBookById(req.params.id);
+      if (!book) return reply.status(404).send(createErrorResponse("BOOK_NOT_FOUND", "Book does not exist"));
+      await assertSpaceAccess(book.spaceId, userId, true);
+      if (book.isFrozenForPrint) {
+        return reply.status(409).send(createErrorResponse("BOOK_FROZEN", "Cannot curate into frozen edition"));
+      }
+      const memories = Array.isArray(req.body?.memories) ? req.body.memories : [];
+      const sorted = [...memories].sort(
+        (a, b) => new Date(a.capturedAt || 0).getTime() - new Date(b.capturedAt || 0).getTime()
+      );
+      const baseIndex = book.spreads.length;
+      const createdSpreads: BookSpread[] = [];
+      for (let i = 0; i < sorted.length; i++) {
+        const m = sorted[i];
+        const spread: BookSpread = {
+          id: crypto.randomUUID(),
+          spreadIndex: baseIndex + i,
+          leftPage: {
+            id: crypto.randomUUID(),
+            pageNumber: (baseIndex + i) * 2 + 1,
+            layoutType: "photo_with_story",
+            backgroundColor: "#F7F4ED",
+            elements: [
+              {
+                id: crypto.randomUUID(),
+                type: "heading",
+                x: 10,
+                y: 20,
+                width: 80,
+                height: 15,
+                rotation: 0,
+                zIndex: 1,
+                content: m.title,
+                style: { fontFamily: "serif", fontSize: 24, color: "#20242C" },
+              },
+            ],
+          },
+          rightPage: {
+            id: crypto.randomUUID(),
+            pageNumber: (baseIndex + i) * 2 + 2,
+            layoutType: "quote_spread",
+            backgroundColor: "#F7F4ED",
+            elements: [
+              {
+                id: crypto.randomUUID(),
+                type: "caption",
+                x: 10,
+                y: 30,
+                width: 80,
+                height: 40,
+                rotation: 0,
+                zIndex: 1,
+                content: m.content || `Preserved memory (${m.capturedAt ? new Date(m.capturedAt).getFullYear() : "Archive"})`,
+                style: { fontFamily: "sans-serif", fontSize: 15, color: "#5C5955" },
+              },
+            ],
+          },
+        };
+        await bookRepo.saveSpread(book.id, spread);
+        createdSpreads.push(spread);
+      }
+      const updated = await bookRepo.findBookById(book.id);
+      return reply.status(200).send(createSuccessResponse(updated || book));
+    }
+  );
+
+  // Reorder Spreads (PWA-65 / IOS-47)
+  app.put(
+    "/api/v1/books/:id/spreads/reorder",
+    async (req: FastifyRequest<{ Params: { id: string }; Body: { spreadIds: string[] } }>, reply) => {
+      const userId = await requireAuthUser(req);
+      const book = await bookRepo.findBookById(req.params.id);
+      if (!book) return reply.status(404).send(createErrorResponse("BOOK_NOT_FOUND", "Book does not exist"));
+      await assertSpaceAccess(book.spaceId, userId, true);
+      if (book.isFrozenForPrint) {
+        return reply.status(409).send(createErrorResponse("BOOK_FROZEN", "Cannot reorder spreads on frozen edition"));
+      }
+      const order = Array.isArray(req.body?.spreadIds) ? req.body.spreadIds : [];
+      const spreadMap = new Map(book.spreads.map((s) => [s.id, s]));
+      let idx = 0;
+      for (const id of order) {
+        const s = spreadMap.get(id);
+        if (s) {
+          await bookRepo.saveSpread(book.id, { ...s, spreadIndex: idx++ });
+          spreadMap.delete(id);
+        }
+      }
+      for (const s of spreadMap.values()) {
+        await bookRepo.saveSpread(book.id, { ...s, spreadIndex: idx++ });
+      }
+      const updated = await bookRepo.findBookById(book.id);
+      return reply.status(200).send(createSuccessResponse(updated || book));
+    }
+  );
+
+  // 2D Proofing View (PWA-67)
+  app.get("/api/v1/books/:id/proof", async (req: FastifyRequest<{ Params: { id: string } }>, reply) => {
+    const userId = await requireAuthUser(req);
+    const book = await bookRepo.findBookById(req.params.id);
+    if (!book) return reply.status(404).send(createErrorResponse("BOOK_NOT_FOUND", "Book does not exist"));
+    await assertSpaceAccess(book.spaceId, userId, false);
+    const preflight = await evaluateBookPreflight(book);
+    return reply.status(200).send(
+      createSuccessResponse({
+        book,
+        pageCount: book.spreads.length * 2,
+        bleedMm: 3,
+        safeMarginMm: 12,
+        preflight,
+      })
+    );
+  });
+
+  // Edition History & Clone Next Edition (PWA-70)
+  app.get("/api/v1/books/:id/editions", async (req: FastifyRequest<{ Params: { id: string } }>, reply) => {
+    const userId = await requireAuthUser(req);
+    const book = await bookRepo.findBookById(req.params.id);
+    if (!book) return reply.status(404).send(createErrorResponse("BOOK_NOT_FOUND", "Book does not exist"));
+    await assertSpaceAccess(book.spaceId, userId, false);
+    const editions = [
+      {
+        editionNumber: book.version,
+        status: book.isFrozenForPrint ? "frozen_for_print" : "draft",
+        editionHash: book.frozenEditionHash || null,
+        spreadCount: book.spreads.length,
+        updatedAt: book.updatedAt,
+      },
+    ];
+    return reply.status(200).send(createSuccessResponse(editions));
+  });
+
+  app.post("/api/v1/books/:id/editions", async (req: FastifyRequest<{ Params: { id: string } }>, reply) => {
+    const userId = await requireAuthUser(req);
+    const source = await bookRepo.findBookById(req.params.id);
+    if (!source) return reply.status(404).send(createErrorResponse("BOOK_NOT_FOUND", "Book does not exist"));
+    await assertSpaceAccess(source.spaceId, userId, true);
+    const now = new Date().toISOString();
+    const cloned: BookDocument = {
+      ...source,
+      id: crypto.randomUUID(),
+      title: `${source.title} (Edition ${source.version + 1})`,
+      version: source.version + 1,
+      isFrozenForPrint: false,
+      frozenEditionHash: undefined,
+      spreads: source.spreads.map((s) => ({ ...s, id: crypto.randomUUID() })),
+      createdAt: now,
+      updatedAt: now,
+    };
+    await bookRepo.createBook(cloned);
+    return reply.status(201).send(createSuccessResponse(cloned));
+  });
+
+  // Admin Book Telemetry & Preflight Override (ADMIN-14 / ADMIN-15)
+  const ADMIN_ROLES = new Set(["superadmin", "admin", "ops_admin", "compliance_officer", "support_agent"]);
+  async function requireAdmin(req: FastifyRequest) {
+    const claims: any = await req.jwtVerify().catch(() => {
+      throw new UnauthorizedError("Valid admin token required");
+    });
+    if (!ADMIN_ROLES.has(claims?.role || "")) {
+      throw new ForbiddenError("Administrative privileges required");
+    }
+  }
+
+  app.get("/api/v1/admin/books/rendering/jobs", async (req, reply) => {
+    await requireAdmin(req);
+    if (dbUrl) {
+      const res = await db.query(
+        `SELECT id, space_id as "spaceId", title, format, version, is_frozen_for_print as "isFrozenForPrint",
+                frozen_edition_hash as "frozenEditionHash", updated_at::text as "updatedAt"
+         FROM books ORDER BY updated_at DESC LIMIT 100`
+      );
+      return reply.status(200).send(createSuccessResponse(res.rows));
+    }
+    return reply.status(200).send(createSuccessResponse([]));
+  });
+
+  app.post(
+    "/api/v1/admin/preflight/:bookId/override",
+    async (req: FastifyRequest<{ Params: { bookId: string }; Body?: { note?: string } }>, reply) => {
+      await requireAdmin(req);
+      const book = await bookRepo.findBookById(req.params.bookId);
+      if (!book) return reply.status(404).send(createErrorResponse("BOOK_NOT_FOUND", "Book does not exist"));
+      return reply.status(200).send(
+        createSuccessResponse({
+          bookId: book.id,
+          overridden: true,
+          note: req.body?.note || "Prepress operator approved print tolerances",
+          approvedAt: new Date().toISOString(),
+        })
+      );
+    }
+  );
+
   return app;
 }
 

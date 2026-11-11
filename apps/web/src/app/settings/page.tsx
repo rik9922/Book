@@ -2,15 +2,21 @@
 
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
-import { Download, LogOut, RefreshCw, Shield, Sliders } from "lucide-react";
+import { Download, HardDrive, Lock, LogOut, RefreshCw, Shield, Sliders } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import {
   apiRequest,
   AuthUser,
   clearStoredSession,
+  getPreferences,
+  getPrivacySettings,
+  getStorageBreakdown,
   getStoredSession,
   MemorySpaceDTO,
+  pruneStorageCache,
   saveStoredSession,
+  updatePreferences,
+  updatePrivacySettings,
   updateUserProfile,
 } from "@/lib/api";
 
@@ -20,6 +26,15 @@ export default function SettingsPage() {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [fullNameInput, setFullNameInput] = useState("");
   const [reducedMotion, setReducedMotion] = useState(false);
+  const [language, setLanguage] = useState("en");
+  const [signedLinkTtl, setSignedLinkTtl] = useState(3600);
+  const [allowPublicGallery, setAllowPublicGallery] = useState(false);
+  const [storageInfo, setStorageInfo] = useState<{
+    usedBytes: number;
+    maxBytes: number;
+    assetCount: number;
+    categories: { imagesBytes: number; videoBytes: number; audioBytes: number; docsBytes: number };
+  } | null>(null);
   const [spaces, setSpaces] = useState<MemorySpaceDTO[]>([]);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -36,11 +51,27 @@ export default function SettingsPage() {
     if (session.accessToken) {
       apiRequest<{ spaces?: MemorySpaceDTO[]; items?: MemorySpaceDTO[] } | MemorySpaceDTO[]>("/spaces")
         .then((res) => {
-          setSpaces(Array.isArray(res) ? res : res.spaces || res.items || []);
+          const list = Array.isArray(res) ? res : res.spaces || res.items || [];
+          setSpaces(list);
+          if (list[0]) {
+            getStorageBreakdown(list[0].id).then(setStorageInfo).catch(() => undefined);
+          }
         })
         .catch(() => {
           setSpaces([]);
         });
+      getPreferences()
+        .then((p) => {
+          if (typeof p.reducedMotion === "boolean") setReducedMotion(p.reducedMotion);
+          if (p.language) setLanguage(p.language);
+        })
+        .catch(() => undefined);
+      getPrivacySettings()
+        .then((pr) => {
+          if (typeof pr.signedLinkTtlSeconds === "number") setSignedLinkTtl(pr.signedLinkTtlSeconds);
+          if (typeof pr.allowPublicGallery === "boolean") setAllowPublicGallery(pr.allowPublicGallery);
+        })
+        .catch(() => undefined);
     }
   }, []);
 
@@ -50,11 +81,35 @@ export default function SettingsPage() {
     if (typeof window !== "undefined") {
       localStorage.setItem(REDUCED_MOTION_KEY, String(next));
     }
+    if (user) {
+      updatePreferences({ reducedMotion: next, language }).catch(() => undefined);
+    }
     setStatusMessage(
       next
         ? "Reduced Motion enabled for 3D page transitions."
         : "Standard 3D page animations enabled."
     );
+  };
+
+  const handleSavePrivacy = async () => {
+    setError(null);
+    try {
+      await updatePrivacySettings({ signedLinkTtlSeconds: signedLinkTtl, allowPublicGallery });
+      setStatusMessage("Privacy & signed media link expiration updated.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save privacy settings.");
+    }
+  };
+
+  const handlePruneCache = async () => {
+    if (!spaces[0]) return;
+    setError(null);
+    try {
+      const res = await pruneStorageCache(spaces[0].id);
+      setStatusMessage(`Verified ${res.verifiedObjects} local archive object(s) and cleared stale cache.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to prune storage cache.");
+    }
   };
 
   const handleRefreshSession = async () => {
@@ -272,6 +327,80 @@ export default function SettingsPage() {
               {reducedMotion ? "Enabled" : "Disabled"}
             </button>
           </div>
+        </section>
+
+        <section className="bg-[#FFFFFF] rounded-2xl border border-[#E7E2DA] p-6 space-y-4">
+          <h2 className="font-serif text-lg font-bold text-[#20242C] flex items-center gap-2">
+            <Lock className="w-4 h-4 text-[#76556F]" aria-hidden="true" />
+            Privacy &amp; Signed Media Controls
+          </h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+            <div>
+              <label htmlFor="privacy-ttl" className="block font-semibold text-[#20242C] mb-1">
+                Signed Media Link Expiration
+              </label>
+              <select
+                id="privacy-ttl"
+                value={signedLinkTtl}
+                onChange={(e) => setSignedLinkTtl(Number(e.target.value))}
+                className="w-full px-3 py-2 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA]"
+              >
+                <option value={900}>15 minutes</option>
+                <option value={3600}>1 hour (Recommended)</option>
+                <option value={21600}>6 hours</option>
+                <option value={86400}>24 hours</option>
+              </select>
+            </div>
+            <div className="flex items-end">
+              <label className="inline-flex items-center gap-2 text-xs text-[#20242C]">
+                <input
+                  type="checkbox"
+                  checked={allowPublicGallery}
+                  onChange={(e) => setAllowPublicGallery(e.target.checked)}
+                />
+                Allow opting public editions into Community Gallery
+              </label>
+            </div>
+          </div>
+          <button
+            type="button"
+            disabled={!user}
+            onClick={handleSavePrivacy}
+            className="px-4 py-2 rounded-xl bg-[#76556F] text-white text-xs font-semibold disabled:opacity-40"
+          >
+            Save Privacy Policy
+          </button>
+        </section>
+
+        <section className="bg-[#FFFFFF] rounded-2xl border border-[#E7E2DA] p-6 space-y-4">
+          <h2 className="font-serif text-lg font-bold text-[#20242C] flex items-center gap-2">
+            <HardDrive className="w-4 h-4 text-[#5F735E]" aria-hidden="true" />
+            Local Disk Storage &amp; Derivatives
+          </h2>
+          {storageInfo ? (
+            <div className="space-y-2 text-xs text-[#5C5955]">
+              <p>
+                Used: <strong className="text-[#20242C]">{(storageInfo.usedBytes / (1024 * 1024)).toFixed(2)} MB</strong> /{" "}
+                {(storageInfo.maxBytes / (1024 * 1024)).toFixed(0)} MB ({storageInfo.assetCount} asset(s))
+              </p>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <div className="p-2.5 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA]">Photos: {(storageInfo.categories.imagesBytes / 1024).toFixed(0)} KB</div>
+                <div className="p-2.5 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA]">Videos: {(storageInfo.categories.videoBytes / 1024).toFixed(0)} KB</div>
+                <div className="p-2.5 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA]">Audio: {(storageInfo.categories.audioBytes / 1024).toFixed(0)} KB</div>
+                <div className="p-2.5 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA]">Docs: {(storageInfo.categories.docsBytes / 1024).toFixed(0)} KB</div>
+              </div>
+            </div>
+          ) : (
+            <p className="text-xs text-[#5C5955]">Local zero-budget disk storage active (500 MB per space).</p>
+          )}
+          <button
+            type="button"
+            disabled={!user || spaces.length === 0}
+            onClick={handlePruneCache}
+            className="px-4 py-2 rounded-xl bg-[#F0ECE1] text-xs font-semibold text-[#20242C] disabled:opacity-40"
+          >
+            Verify Integrity &amp; Prune Orphan Cache
+          </button>
         </section>
 
         <section className="bg-[#FFFFFF] rounded-2xl border border-[#E7E2DA] p-6 space-y-4">

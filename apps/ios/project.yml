@@ -49,3 +49,38 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.memoria.app.tests
         GENERATE_INFOPLIST_FILE: YES
 
+  MemoriaUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: Memoria/Tests/MemoriaUITests
+    dependencies:
+      - target: Memoria
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.memoria.app.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: Memoria
+
+schemes:
+  Memoria:
+    build:
+      targets:
+        Memoria: all
+        MemoriaTests: [test]
+        MemoriaUITests: [test]
+    test:
+      targets:
+        - MemoriaTests
+        - MemoriaUITests
+
+  MemoriaTests:
+    build:
+      targets:
+        Memoria: [test]
+        MemoriaTests: all
+    test:
+      targets:
+        - MemoriaTests
+

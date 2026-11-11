@@ -3,7 +3,7 @@
 **Official Product Name**: **Memoria**  
 **Official Product Tagline**: *Your memories, made timeless.*  
 **Document Version**: 2.0.0 (Production Master Reference)  
-**Generated Timestamp**: 2026-11-10T03:47:29.469Z  
+**Generated Timestamp**: 2026-11-11T10:06:21.257Z  
 **Total Canonical Screens**: **164 Screens** (82 Web/PWA, 56 Native iOS, 26 Admin Portal)  
 **Architectural Governance**: Sections 2 and 10 of the Memoria Master Engineering Directive  
 
@@ -161,7 +161,7 @@ This document establishes the exhaustive, binding single source of truth for all
 ### PWA-02 — How Memoria Works — 4-Stage Preservation Flow
 
 **Category**: Web & PWA — Public Experience  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Understand the end-to-end preservation lifecycle: Archive → Collaborate → Author → Print.
@@ -251,7 +251,7 @@ This document establishes the exhaustive, binding single source of truth for all
 ### PWA-03 — Use Cases & Heirloom Scenarios
 
 **Category**: Web & PWA — Public Experience  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Explore targeted memory capsule use cases: Children milestones, Family heritage, Weddings, Memorials, Pets, and Journeys.
@@ -340,7 +340,7 @@ This document establishes the exhaustive, binding single source of truth for all
 ### PWA-04 — Public Heirloom Book Gallery
 
 **Category**: Web & PWA — Public Experience  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Browse published open-access heirloom editions, examine cover designs, and view community spread inspirations.
@@ -516,14 +516,14 @@ This document establishes the exhaustive, binding single source of truth for all
   - [ ] opens 3D viewer, turns 3 pages, clicks reset camera, toggles 2D proof
 
 #### 17. UI Component Inventory
-`ExperienceCanvas` (`apps/web/src/components/3d/ExperienceCanvas.tsx`), `AccessibleSpreadReader` (`apps/web/src/components/3d/AccessibleSpreadReader.tsx`), `CanvasErrorBoundary`, `packages/contracts/src/book-3d.ts`, `GET /api/v1/books/3d/manifest`, `GET /api/v1/books/3d/assets/memoria_heirloom_book.glb`, [3D Architecture](docs/3D_BOOK_ENGINE_ARCHITECTURE.md)
+`ExperienceCanvas`, `ReaderHUD`, `PageTurnController`, `FlatProofFallback`
 
 ---
 
 ### PWA-06 — Zero-Cost Principles & Storage Transparency
 
 **Category**: Web & PWA — Public Experience  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Understand Memoria's strict $0 budget self-hosting model, local-first storage architecture, and data sovereignty pledge.
@@ -611,7 +611,7 @@ This document establishes the exhaustive, binding single source of truth for all
 ### PWA-07 — FAQ, Community Guides & Support Center
 
 **Category**: Web & PWA — Public Experience  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Search answers to common archival questions, learn how to scan physical photos, and submit a support ticket.
@@ -915,7 +915,7 @@ This document establishes the exhaustive, binding single source of truth for all
 ### PWA-10 — Forgot Password Recovery Request
 
 **Category**: Web & PWA — Auth & Onboarding  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Request a secure, time-limited password reset link via registered email address.
@@ -1010,7 +1010,7 @@ This document establishes the exhaustive, binding single source of truth for all
 ### PWA-11 — Password Reset Token Verification & New Input
 
 **Category**: Web & PWA — Auth & Onboarding  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Set a new secure password using a cryptographic verification token received via recovery email.
@@ -1107,7 +1107,7 @@ This document establishes the exhaustive, binding single source of truth for all
 ### PWA-12 — Email Verification Confirmation Screen
 
 **Category**: Web & PWA — Auth & Onboarding  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Confirm email address ownership via verification link or trigger a resend if link is expired.
@@ -1195,7 +1195,7 @@ This document establishes the exhaustive, binding single source of truth for all
 ### PWA-13 — Collaborative Invitation Acceptance Landing
 
 **Category**: Web & PWA — Auth & Onboarding  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Accept a family member or editor invitation to join an existing Memory Space.
@@ -1283,7 +1283,7 @@ This document establishes the exhaustive, binding single source of truth for all
 ### PWA-14 — Purpose Selection Onboarding Wizard
 
 **Category**: Web & PWA — Auth & Onboarding  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Select the primary purpose for the first memory archive (Family Heritage, Child Milestones, Wedding, Memorial, Travel Journey, or Personal Story).
@@ -2699,7 +2699,7 @@ This document establishes the exhaustive, binding single source of truth for all
 ### PWA-29 — Collections Directory
 
 **Category**: Web & PWA — Spaces & People  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Browse and manage themed groupings of memories (e.g. 'Summer at the Lake 1988', 'Liam Year 1', 'Wedding Kept Memories').
@@ -2788,7 +2788,7 @@ This document establishes the exhaustive, binding single source of truth for all
 ### PWA-30 — Collection Detail & Curated Order View
 
 **Category**: Web & PWA — Spaces & People  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: View all memories in a collection, reorder them, inspect the cover banner, and export to book authoring.
@@ -2879,7 +2879,7 @@ This document establishes the exhaustive, binding single source of truth for all
 ### PWA-31 — Create / Edit Thematic Collection View
 
 **Category**: Web & PWA — Spaces & People  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Create a new themed collection or edit its title, narrative description, and cover photo.
@@ -2978,7 +2978,7 @@ This document establishes the exhaustive, binding single source of truth for all
 ### PWA-32 — Notification Center & System Notices
 
 **Category**: Web & PWA — Spaces & People  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Review all invites, comments, media processing completions, OCR results, and system announcements.
@@ -3254,7 +3254,7 @@ This document establishes the exhaustive, binding single source of truth for all
 ### PWA-35 — Calendar Memory Heatmap & Anniversary View
 
 **Category**: Web & PWA — Archive & Media  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Inspect memories mapped to a traditional calendar grid, discover anniversaries, and view 'This Day in History'.
@@ -4472,7 +4472,7 @@ This document establishes the exhaustive, binding single source of truth for all
 ### PWA-48 — Trash, Soft-Deleted Memories & 30-Day Recovery View
 
 **Category**: Web & PWA — Archive & Media  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Review soft-deleted memories, restore accidentally deleted items, or confirm permanent deletion.
@@ -4564,7 +4564,7 @@ This document establishes the exhaustive, binding single source of truth for all
 ### PWA-49 — Outbound Invitation Management View
 
 **Category**: Web & PWA — Collaboration  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Track pending invitation links, inspect expiration dates, resend invites, or revoke access.
@@ -4745,7 +4745,7 @@ This document establishes the exhaustive, binding single source of truth for all
 ### PWA-51 — Custom Role & Permission Editor
 
 **Category**: Web & PWA — Collaboration  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Define custom space roles (e.g. 'Family Historian', 'Guest Storyteller') with tailored capability sets.
@@ -4842,7 +4842,7 @@ This document establishes the exhaustive, binding single source of truth for all
 ### PWA-52 — Public / Restricted Sharing Settings & Passphrase Protection
 
 **Category**: Web & PWA — Collaboration  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Configure external sharing links for memory stories or books with optional passphrase and expiration dates.
@@ -4940,7 +4940,7 @@ This document establishes the exhaustive, binding single source of truth for all
 ### PWA-53 — Space Activity & Contribution Live Stream
 
 **Category**: Web & PWA — Collaboration  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Follow recent family additions, story edits, comments, and book drafts in an observable activity feed.
@@ -5029,7 +5029,7 @@ This document establishes the exhaustive, binding single source of truth for all
 ### PWA-54 — Memory Change History & Version Attribution Detail
 
 **Category**: Web & PWA — Collaboration  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Inspect the audit trail of modifications made to a memory story or metadata, and compare revisions side-by-side.
@@ -5119,7 +5119,7 @@ This document establishes the exhaustive, binding single source of truth for all
 ### PWA-55 — Dedicated Discussion Threads & Memory Annotation Panel
 
 **Category**: Web & PWA — Collaboration  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Engage in family conversations and add annotations on specific photographs or memory moments.
@@ -5592,7 +5592,7 @@ This document establishes the exhaustive, binding single source of truth for all
 ### PWA-60 — Memory Curation & Chronologic Grouping
 
 **Category**: Web & PWA — Books & 3D Studio  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Review candidate memories, select/deselect items, and group them chronologically for book compilation.
@@ -5684,7 +5684,7 @@ This document establishes the exhaustive, binding single source of truth for all
 ### PWA-61 — Chapter & Section Structure Organizer
 
 **Category**: Web & PWA — Books & 3D Studio  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Organize memories into structured book chapters (e.g. 'Chapter 1: The Early Years', 'Chapter 2: Family Journeys').
@@ -5961,7 +5961,7 @@ This document establishes the exhaustive, binding single source of truth for all
   - [ ] changes cover color to Plum, selects Gold foil, confirms 3D foil reflection, clicks Save
 
 #### 17. UI Component Inventory
-`ExperienceCanvas` (`apps/web/src/components/3d/ExperienceCanvas.tsx`, Muted Plum/Navy/Burgundy/Onyx/Emerald + Gold/Rose/Silver/Blind Emboss swatches), `packages/contracts/src/book-3d.ts`, `GET /api/v1/books/3d/manifest`, [Cross-Platform 3D Consistency](docs/CROSS_PLATFORM_3D_CONSISTENCY.md)
+`CoverCanvas`, `MaterialPicker`, `FoilSelector`, `SpineInput`, `Button`
 
 ---
 
@@ -6066,7 +6066,7 @@ This document establishes the exhaustive, binding single source of truth for all
 ### PWA-65 — Page Manager, Thumbnail Strip & Re-Ordering Grid
 
 **Category**: Web & PWA — Books & 3D Studio  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: View all book spreads as a miniature thumbnail grid, reorder spreads via drag-and-drop, add/delete spreads, and inspect pagination.
@@ -6430,7 +6430,7 @@ This document establishes the exhaustive, binding single source of truth for all
   - [ ] opens 3D reader, turns 3 pages via right arrow, presses Space to close cover
 
 #### 17. UI Component Inventory
-`ExperienceCanvas` (`apps/web/src/components/3d/ExperienceCanvas.tsx`), `AccessibleSpreadReader` (`apps/web/src/components/3d/AccessibleSpreadReader.tsx`), `CanvasErrorBoundary`, `packages/contracts/src/book-3d.ts`, `GET /api/v1/books/3d/manifest`, `GET /api/v1/books/3d/assets/memoria_heirloom_book.glb`, [3D Architecture](docs/3D_BOOK_ENGINE_ARCHITECTURE.md)
+`ExperienceCanvas`, `ReaderHUD`, `PageTurnController`, `FlatProofFallback`
 
 ---
 
@@ -6528,7 +6528,7 @@ This document establishes the exhaustive, binding single source of truth for all
 ### PWA-70 — Version History, Edition Diffs & Frozen Print Archives
 
 **Category**: Web & PWA — Books & 3D Studio  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Inspect frozen print edition snapshots, review immutable SHA-256 hashes, compare edition diffs, and restore prior editions as new drafts.
@@ -6620,7 +6620,7 @@ This document establishes the exhaustive, binding single source of truth for all
 ### PWA-71 — Print Format, Paper Weight & Binding Selector
 
 **Category**: Web & PWA — Commerce  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Select fine-art paper weight (140gsm archival matte or 170gsm photo lustre) and binding finish with transparent at-cost pricing.
@@ -6710,7 +6710,7 @@ This document establishes the exhaustive, binding single source of truth for all
 ### PWA-72 — Shipping Address & Delivery Estimator
 
 **Category**: Web & PWA — Commerce  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Enter delivery address, validate postal formatting, and calculate real shipping rates.
@@ -6811,7 +6811,7 @@ This document establishes the exhaustive, binding single source of truth for all
 ### PWA-73 — Order Checkout & Payment Sandbox Review
 
 **Category**: Web & PWA — Commerce  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Review total itemized costs (printing, binding, shipping, taxes) and submit payment via authorized sandbox/live provider.
@@ -6901,7 +6901,7 @@ This document establishes the exhaustive, binding single source of truth for all
 ### PWA-74 — Order Confirmation & Printable Archival Receipt
 
 **Category**: Web & PWA — Commerce  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Receive verified order confirmation, receipt with immutable edition hash, estimated dispatch date, and printable PDF invoice.
@@ -6990,7 +6990,7 @@ This document establishes the exhaustive, binding single source of truth for all
 ### PWA-75 — Real-Time Print Order Production & Shipping Tracker
 
 **Category**: Web & PWA — Commerce  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Track physical book production through 5 verified stages: Preflight Verified → Printing Pages → Leather Binding → Dispatched → Delivered.
@@ -7079,7 +7079,7 @@ This document establishes the exhaustive, binding single source of truth for all
 ### PWA-76 — Reorder Dashboard & Immutable Print Edition Archive
 
 **Category**: Web & PWA — Commerce  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Order additional identical copies of previously printed editions without altering any page layout.
@@ -7361,7 +7361,7 @@ This document establishes the exhaustive, binding single source of truth for all
 ### PWA-79 — Privacy, Signed Link Duration & Sharing Controls
 
 **Category**: Web & PWA — Account & Support  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Configure space privacy defaults, default expiration duration for external signed media links, and access audit logs.
@@ -7637,7 +7637,7 @@ This document establishes the exhaustive, binding single source of truth for all
 ### PWA-82 — Help Documentation, Keyboard Shortcuts & Ticket Support
 
 **Category**: Web & PWA — Account & Support  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Search user guides, review accessibility keyboard shortcuts, and submit support tickets directly from within the app.
@@ -8029,7 +8029,7 @@ This document establishes the exhaustive, binding single source of truth for all
 ### IOS-04 — Password Recovery Request Sheet
 
 **Category**: Native iOS — Auth & Onboarding  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Request a secure password recovery email via native iOS sheet.
@@ -8125,7 +8125,7 @@ This document establishes the exhaustive, binding single source of truth for all
 ### IOS-05 — Verification Code Entry Sheet
 
 **Category**: Native iOS — Auth & Onboarding  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Enter a 6-digit verification code received via email with AutoFill One-Time Code support.
@@ -8221,7 +8221,7 @@ This document establishes the exhaustive, binding single source of truth for all
 ### IOS-06 — Deep-Linked Invitation Acceptance View
 
 **Category**: Native iOS — Auth & Onboarding  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Accept a space invitation launched via universal link (https://memoria.local/invite/:token).
@@ -8497,7 +8497,7 @@ This document establishes the exhaustive, binding single source of truth for all
 ### IOS-09 — Create First Profile Sheet
 
 **Category**: Native iOS — Auth & Onboarding  
-**Verified Status**: `Implemented & Verified`
+**Verified Status**: `Implemented (UI/Route Scaffolded)`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Add the first family member, child, ancestor, or pet profile using native iOS form controls.
@@ -9237,7 +9237,7 @@ This document establishes the exhaustive, binding single source of truth for all
 ### IOS-17 — Custom Camera Viewfinder & PHPicker Integration
 
 **Category**: Native iOS — Capture & Uploads  
-**Verified Status**: `Implemented & Verified`
+**Verified Status**: `Implemented (UI/Route Scaffolded)`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Capture new photos with AVFoundation camera or select multiple high-resolution photos via PHPickerViewController.
@@ -9794,7 +9794,7 @@ This document establishes the exhaustive, binding single source of truth for all
 ### IOS-23 — Native Fluid Timeline with Inertial Scrolling
 
 **Category**: Native iOS — Browsing & Management  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Scroll through family memories chronologically with buttery smooth 120 FPS ProMotion inertia and year jump scrubbing.
@@ -9976,7 +9976,7 @@ This document establishes the exhaustive, binding single source of truth for all
 ### IOS-25 — Interactive Calendar Memory Heatmap
 
 **Category**: Native iOS — Browsing & Management  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Explore memories and family anniversaries mapped onto an interactive calendar heatmap on iOS.
@@ -11477,7 +11477,7 @@ Demoting an Admin or removing a member prompts: 'Confirm permission change for [
 ### IOS-41 — Collaborative Activity Stream with Pull-to-Refresh
 
 **Category**: Native iOS — Profiles & Collaboration  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Follow recent family uploads, newly published books, audio additions, and member contributions in a real-time activity feed.
@@ -11752,7 +11752,7 @@ Demoting an Admin or removing a member prompts: 'Confirm permission change for [
   - [ ] taps 3D book model on shelf, verifies selection banner updates, taps Open Volume
 
 #### 17. UI Component Inventory
-`BookshelfView` (`apps/ios/Memoria/Sources/Memoria/Views/BookshelfView.swift`), `Book3DRealityView` (`apps/ios/Memoria/Sources/Memoria/Views/Book3DRealityView.swift`), `Book3DContract` (`apps/ios/Memoria/Sources/Memoria/Models/Book3DContract.swift`), `MemoriaHeirloomBook.usdz`, [3D Book Engine Architecture](docs/3D_BOOK_ENGINE_ARCHITECTURE.md)
+`RealityView`, `BookshelfSceneEntity`, `BookModel3D`, `BookDetailBanner`, `Button`
 
 ---
 
@@ -12319,7 +12319,7 @@ Tapping Cancel prompts: 'Discard book creation? Your draft settings will not be 
   - [ ] swipes left to turn page, verifies page curl animation executes smoothly and page index advances to 2
 
 #### 17. UI Component Inventory
-`Book3DReaderView` (`apps/ios/Memoria/Sources/Memoria/Views/Book3DReaderView.swift`), `Book3DRealityView` (`apps/ios/Memoria/Sources/Memoria/Views/Book3DRealityView.swift`), `Book2DSpreadFallbackView` (`apps/ios/Memoria/Sources/Memoria/Views/Book2DSpreadFallbackView.swift`), `MemoriaHeirloomBook.usdz`, `GET /api/v1/books/3d/assets/MemoriaHeirloomBook.usdz`, [Cross-Platform 3D Consistency](docs/CROSS_PLATFORM_3D_CONSISTENCY.md)
+`RealityView`, `PageCurlEntity`, `SpatialAudioPlayer`, `PageScrubberBar`, `Button`
 
 ---
 
@@ -12418,7 +12418,7 @@ Tapping Cancel prompts: 'Discard book creation? Your draft settings will not be 
 ### IOS-51 — Print Preflight & Archival Quality Inspection Sheet
 
 **Category**: Native iOS — Books & RealityKit 3D  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Validate that all images meet 300 DPI print standards, verify bleed margins, check page counts, and inspect print readiness before checkout.
@@ -12702,7 +12702,7 @@ Tapping Cancel prompts: 'Discard book creation? Your draft settings will not be 
 ### IOS-54 — User Profile, Biometric Security & Preferences
 
 **Category**: Native iOS — Commerce & Account  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Manage account details, Face ID / Touch ID biometric locks, notification preferences, and active spaces.
@@ -12800,7 +12800,7 @@ Sign Out prompts: 'Sign out of Memoria? Your local cache will be preserved.' Del
 ### IOS-55 — Storage Quota Meter, Offline Cache & Data Export Console
 
 **Category**: Native iOS — Commerce & Account  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Inspect space storage utilization against 500MB free quota, clear local thumbnail caches, or download full archival backup.
@@ -12894,7 +12894,7 @@ Tapping 'Clear Local Cache' confirms: 'Clear 45 MB of cached thumbnails? High-re
 ### IOS-56 — Help, Archival Knowledge Base & Support Submission Sheet
 
 **Category**: Native iOS — Commerce & Account  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Search preservation guides (scanning tips, audio recording guidelines, book binding advice) or submit support ticket.
@@ -13000,7 +13000,7 @@ Tapping 'Clear Local Cache' confirms: 'Clear 45 MB of cached thumbnails? High-re
 ### ADMIN-01 — Platform Executive Overview & Health Dashboard
 
 **Category**: Admin Portal — Platform & User Administration  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Monitor platform-wide health metrics, active family spaces, storage utilization, background job throughput, and active user growth in real time.
@@ -13092,7 +13092,7 @@ Tapping 'Clear Local Cache' confirms: 'Clear 45 MB of cached thumbnails? High-re
 ### ADMIN-02 — User Directory, Status Governance & Verification Console
 
 **Category**: Admin Portal — Platform & User Administration  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Search, filter, and inspect registered user accounts, manage account locks, verify identity credentials, and enforce terms compliance.
@@ -13279,7 +13279,7 @@ Revoking sessions or suspending account requires modal confirmation with mandato
 ### ADMIN-04 — Memory Space Oversight & Hierarchy Governance Console
 
 **Category**: Admin Portal — Platform & User Administration  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Inspect space metadata, storage quotas, member rosters, and ownership chains across all collaborative capsules on the platform.
@@ -13668,7 +13668,7 @@ Quarantining or deleting content prompts modal: 'Confirm moderation action on it
 ### ADMIN-08 — Storage Engine Dashboard, Quota Utilization & Orphan File Manager
 
 **Category**: Admin Portal — Storage & Media Infrastructure  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Inspect physical disk storage across local filesystem volumes (`storage/local/`), monitor space quotas, detect orphan assets, and run garbage collection.
@@ -13854,7 +13854,7 @@ Garbage collection prompts: 'Reclaim [X] MB of confirmed orphan files? This will
 ### ADMIN-10 — Active Upload Sessions & Presigned Token Telemetry Console
 
 **Category**: Admin Portal — Storage & Media Infrastructure  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Monitor in-flight client chunk uploads, presigned upload tokens, transfer rates, expired sessions, and network interruptions.
@@ -13947,7 +13947,7 @@ Garbage collection prompts: 'Reclaim [X] MB of confirmed orphan files? This will
 ### ADMIN-11 — BullMQ Background Queue Monitor & Worker Fleet Console
 
 **Category**: Admin Portal — Background Processing & Engine Telemetry  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Monitor background job queues (media processing, OCR, book PDF generation, email notifications, maintenance) and worker concurrency.
@@ -14133,7 +14133,7 @@ Discarding jobs permanently prompts: 'Discard [count] failed jobs? Job data will
 ### ADMIN-13 — Microservice Topology, Health & Resource Telemetry Console
 
 **Category**: Admin Portal — Background Processing & Engine Telemetry  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Inspect the operational health, CPU, memory usage, latency percentiles (p50, p95, p99), and gRPC/REST connectivity across all Memoria microservices.
@@ -14412,7 +14412,7 @@ Overriding preflight warnings prompts: 'Approve book with low-resolution warning
 ### ADMIN-16 — Physical Print Catalog, Materials & Paper Stocks Manager
 
 **Category**: Admin Portal — Physical Print & Commerce Operations  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Manage physical book product offerings, dimensions (8x10, 6x8, 10x12), paper stock weights (148gsm archival matte), cloth cover fabrics, and foil colors.
@@ -14599,7 +14599,7 @@ Saving pricing modifications prompts confirmation: 'Apply updated price matrix t
 ### ADMIN-18 — Physical Print Order Processing & Fulfillment Queue
 
 **Category**: Admin Portal — Physical Print & Commerce Operations  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Track incoming customer print orders, monitor prepress verification, batch print jobs, and advance fulfillment stages.
@@ -15083,7 +15083,7 @@ Processing refund prompts double confirmation: 'Issue refund of [amount] for ord
 ### ADMIN-23 — Dynamic Feature Flag & Staged Rollout Manager
 
 **Category**: Admin Portal — System Governance, Security & Audit  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Toggle platform feature flags (e.g. `realitykit_3d_viewer`, `whisper_voice_transcription`, `tesseract_ocr`, `apple_pay_checkout`), configure rollout percentages, and restrict beta features.
@@ -15270,7 +15270,7 @@ Toggling a critical flag prompts: 'Update feature flag [flagKey] rollout to [per
 ### ADMIN-25 — Customer Support Ticketing & Resolution Console
 
 **Category**: Admin Portal — System Governance, Security & Audit  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Triage customer inquiries, assist users with scanning / audio upload issues, review book ordering questions, and respond to support tickets.
@@ -15468,19 +15468,19 @@ The following traceability matrix establishes the direct mapping between each sc
 | Screen ID | User Story | UI Components | API Endpoint | Service | DB Tables | Events/Jobs | Test Criteria | Verified Status |
 |---|---|---|---|---|---|---|---|---|
 | `PWA-01` | As an archival storyteller or family historian, I want to explore Memoria's core capabilities and open a live 3D book preview so that I can understand how our memories will be preserved. | HeroSection, ExperienceCanvas, FeatureCards, PublicHeader (+1) | GET /api/public/featured-teaser | api-gateway | books (cached read) | Events: public.landing_viewed | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
-| `PWA-02` | As a prospective archivist, I want to inspect each stage of Memoria's workflow so I know how our physical and digital memories will be converted into books. | WorkflowStepper, StageCard, ArchivalDiagram, PublicHeader | N/A N/A (Static page) | web | None | None | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
-| `PWA-03` | As a parent or grandchild, I want to view realistic examples of my specific memory scenario so I can envision the final keepsake book. | FilterChipBar, UseCaseCard, PublicHeader | N/A N/A | web | None | None | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
-| `PWA-04` | As an archivist seeking inspiration, I want to browse public memory books so I can evaluate typography and layout options. | GalleryGrid, BookCoverPreview, FormatFilter, PublicHeader | GET /api/public/books | book-service | books | Events: public.gallery_browsed | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
+| `PWA-02` | As a prospective archivist, I want to inspect each stage of Memoria's workflow so I know how our physical and digital memories will be converted into books. | WorkflowStepper, StageCard, ArchivalDiagram, PublicHeader | N/A N/A (Static page) | web | None | None | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
+| `PWA-03` | As a parent or grandchild, I want to view realistic examples of my specific memory scenario so I can envision the final keepsake book. | FilterChipBar, UseCaseCard, PublicHeader | N/A N/A | web | None | None | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
+| `PWA-04` | As an archivist seeking inspiration, I want to browse public memory books so I can evaluate typography and layout options. | GalleryGrid, BookCoverPreview, FormatFilter, PublicHeader | GET /api/public/books | book-service | books | Events: public.gallery_browsed | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `PWA-05` | As an archivist evaluating physical print fidelity, I want to interact with a realistic 3D book model on the web so I can verify page transitions and cover debossing. | ExperienceCanvas, ReaderHUD, PageTurnController, FlatProofFallback | GET /api/public/sample-book-model | book-service | books, book_spreads | Events: 3d.sample_reader_engaged | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
-| `PWA-06` | As an privacy-conscious archivist, I want to review how Memoria ensures my data is stored locally without card-gated services or hidden costs. | StorageCalculator, TransparencyMatrix, PublicHeader | N/A N/A (Static page) | web | None | None | Unit: 1, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
-| `PWA-07` | As an archivist scanning grandmother's photo albums, I want to read scanning DPI recommendations and submit questions if I encounter issues. | FAQAccordion, SearchInput, SupportForm, PublicHeader | POST /api/public/support-inquiry | api-gateway | audit_logs | Events: support.inquiry_submitted; Jobs: process-support-ticket | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
+| `PWA-06` | As an privacy-conscious archivist, I want to review how Memoria ensures my data is stored locally without card-gated services or hidden costs. | StorageCalculator, TransparencyMatrix, PublicHeader | N/A N/A (Static page) | web | None | None | Unit: 1, Int: 1, E2E: 1 | Implemented & Verified |
+| `PWA-07` | As an archivist scanning grandmother's photo albums, I want to read scanning DPI recommendations and submit questions if I encounter issues. | FAQAccordion, SearchInput, SupportForm, PublicHeader | POST /api/public/support-inquiry | api-gateway | audit_logs | Events: support.inquiry_submitted; Jobs: process-support-ticket | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `PWA-08` | As a new user, I want to create my personal archivist account so that I can begin creating family memory spaces. | AuthCard, InputField, PasswordStrengthMeter, Button (+1) | POST /api/auth/register | identity-service | users, user_sessions | Events: identity.user_registered; Jobs: send-welcome-email | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `PWA-09` | As a registered member, I want to sign in securely so I can access my spaces, books, and pending invites. | AuthCard, InputField, Button, Checkbox | POST /api/auth/login | identity-service | users, user_sessions | Events: identity.user_logged_in | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
-| `PWA-10` | As a member who forgot my password, I want to request a reset link so I can regain access to my family memory space. | AuthCard, InputField, Button | POST /api/auth/forgot-password | identity-service | users, user_sessions | Events: identity.password_reset_requested; Jobs: send-password-reset-email | Unit: 1, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
-| `PWA-11` | As an archivist with a valid recovery token, I want to set a new strong password so I can sign back in. | AuthCard, InputField, PasswordStrengthMeter, Button | POST /api/auth/reset-password | identity-service | users, user_sessions | Events: identity.password_reset_completed; Jobs: revoke-prior-sessions | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
-| `PWA-12` | As a newly registered member, I want to verify my email so that I can receive collaboration invites and print notifications. | StatusBadge, Button, CooldownTimer | POST /api/auth/verify-email | identity-service | users | Events: identity.email_verified | Unit: 1, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
-| `PWA-13` | As an invited family member, I want to review the inviter's space name and assigned role so I can join the collaborative archive. | InvitationCard, SpaceBadge, Button | POST /api/spaces/invitations/:token/accept | identity-service | space_invitations, space_members | Events: collab.invitation_accepted; Jobs: notify-space-owner | Unit: 1, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
-| `PWA-14` | As a new user, I want to choose my primary memory purpose so that Memoria can customize initial prompts and book themes. | WizardHeader, PurposeCardGrid, OnboardingFooter | PATCH /api/users/me/onboarding | identity-service | users | Events: onboarding.purpose_selected | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
+| `PWA-10` | As a member who forgot my password, I want to request a reset link so I can regain access to my family memory space. | AuthCard, InputField, Button | POST /api/auth/forgot-password | identity-service | users, user_sessions | Events: identity.password_reset_requested; Jobs: send-password-reset-email | Unit: 1, Int: 1, E2E: 1 | Implemented & Verified |
+| `PWA-11` | As an archivist with a valid recovery token, I want to set a new strong password so I can sign back in. | AuthCard, InputField, PasswordStrengthMeter, Button | POST /api/auth/reset-password | identity-service | users, user_sessions | Events: identity.password_reset_completed; Jobs: revoke-prior-sessions | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
+| `PWA-12` | As a newly registered member, I want to verify my email so that I can receive collaboration invites and print notifications. | StatusBadge, Button, CooldownTimer | POST /api/auth/verify-email | identity-service | users | Events: identity.email_verified | Unit: 1, Int: 1, E2E: 1 | Implemented & Verified |
+| `PWA-13` | As an invited family member, I want to review the inviter's space name and assigned role so I can join the collaborative archive. | InvitationCard, SpaceBadge, Button | POST /api/spaces/invitations/:token/accept | identity-service | space_invitations, space_members | Events: collab.invitation_accepted; Jobs: notify-space-owner | Unit: 1, Int: 1, E2E: 1 | Implemented & Verified |
+| `PWA-14` | As a new user, I want to choose my primary memory purpose so that Memoria can customize initial prompts and book themes. | WizardHeader, PurposeCardGrid, OnboardingFooter | PATCH /api/users/me/onboarding | identity-service | users | Events: onboarding.purpose_selected | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `PWA-15` | As an archivist in onboarding, I want to configure my first space with a title, description, and privacy setting so my memories have a dedicated home. | SpaceForm, ColorSwatchPicker, Button | POST /api/spaces | memory-service | memory_spaces, space_members, space_storage_quotas | Events: memory.space_created; Jobs: initialize-space-defaults | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `PWA-16` | As an archivist, I want to add my child, ancestor, or family member's profile so that stories can be attached to them. | ProfileForm, TypeSelectorPill, AvatarUploadTrigger, Button | POST /api/spaces/:spaceId/profiles | memory-service | space_profiles | Events: memory.profile_created | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `PWA-17` | As an archivist, I want to invite my siblings and spouse so they can add photos and memories to our shared space. | InviteRowList, RoleSelectDropdown, Button | POST /api/spaces/:spaceId/invitations | memory-service | space_invitations | Events: collab.invitations_dispatched; Jobs: dispatch-invitation-emails | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
@@ -15495,13 +15495,13 @@ The following traceability matrix establishes the direct mapping between each sc
 | `PWA-26` | As a family storyteller, I want to view all people profiles so I can find every memory connected to my grandfather. | ProfileGrid, ProfileCard, SearchInput, Button | GET /api/spaces/:spaceId/profiles | memory-service | space_profiles, memory_profiles | None | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `PWA-27` | As a grandchild, I want to explore my grandmother's dedicated profile view so I can read her biography and see all photos of her. | ProfileHero, BiographyCard, MilestoneStrip, MemoryGrid (+1) | GET /api/spaces/:spaceId/profiles/:profileId | memory-service | space_profiles, memory_profiles, memories | Events: profile.detail_viewed | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `PWA-28` | As an archivist, I want to edit my child's profile photo and crop her face cleanly so her portrait looks sharp throughout the archive. | ProfileForm, AvatarCropper, Button | PUT /api/spaces/:spaceId/profiles/:profileId | memory-service | space_profiles | Events: memory.profile_updated | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
-| `PWA-29` | As an archivist, I want to view all curated collections so I can organize memories into meaningful thematic albums before turning them into books. | CollectionGrid, CollectionCard, SortDropdown, Button | GET /api/spaces/:spaceId/collections | memory-service | tags, memory_tags, memories | None | Unit: 1, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
-| `PWA-30` | As an archivist preparing a book, I want to curate and reorder memories within a collection and click 'Create Book from Collection'. | CollectionBanner, ReorderableGrid, BatchActionBar, Button | GET /api/spaces/:spaceId/collections/:collectionId | memory-service | memories, memory_tags, tags | Events: collection.viewed | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
-| `PWA-31` | As an archivist, I want to create a collection titled 'Liam Year 1' and set a cover photo so I can group baby photos together. | CollectionForm, CoverSelector, Button | POST /api/spaces/:spaceId/collections | memory-service | tags | Events: collection.created | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
-| `PWA-32` | As a collaborator, I want to inspect notifications so I know when grandmother commented on a photo or when a 3D book render finished. | NotificationList, NotificationItem, FilterTabs, Button | GET /api/notifications | identity-service | audit_logs | Events: notification.marked_read | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
+| `PWA-29` | As an archivist, I want to view all curated collections so I can organize memories into meaningful thematic albums before turning them into books. | CollectionGrid, CollectionCard, SortDropdown, Button | GET /api/spaces/:spaceId/collections | memory-service | tags, memory_tags, memories | None | Unit: 1, Int: 1, E2E: 1 | Implemented & Verified |
+| `PWA-30` | As an archivist preparing a book, I want to curate and reorder memories within a collection and click 'Create Book from Collection'. | CollectionBanner, ReorderableGrid, BatchActionBar, Button | GET /api/spaces/:spaceId/collections/:collectionId | memory-service | memories, memory_tags, tags | Events: collection.viewed | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
+| `PWA-31` | As an archivist, I want to create a collection titled 'Liam Year 1' and set a cover photo so I can group baby photos together. | CollectionForm, CoverSelector, Button | POST /api/spaces/:spaceId/collections | memory-service | tags | Events: collection.created | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
+| `PWA-32` | As a collaborator, I want to inspect notifications so I know when grandmother commented on a photo or when a 3D book render finished. | NotificationList, NotificationItem, FilterTabs, Button | GET /api/notifications | identity-service | audit_logs | Events: notification.marked_read | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `PWA-33` | As an archivist, I want to view all family photos, documents, and recordings in a responsive gallery so I can easily find and review memories. | MasonryGrid, MemoryCard, FilterBar, DensityToggle | GET /api/spaces/:spaceId/memories | memory-service | memories, memory_media, media_assets | Events: archive.browsed | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `PWA-34` | As an archivist, I want a comprehensive timeline with a month-by-month index so I can trace historical progression across decades. | TimelineSpine, MonthHeader, TimelineCard, DecadeScrubber | GET /api/memories/timeline | memory-service | memories, memory_media | None | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
-| `PWA-35` | As a family member, I want to open the calendar view for June to see all birthdays, wedding anniversaries, and summer vacations preserved on each date. | CalendarGrid, CalendarCell, AnniversaryBadge, DayInspectorPanel | GET /api/memories/calendar | memory-service | memories, space_profiles | None | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
+| `PWA-35` | As a family member, I want to open the calendar view for June to see all birthdays, wedding anniversaries, and summer vacations preserved on each date. | CalendarGrid, CalendarCell, AnniversaryBadge, DayInspectorPanel | GET /api/memories/calendar | memory-service | memories, space_profiles | None | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `PWA-36` | As an archivist looking for grandmother's handwritten recipe, I want to search 'pie crust' to find the scanned postcard matching OCR text. | SearchBar, FacetSidebar, SearchResultCard, MatchSnippet | GET /api/search | memory-service | memories, media_assets, tags, space_profiles | Events: search.executed | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `PWA-37` | As an archivist, I want to quickly review my favorited memories so I can select the best family photos for our annual heirloom book. | FavoritesGrid, MemoryCard, UndoToast, Button | GET /api/memories/favorites | memory-service | memories | None | Unit: 1, Int: 1, E2E: 1 | Implemented & Verified |
 | `PWA-38` | As a family member, I want to open a memory to see the full photograph, read grandmother's handwritten recipe transcription, and listen to her voice recording. | MemoryModal, MediaCarousel, WaveformPlayer, StoryTypography (+1) | GET /api/memories/:memoryId | memory-service | memories, memory_media, media_assets, memory_profiles | Events: memory.viewed | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
@@ -15514,50 +15514,50 @@ The following traceability matrix establishes the direct mapping between each sc
 | `PWA-45` | As an interviewer, I want to record grandfather telling the story of how he met grandmother, with live visual feedback and pause support. | AudioStudio, WaveformCanvas, RecordButton, TimerDisplay (+1) | POST /api/media/upload-audio | media-service | media_assets, memories | Events: media.audio_recorded; Jobs: generate-audio-waveform, transcribe-audio | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `PWA-46` | As an archivist, I want to compose a 2-page family story with pull quotes, drop caps, and italics that will print beautifully in our book. | RichTextEditor, EditorToolbar, MetadataDrawer, AutosaveBadge (+1) | POST /api/memories | memory-service | memories, memory_profiles, memory_tags | Events: memory.created; Jobs: index-memory-search | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `PWA-47` | As an archivist, I want to inspect a scanned 1918 birth certificate and view the machine OCR text side-by-side with confidence scores. | DocumentCanvas, OCRSplitView, PageNavigator, ConfidenceBadge | GET /api/media/:mediaId/ocr | media-service | media_assets | Events: document.ocr_viewed | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
-| `PWA-48` | As an archivist, I want to review memories deleted in the last 30 days and restore a photo that was removed by mistake. | TrashGrid, DeletedMemoryCard, CountdownBadge, ConfirmDialog (+1) | POST /api/memories/:memoryId/restore | memory-service | memories, audit_logs | Events: memory.restored, memory.permanently_deleted; Jobs: purge-expired-trash | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
-| `PWA-49` | As a space owner, I want to see which family members have not yet accepted their invitations and resend them. | InvitationTable, StatusBadge, CopyLinkButton, Button | GET /api/spaces/:spaceId/invitations | identity-service | space_invitations | Events: collab.invitation_revoked, collab.invitation_resent | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
+| `PWA-48` | As an archivist, I want to review memories deleted in the last 30 days and restore a photo that was removed by mistake. | TrashGrid, DeletedMemoryCard, CountdownBadge, ConfirmDialog (+1) | POST /api/memories/:memoryId/restore | memory-service | memories, audit_logs | Events: memory.restored, memory.permanently_deleted; Jobs: purge-expired-trash | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
+| `PWA-49` | As a space owner, I want to see which family members have not yet accepted their invitations and resend them. | InvitationTable, StatusBadge, CopyLinkButton, Button | GET /api/spaces/:spaceId/invitations | identity-service | space_invitations | Events: collab.invitation_revoked, collab.invitation_resent | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `PWA-50` | As an archivist, I want to allow my cousin to contribute photos but restrict her from ordering printed books or deleting memories. | PermissionMatrix, CheckboxToggle, Button | PUT /api/spaces/:spaceId/permissions | memory-service | space_members, audit_logs | Events: collab.permissions_updated | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
-| `PWA-51` | As a space owner, I want to create a custom role called 'Junior Contributor' that can upload photos but needs owner approval to publish. | RoleForm, CapabilityChecklist, Button | POST /api/spaces/:spaceId/roles | memory-service | audit_logs | Events: collab.custom_role_created | Unit: 1, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
-| `PWA-52` | As an archivist, I want to create a passphrase-protected share link for our 50th anniversary book so distant relatives can view it without registering. | ShareSettingsCard, CopyLinkButton, QRCodePreview, PassphraseInput | POST /api/spaces/:spaceId/share-link | memory-service | memory_spaces, audit_logs | Events: collab.share_link_generated | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
-| `PWA-53` | As an archivist, I want to see what my sister uploaded yesterday so I can review her new photographs. | ActivityStream, ActivityItem, FilterBar | GET /api/spaces/:spaceId/activity | memory-service | audit_logs | None | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
-| `PWA-54` | As an archivist, I want to compare revisions of a story to see what date correction was made and by whom. | RevisionList, DiffViewer, RestoreButton | GET /api/memories/:memoryId/history | memory-service | memories, audit_logs | Events: memory.history_inspected | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
-| `PWA-55` | As a family member, I want to comment 'Is that Uncle Joe on the far left?' so my aunt can clarify the identification. | DiscussionThread, CommentItem, ReactionStrip, CommentInput | POST /api/memories/:memoryId/comments | memory-service | audit_logs | Events: collab.comment_added; Jobs: notify-space-contributors | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
+| `PWA-51` | As a space owner, I want to create a custom role called 'Junior Contributor' that can upload photos but needs owner approval to publish. | RoleForm, CapabilityChecklist, Button | POST /api/spaces/:spaceId/roles | memory-service | audit_logs | Events: collab.custom_role_created | Unit: 1, Int: 1, E2E: 1 | Implemented & Verified |
+| `PWA-52` | As an archivist, I want to create a passphrase-protected share link for our 50th anniversary book so distant relatives can view it without registering. | ShareSettingsCard, CopyLinkButton, QRCodePreview, PassphraseInput | POST /api/spaces/:spaceId/share-link | memory-service | memory_spaces, audit_logs | Events: collab.share_link_generated | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
+| `PWA-53` | As an archivist, I want to see what my sister uploaded yesterday so I can review her new photographs. | ActivityStream, ActivityItem, FilterBar | GET /api/spaces/:spaceId/activity | memory-service | audit_logs | None | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
+| `PWA-54` | As an archivist, I want to compare revisions of a story to see what date correction was made and by whom. | RevisionList, DiffViewer, RestoreButton | GET /api/memories/:memoryId/history | memory-service | memories, audit_logs | Events: memory.history_inspected | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
+| `PWA-55` | As a family member, I want to comment 'Is that Uncle Joe on the far left?' so my aunt can clarify the identification. | DiscussionThread, CommentItem, ReactionStrip, CommentInput | POST /api/memories/:memoryId/comments | memory-service | audit_logs | Events: collab.comment_added; Jobs: notify-space-contributors | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `PWA-56` | As an archivist, I want to see our family's printed and draft volumes resting on a digital library shelf so I can choose a book to read or edit. | BookshelfStage, BookSpineItem, ShelfControls, Button | GET /api/books | book-service | books, book_spreads | Events: bookshelf.viewed | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `PWA-57` | As an archivist, I want to inspect a book's status (Draft / Frozen for Print), view all contributors, and launch the 3D Reader. | BookOverviewCard, CoverFoilPreview, SpecList, ActionBar (+1) | GET /api/books/:bookId | book-service | books, book_spreads, users | Events: book.overview_viewed | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `PWA-58` | As an archivist, I want to start authoring an 8x10 hardcover book for our family heritage so I can begin selecting memories. | BookWizardHeader, FormatSelectorCard, InputField, Button | POST /api/books/drafts | book-service | books | Events: book.draft_initialized | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `PWA-59` | As an archivist, I want to select our family space and filter by grandmother's profile so only memories involving her are pulled into the book draft. | SourceSelector, ProfileChipGroup, DateRangeSlider, Button | PATCH /api/books/drafts/:draftBookId/sources | book-service | books | None | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
-| `PWA-60` | As an archivist, I want to select 45 best photos from 120 candidates and automatically organize them by capture year. | CurationGrid, SelectionBadge, PageEstimator, Button | POST /api/books/drafts/:draftBookId/curate | book-service | books, book_spreads | Events: book.memories_curated; Jobs: generate-auto-spreads | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
-| `PWA-61` | As an author, I want to create named chapters with divider title pages and reorder sections easily. | ChapterList, ChapterCard, DragHandle, Button | PUT /api/books/drafts/:draftBookId/chapters | book-service | books, book_spreads | None | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
+| `PWA-60` | As an archivist, I want to select 45 best photos from 120 candidates and automatically organize them by capture year. | CurationGrid, SelectionBadge, PageEstimator, Button | POST /api/books/drafts/:draftBookId/curate | book-service | books, book_spreads | Events: book.memories_curated; Jobs: generate-auto-spreads | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
+| `PWA-61` | As an author, I want to create named chapters with divider title pages and reorder sections easily. | ChapterList, ChapterCard, DragHandle, Button | PUT /api/books/drafts/:draftBookId/chapters | book-service | books, book_spreads | None | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `PWA-62` | As an archivist, I want to select 'Editorial Classic' so our book uses elegant serif typography, generous margins, and pull-quote spreads. | ThemeCardGrid, SpreadPreviewModal, Button | POST /api/books/drafts/:draftBookId/generate-spreads | book-service | books, book_spreads | Events: book.spreads_generated; Jobs: compile-initial-book-spreads | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
 | `PWA-63` | As an archivist, I want to select Forest Green leather with gold foil debossed tree-of-life emblem and inspect real-time reflections in 3D. | CoverCanvas, MaterialPicker, FoilSelector, SpineInput (+1) | PUT /api/books/:bookId/cover | book-service | books | Events: book.cover_updated; Jobs: render-cover-texture-cache | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `PWA-64` | As an archivist author, I want a publishing spread editor with safe margins, photo frame cropping, and text boxes to arrange our memories. | SpreadStudio, RulerCanvas, AssetTray, ElementInspector (+1) | PUT /api/books/:bookId/spreads/:spreadId | book-service | books, book_spreads | Events: book.spread_updated | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
-| `PWA-65` | As an author, I want to drag Spread 12 before Spread 8 to reorganize our family vacation chapter. | PageManagerGrid, SpreadThumbnail, DragHandle, Button | PUT /api/books/:bookId/spreads/reorder | book-service | book_spreads | Events: book.spreads_reordered | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
+| `PWA-65` | As an author, I want to drag Spread 12 before Spread 8 to reorganize our family vacation chapter. | PageManagerGrid, SpreadThumbnail, DragHandle, Button | PUT /api/books/:bookId/spreads/reorder | book-service | book_spreads | Events: book.spreads_reordered | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `PWA-66` | As an archivist, I want to adjust the focal point on grandfather's face inside a circular portrait frame so he is centered without cropping his hat. | CropModal, FocalReticle, DPIMeter, Button | PATCH /api/books/:bookId/spreads/:spreadId/elements/:elementId | book-service | book_spreads | None | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
 | `PWA-67` | As an archivist author, I want to flip through high-resolution 2D proofs of all 48 pages to check typos and margin alignments before ordering. | ProofViewerStage, BleedGuideOverlay, ProofHUD, Button | GET /api/books/:bookId/proof | book-service | books, book_spreads | Events: book.proof_viewed | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `PWA-68` | As an archivist, I want to open our heirloom book in 3D, flip through pages with realistic curl physics, and share the interactive keepsake with family. | ExperienceCanvas, ReaderHUD, PageTurnController, FlatProofFallback | GET /api/books/:bookId/3d-model | book-service | books, book_spreads | Events: 3d.reader_opened | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `PWA-69` | As an archivist, I want an automated preflight check to identify any low-resolution photos or text cut off by trim lines before printing. | PreflightDashboard, ChecklistCard, WarningCallout, Button | POST /api/books/:bookId/preflight | book-service | books, book_spreads, audit_logs | Events: book.preflight_executed; Jobs: verify-book-dpi-integrity | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
-| `PWA-70` | As an archivist, I want to inspect Edition 1 printed in 2023, verify its immutable hash, and create an expanded Edition 2 for 2024. | EditionTimeline, EditionCard, ChecksumBadge, Button | GET /api/books/:bookId/editions | book-service | books, audit_logs | Events: book.edition_viewed | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
-| `PWA-71` | As an archivist ordering a physical heirloom book, I want to choose 170gsm lustre paper and leather binding with complete price transparency. | StockSelector, BindingPicker, QuantityStepper, PriceSummary (+1) | GET /api/commerce/catalog/options | commerce-service | print_orders | None | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
-| `PWA-72` | As an archivist, I want to enter my home shipping address and choose standard or priority archival shipping. | ShippingForm, CourierSpeedSelector, OrderSummarySidebar, Button | POST /api/commerce/shipping/estimate | commerce-service | print_orders | None | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
-| `PWA-73` | As an archivist, I want to review the exact order details and complete payment with zero hidden fees. | CheckoutReview, InvoiceTable, PaymentCard, Button | POST /api/commerce/orders | commerce-service | print_orders, order_items, fulfilment_records | Events: commerce.order_placed; Jobs: generate-print-pdf-package, dispatch-order-to-press | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
-| `PWA-74` | As an archivist, I want a printable archival receipt with order number and edition hash so I have a permanent physical record. | ReceiptCard, ConfirmationHeader, PrintButton, Button | GET /api/commerce/orders/:orderId | commerce-service | print_orders, order_items | None | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
-| `PWA-75` | As an archivist waiting for our family keepsake, I want to see which stage of binding the book is in and view live courier tracking. | OrderStepper, StageCard, CourierLink, Button | GET /api/commerce/orders/:orderId/tracking | commerce-service | print_orders, fulfilment_records | Events: order.tracking_viewed | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
-| `PWA-76` | As an archivist whose cousins loved our printed family book, I want to reorder 5 identical copies referencing the exact frozen Edition 1 hash. | ReorderCard, QuantityStepper, ChecksumBadge, Button | POST /api/commerce/orders/reorder | commerce-service | print_orders, order_items | Events: commerce.reorder_initiated | Unit: 1, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
+| `PWA-70` | As an archivist, I want to inspect Edition 1 printed in 2023, verify its immutable hash, and create an expanded Edition 2 for 2024. | EditionTimeline, EditionCard, ChecksumBadge, Button | GET /api/books/:bookId/editions | book-service | books, audit_logs | Events: book.edition_viewed | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
+| `PWA-71` | As an archivist ordering a physical heirloom book, I want to choose 170gsm lustre paper and leather binding with complete price transparency. | StockSelector, BindingPicker, QuantityStepper, PriceSummary (+1) | GET /api/commerce/catalog/options | commerce-service | print_orders | None | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
+| `PWA-72` | As an archivist, I want to enter my home shipping address and choose standard or priority archival shipping. | ShippingForm, CourierSpeedSelector, OrderSummarySidebar, Button | POST /api/commerce/shipping/estimate | commerce-service | print_orders | None | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
+| `PWA-73` | As an archivist, I want to review the exact order details and complete payment with zero hidden fees. | CheckoutReview, InvoiceTable, PaymentCard, Button | POST /api/commerce/orders | commerce-service | print_orders, order_items, fulfilment_records | Events: commerce.order_placed; Jobs: generate-print-pdf-package, dispatch-order-to-press | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
+| `PWA-74` | As an archivist, I want a printable archival receipt with order number and edition hash so I have a permanent physical record. | ReceiptCard, ConfirmationHeader, PrintButton, Button | GET /api/commerce/orders/:orderId | commerce-service | print_orders, order_items | None | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
+| `PWA-75` | As an archivist waiting for our family keepsake, I want to see which stage of binding the book is in and view live courier tracking. | OrderStepper, StageCard, CourierLink, Button | GET /api/commerce/orders/:orderId/tracking | commerce-service | print_orders, fulfilment_records | Events: order.tracking_viewed | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
+| `PWA-76` | As an archivist whose cousins loved our printed family book, I want to reorder 5 identical copies referencing the exact frozen Edition 1 hash. | ReorderCard, QuantityStepper, ChecksumBadge, Button | POST /api/commerce/orders/reorder | commerce-service | print_orders, order_items | Events: commerce.reorder_initiated | Unit: 1, Int: 1, E2E: 1 | Implemented & Verified |
 | `PWA-77` | As an archivist, I want to update my profile picture and review which browsers are currently signed into my account. | SettingsNav, AvatarUploader, InputField, SessionList (+1) | PATCH /api/users/me | identity-service | users, user_sessions | Events: identity.profile_updated | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `PWA-78` | As an archivist with motion sensitivity, I want to enable reduced motion so 3D book page turns use gentle crossfades rather than curling motion. | SettingsNav, ToggleSwitch, SelectDropdown, Button | PATCH /api/users/me/preferences | identity-service | users | None | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
-| `PWA-79` | As an archivist, I want to set default signed media link expiration to 1 hour to prevent unauthorized link sharing. | PrivacyCard, DurationDropdown, AuditLogTable, Button | PATCH /api/users/me/privacy | identity-service | users, audit_logs | Events: privacy.settings_updated | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
+| `PWA-79` | As an archivist, I want to set default signed media link expiration to 1 hour to prevent unauthorized link sharing. | PrivacyCard, DurationDropdown, AuditLogTable, Button | PATCH /api/users/me/privacy | identity-service | users, audit_logs | Events: privacy.settings_updated | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `PWA-80` | As an archivist self-hosting Memoria on my Mac, I want to inspect my local disk usage (42 GB used of 500 GB allocated) and clear derivative caches safely. | StorageMeterBar, BreakdownTable, MaintenanceTools, Button | GET /api/storage/overview | media-service | space_storage_quotas, media_assets | Jobs: verify-media-checksums, prune-orphan-derivatives | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `PWA-81` | As an archivist, I want to export our entire family archive as an uncompressed ZIP with JSON metadata so we maintain 100% data sovereignty. | ExportPanel, DangerZoneCard, ConfirmModal, Button | POST /api/users/me/export | identity-service | audit_logs, users | Events: account.export_requested, account.deletion_requested; Jobs: compile-archive-export-zip, purge-user-account | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
-| `PWA-82` | As an archivist, I want to review keyboard shortcuts (Cmd+K for search, Arrow keys for 3D page turns) and submit an inquiry if I need scanning help. | ShortcutsCheatSheet, DocSearch, TicketForm, Button | POST /api/support/tickets | identity-service | audit_logs | Events: support.ticket_created; Jobs: route-support-ticket | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
+| `PWA-82` | As an archivist, I want to review keyboard shortcuts (Cmd+K for search, Arrow keys for 3D page turns) and submit an inquiry if I need scanning help. | ShortcutsCheatSheet, DocSearch, TicketForm, Button | POST /api/support/tickets | identity-service | audit_logs | Events: support.ticket_created; Jobs: route-support-ticket | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `IOS-01` | As an iPhone user, I want the app to open instantly with an elegant heirloom animation, validating Keychain credentials without decorative delays. | LaunchSplashView, BrandEmblemAnimation, TypographyTitle | GET /api/auth/session/validate | identity-service | user_sessions | Events: ios.app_launched | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `IOS-02` | As an iOS user, I want to tap 'Sign in with Apple' to create my account in 2 seconds with biometric privacy. | NativeRegisterView, SignInWithAppleButton, SecureField, Button | POST /api/auth/register | identity-service | users, user_sessions | Events: identity.user_registered | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `IOS-03` | As an archivist opening the app, I want Face ID to scan my face and open my family memories seamlessly. | NativeLoginView, BiometricButton, SecureField, Button | POST /api/auth/login | identity-service | users, user_sessions | Events: identity.user_logged_in | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
-| `IOS-04` | As an iOS user who forgot my password, I want to enter my email in a clean native sheet and receive recovery instructions. | RecoverySheetView, TextField, Button | POST /api/auth/forgot-password | identity-service | users | Events: identity.password_reset_requested; Jobs: send-recovery-code-email | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
-| `IOS-05` | As an archivist, I want the 6-digit code from my email to AutoFill automatically above the iOS keyboard so I can confirm instantly. | OTPCodeField, CountdownTimer, Button | POST /api/auth/verify-code | identity-service | users, user_sessions | Events: identity.code_verified | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
-| `IOS-06` | As an invited family member tapping a link in Messages, I want Memoria to open directly to the space invitation card with Accept button. | InvitationSheetView, SpaceBanner, RoleBadge, Button | POST /api/spaces/invitations/:token/accept | memory-service | space_invitations, space_members | Events: collab.invitation_accepted | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
+| `IOS-04` | As an iOS user who forgot my password, I want to enter my email in a clean native sheet and receive recovery instructions. | RecoverySheetView, TextField, Button | POST /api/auth/forgot-password | identity-service | users | Events: identity.password_reset_requested; Jobs: send-recovery-code-email | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
+| `IOS-05` | As an archivist, I want the 6-digit code from my email to AutoFill automatically above the iOS keyboard so I can confirm instantly. | OTPCodeField, CountdownTimer, Button | POST /api/auth/verify-code | identity-service | users, user_sessions | Events: identity.code_verified | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
+| `IOS-06` | As an invited family member tapping a link in Messages, I want Memoria to open directly to the space invitation card with Accept button. | InvitationSheetView, SpaceBanner, RoleBadge, Button | POST /api/spaces/invitations/:token/accept | memory-service | space_invitations, space_members | Events: collab.invitation_accepted | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `IOS-07` | As a new mobile archivist, I want a brief 3-page walkthrough of how our memories become keepsake books with page indicator dots. | OnboardingCarouselView, PageCard, PageIndicator, Button | N/A N/A (Client presentation) | Local UserDefaults | None | Events: ios.onboarding_completed | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `IOS-08` | As a new user, I want a clean native sheet to name our space 'Vance Family Heritage' and select Forest Green. | CreateSpaceSheet, ColorSwatchRow, SegmentedPicker, Button | POST /api/spaces | memory-service | memory_spaces, space_members | Events: memory.space_created | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
-| `IOS-09` | As an archivist, I want to add my daughter's profile with her photo from my iPhone camera roll and birthdate. | CreateProfileSheet, AvatarPickerButton, DatePickerField, Button | POST /api/spaces/:spaceId/profiles | memory-service | space_profiles | Events: memory.profile_created | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
+| `IOS-09` | As an archivist, I want to add my daughter's profile with her photo from my iPhone camera roll and birthdate. | CreateProfileSheet, AvatarPickerButton, DatePickerField, Button | POST /api/spaces/:spaceId/profiles | memory-service | space_profiles | Events: memory.profile_created | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
 | `IOS-10` | As an archivist, I want to tap 'Pick from Contacts' to select my brother's email address and send him a space invitation. | ContactInviteSheet, RecipientTokenField, RolePicker, Button | POST /api/spaces/:spaceId/invitations | memory-service | space_invitations | Events: collab.invitations_dispatched | Unit: 1, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
 | `IOS-11` | As an iPhone user, I want a smooth 120 FPS native feed of family photos and today-in-history with bottom tabs. | HomeFeedView, TodayInHistoryCard, MemoryFeedCard, MemoriaTabBar | GET /api/dashboard/overview | memory-service | memories, memory_media | Events: ios.feed_viewed | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `IOS-12` | As a member of multiple family spaces, I want to tap the title to switch from my personal space to our family space with a satisfying haptic click. | SpaceSwitcherSheet, SpaceRow, RoleBadge, Button | GET /api/spaces | memory-service | memory_spaces, space_members | Events: ios.space_switched | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
@@ -15565,15 +15565,15 @@ The following traceability matrix establishes the direct mapping between each sc
 | `IOS-14` | As an archivist, I want to tap the notification bell to see when family members comment on our memories and tap directly into the photo. | NotificationListView, NotificationRow, SwipeActions, Button | GET /api/notifications | identity-service | audit_logs | Events: ios.notifications_read | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
 | `IOS-15` | As an archivist, I want to tap the microphone and say 'Grandpa fishing 1972' to find matching photos instantly. | NativeSearchView, SearchFilterChips, ResultCard, VoiceDictationButton | GET /api/search | search-service | memories, media_assets | Events: search.executed | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `IOS-16` | As an archivist, I want to tap the big '+' button to immediately choose whether I am snapping a photo, recording a voice note, or writing a thought. | QuickCaptureSheet, CaptureOptionCard, Button | N/A N/A (Client workflow router) | iOS Client | None | None | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
-| `IOS-17` | As an archivist, I want to take a crisp photo of grandmother's heirloom necklace or select 10 photos from my camera roll with lossless SHA-256 preservation. | CameraViewfinder, ShutterButton, PHPickerWrapper, Button | POST /api/media/upload-session | media-service | media_assets, memories | Events: media.photo_captured; Jobs: generate-derivatives | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
+| `IOS-17` | As an archivist, I want to take a crisp photo of grandmother's heirloom necklace or select 10 photos from my camera roll with lossless SHA-256 preservation. | CameraViewfinder, ShutterButton, PHPickerWrapper, Button | POST /api/media/upload-session | media-service | media_assets, memories | Events: media.photo_captured; Jobs: generate-derivatives | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
 | `IOS-18` | As an archivist, I want to record my children singing happy birthday to grandfather and trim out the first 2 seconds. | VideoCaptureView, VideoTrimScrubber, AVPlayerPreview, Button | POST /api/media/upload-session | media-service | media_assets, memories | Events: media.video_captured; Jobs: generate-video-poster | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
 | `IOS-19` | As an interviewer, I want to record grandfather telling war stories with live audio wave visualization on my iPhone and pause when he takes a sip of water. | VoiceRecorderView, AudioWaveformCanvas, RecordButton, Button | POST /api/media/upload-audio | media-service | media_assets, memories | Events: media.audio_recorded; Jobs: generate-audio-waveform, transcribe-audio | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
 | `IOS-20` | As an archivist, I want to quickly jot down a funny quote my daughter said at breakfast before I forget it. | StoryComposerView, TextEditor, TagPersonPill, Button | POST /api/memories | memory-service | memories | Events: memory.created | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
 | `IOS-21` | As an archivist uploading 30 photos over cellular, I want to see upload progress and know transfers continue in background even if I switch apps. | UploadQueueSheet, UploadTaskRow, ProgressBar, Button | N/A Native URLSession background delegate events | iOS Background URLSession | media_assets | Events: media.upload_progress_updated | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
 | `IOS-22` | As an archivist traveling in rural areas without cellular service, I want to review my offline created memories and ensure they sync without data loss when I reach Wi-Fi. | OfflineQueueSheet, PendingMutationRow, ConflictCard, Button | POST /api/sync/batch | memory-service | memories, outbox_events | Events: ios.offline_sync_completed | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
-| `IOS-23` | As an archivist, I want to glide smoothly through 50 years of family history with decade markers and tap to open any memory. | TimelineView, TimelineNode, DecadeScrubberBar, MemoryCard | GET /api/spaces/:spaceId/timeline | memory-service | memories, memory_media | None | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
+| `IOS-23` | As an archivist, I want to glide smoothly through 50 years of family history with decade markers and tap to open any memory. | TimelineView, TimelineNode, DecadeScrubberBar, MemoryCard | GET /api/spaces/:spaceId/timeline | memory-service | memories, memory_media | None | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `IOS-24` | As an archivist, I want to pinch the photo grid to zoom out to 5 columns for bird's-eye browsing or pinch in to 2 columns for large previews. | MediaGridView, GridThumbnailCell, DensityPicker, Button | GET /api/spaces/:spaceId/memories | memory-service | memories, media_assets | None | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
-| `IOS-25` | As an archivist, I want to tap on June 18 in the calendar to see all memories from that date across different years. | CalendarHeatmapView, CalendarDayCell, DayMemoryList, Button | GET /api/memories/calendar | memory-service | memories | None | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
+| `IOS-25` | As an archivist, I want to tap on June 18 in the calendar to see all memories from that date across different years. | CalendarHeatmapView, CalendarDayCell, DayMemoryList, Button | GET /api/memories/calendar | memory-service | memories | None | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `IOS-26` | As an archivist, I want to open a memory to see the high-res photo with parallax scroll, listen to grandmother's voice recording, and read family comments. | MemoryDetailView, ParallaxMediaHeader, AudioWaveformBar, StoryText (+1) | GET /api/memories/:memoryId | memory-service | memories, media_assets, memory_media | Events: ios.memory_viewed | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `IOS-27` | As an archivist, I want to correct the capture date from 1974 to 1976 and tag my aunt in the memory. | EditMemorySheet, TextField, DatePicker, Button | PUT /api/memories/:memoryId | memory-service | memories | Events: memory.updated | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
 | `IOS-28` | As an archivist, I want to rotate a scanned photo 90 degrees and warm up faded colors without overwriting the master archival file. | CoreImageCanvas, CropHandles, AdjustmentSlider, Button | POST /api/media/:mediaId/derivatives | media-service | media_assets | Events: media.derivative_created | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
@@ -15589,47 +15589,47 @@ The following traceability matrix establishes the direct mapping between each sc
 | `IOS-38` | As a space administrator, I want to see which family members have joined our space and verify that kids are set to Contributor role. | MembersListView, MemberRowCell, RolePillBadge, Button | GET /api/spaces/:spaceId/members | identity-service | space_members, users | None | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
 | `IOS-39` | As an archivist, I want to tap 'Invite Family' and send an invitation link directly via iMessage or AirDrop to my sister. | QRCodeImageView, CopyLinkBox, UIActivityViewController, Menu (+1) | POST /api/spaces/:spaceId/invites | identity-service | space_invitations | Events: space.invite_created | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
 | `IOS-40` | As a space administrator, I want to change Uncle Bob's role to Admin so he can help manage scanned letters and member invites. | RoleSelectionRow, Toggle, DestructiveButton, Button | PATCH /api/spaces/:spaceId/members/:userId | identity-service | space_members, outbox_events | Events: space.member_role_updated | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
-| `IOS-41` | As a family member, I want to pull down to refresh the space activity stream to see what new stories Uncle Dave added today. | ActivityFeedView, ActivityRowCell, ThumbnailPreviewStrip, UIRefreshControl | GET /api/spaces/:spaceId/activity | memory-service | space_activity, users, memories | None | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
+| `IOS-41` | As a family member, I want to pull down to refresh the space activity stream to see what new stories Uncle Dave added today. | ActivityFeedView, ActivityRowCell, ThumbnailPreviewStrip, UIRefreshControl | GET /api/spaces/:spaceId/activity | memory-service | space_activity, users, memories | None | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `IOS-42` | As an aunt, I want to comment on my nephew's baby photo and attach a 10-second voice note remembering that day. | ReactionBar, CommentsListView, CommentCell, CommentComposerBar (+1) | POST /api/memories/:memoryId/comments | memory-service | memory_comments, memory_reactions, outbox_events | Events: memory.comment_added, memory.reaction_added | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
-| `IOS-43` | As an archivist, I want to see our published volumes on an interactive 3D shelf, rotate them in 3D space, and tap to read. | BookshelfView, Book3DRealityView, Book3DContract, MemoriaHeirloomBook.usdz | GET /api/spaces/:spaceId/books, GET /api/v1/books/3d/manifest | book-service | books | None | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
+| `IOS-43` | As an archivist, I want to see our published volumes on an interactive 3D shelf, rotate them in 3D space, and tap to read. | RealityView, BookshelfSceneEntity, BookModel3D, BookDetailBanner (+1) | GET /api/spaces/:spaceId/books | book-service | books | None | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `IOS-44` | As an archivist, I want to inspect our 8x10 Hardcover volume to see its page count, chapters, and print readiness. | BookPreviewCard, SpecPillGroup, ChapterList, PrimaryActionButton (+1) | GET /api/books/:bookId | book-service | books, book_spreads | None | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
 | `IOS-45` | As an archivist, I want a 3-step wizard on iOS to compile all 2024 memories into an annual family yearbook. | WizardStepBar, TextField, FormatSelectionCard, SegmentedPicker (+1) | POST /api/spaces/:spaceId/books | book-service | books, outbox_events | Events: book.created; Jobs: generate-auto-book-layout | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
 | `IOS-46` | As an archivist, I want to scroll through our photos and tap checkmarks to include 40 specific pictures in the new book. | SelectableMediaGrid, CheckmarkOverlay, SelectionTrayStrip, FilterChipBar (+1) | PUT /api/books/:bookId/memories | book-service | books, memories | None | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
 | `IOS-47` | As an archivist, I want to long-press and drag our wedding spread before the honeymoon chapter so the book flows chronologically. | SpreadReorderGrid, SpreadMiniatureCard, ChapterDividerView, Button | PUT /api/books/:bookId/spreads/reorder | book-service | books, book_spreads | None | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
 | `IOS-48` | As an archivist, I want to choose Deep Forest Green cloth with embossed Gold Foil lettering for our heirloom family bible volume. | Cover3DPreviewCanvas, MaterialSwatchPicker, FoilSwatchPicker, TypographySelector (+1) | PATCH /api/books/:bookId/cover | book-service | books, outbox_events | Events: book.cover_updated; Jobs: generate-book-3d-model | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
-| `IOS-49` | As a reader, I want to swipe my finger across the screen to turn the physical-feeling paper pages and hear the gentle paper rustle sound. | Book3DReaderView, Book3DRealityView, Book2DSpreadFallbackView, MemoriaHeirloomBook.usdz | GET /api/books/:bookId/spreads, GET /api/v1/books/3d/assets/MemoriaHeirloomBook.usdz | book-service | books, book_spreads | Events: book.read | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
+| `IOS-49` | As a reader, I want to swipe my finger across the screen to turn the physical-feeling paper pages and hear the gentle paper rustle sound. | RealityView, PageCurlEntity, SpatialAudioPlayer, PageScrubberBar (+1) | GET /api/books/:bookId/spreads | book-service | books, book_spreads | Events: book.read | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `IOS-50` | As a reader with visual impairments or on low-battery mode, I want a flat 2D spread viewer where I can zoom in on captions and photos. | PagingSpreadScrollView, ZoomablePageView, ThumbnailFilmstripBar, Button | GET /api/books/:bookId/spreads | book-service | books, book_spreads | None | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
-| `IOS-51` | As an archivist, I want the preflight tool to warn me if an old scanned photo is too low resolution so that my printed book looks sharp. | PreflightChecklistView, ChecklistStatusRow, WarningDetailCallout, Button | POST /api/books/:bookId/preflight | book-service | books, book_spreads, media_assets | Events: book.preflight_executed | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
+| `IOS-51` | As an archivist, I want the preflight tool to warn me if an old scanned photo is too low resolution so that my printed book looks sharp. | PreflightChecklistView, ChecklistStatusRow, WarningDetailCallout, Button | POST /api/books/:bookId/preflight | book-service | books, book_spreads, media_assets | Events: book.preflight_executed | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `IOS-52` | As a customer, I want to tap Apple Pay on my iPhone to buy 3 copies of our family book for Christmas gifts with biometric Touch/Face ID. | PKPaymentButton, QuantityStepper, PriceBreakdownCard, ShippingMethodPicker (+1) | POST /api/orders/checkout | commerce-service | print_orders, outbox_events | Events: order.placed; Jobs: generate-print-cmyk-pdf, notify-fulfillment-partner | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
 | `IOS-53` | As an excited customer, I want to check my order status and view the courier tracking link so I know when our family book arrives. | OrderTimelineView, StatusIllustrationCard, CarrierTrackingBox, Button | GET /api/orders/:orderId | commerce-service | print_orders | None | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
-| `IOS-54` | As an iOS user, I want to enable Face ID app lock so that my private family journals remain secure even if someone borrows my unlocked phone. | AccountProfileCard, Toggle, ListRowNavigation, DestructiveButton (+1) | PATCH /api/users/me/preferences | identity-service | users, user_sessions | Events: user.preferences_updated | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
-| `IOS-55` | As an archivist, I want to see how much of our 500MB storage quota is used and export our full family archive to my local Mac. | StorageUsageGauge, StorageCategoryBreakdownBar, ActionCard, Button | GET /api/spaces/:spaceId/storage/breakdown | media-service | space_storage_quotas, media_assets | Events: storage.cache_cleared; Jobs: compile-space-export-zip | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
-| `IOS-56` | As an archivist, I want to read tips on how to scan fragile 19th-century tintypes without glare, or message support if I have questions. | FAQAccordionView, SearchTextField, Picker, TextEditor (+2) | POST /api/support/tickets | identity-service | support_tickets | Events: support.ticket_created; Jobs: send-support-confirmation-email | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
-| `ADMIN-01` | As a platform operations lead, I want an executive overview dashboard with real-time telemetry cards and storage metrics to ensure the $0 local infrastructure runs smoothly. | AdminTopbar, SidebarNavigation, KPISummaryCard, ServiceHealthGrid (+1) | GET /api/admin/overview/metrics | api-gateway | users, memory_spaces, space_storage_quotas, memories | Events: admin.dashboard_viewed; Jobs: aggregate-daily-platform-kpis | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
-| `ADMIN-02` | As an administrative compliance officer, I want to search registered accounts by email or ID, inspect verification badges, and suspend compromised accounts. | DataTable, SearchInput, FilterDropdown, StatusBadge (+1) | GET /api/admin/users | identity-service | users, user_sessions, memory_spaces | Events: admin.user_directory_searched | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
+| `IOS-54` | As an iOS user, I want to enable Face ID app lock so that my private family journals remain secure even if someone borrows my unlocked phone. | AccountProfileCard, Toggle, ListRowNavigation, DestructiveButton (+1) | PATCH /api/users/me/preferences | identity-service | users, user_sessions | Events: user.preferences_updated | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
+| `IOS-55` | As an archivist, I want to see how much of our 500MB storage quota is used and export our full family archive to my local Mac. | StorageUsageGauge, StorageCategoryBreakdownBar, ActionCard, Button | GET /api/spaces/:spaceId/storage/breakdown | media-service | space_storage_quotas, media_assets | Events: storage.cache_cleared; Jobs: compile-space-export-zip | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
+| `IOS-56` | As an archivist, I want to read tips on how to scan fragile 19th-century tintypes without glare, or message support if I have questions. | FAQAccordionView, SearchTextField, Picker, TextEditor (+2) | POST /api/support/tickets | identity-service | support_tickets | Events: support.ticket_created; Jobs: send-support-confirmation-email | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
+| `ADMIN-01` | As a platform operations lead, I want an executive overview dashboard with real-time telemetry cards and storage metrics to ensure the $0 local infrastructure runs smoothly. | AdminTopbar, SidebarNavigation, KPISummaryCard, ServiceHealthGrid (+1) | GET /api/admin/overview/metrics | api-gateway | users, memory_spaces, space_storage_quotas, memories | Events: admin.dashboard_viewed; Jobs: aggregate-daily-platform-kpis | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
+| `ADMIN-02` | As an administrative compliance officer, I want to search registered accounts by email or ID, inspect verification badges, and suspend compromised accounts. | DataTable, SearchInput, FilterDropdown, StatusBadge (+1) | GET /api/admin/users | identity-service | users, user_sessions, memory_spaces | Events: admin.user_directory_searched | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `ADMIN-03` | As an admin investigating suspected account takeover, I want to review all active sessions and invalidate them immediately to protect family memories. | UserProfileCard, SessionsTable, DangerZoneBox, ConfirmationModal (+1) | POST /api/admin/users/:userId/sessions/revoke-all | identity-service | users, user_sessions, outbox_events | Events: admin.user_sessions_revoked, user.force_logout | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
-| `ADMIN-04` | As an administrator, I want to inspect space parameters, identify orphaned family spaces, and audit contributor access hierarchies. | DataTable, SearchInput, StorageUsageBar, FilterDropdown (+1) | GET /api/admin/spaces | memory-service | memory_spaces, space_storage_quotas, users | Events: admin.spaces_oversight_viewed | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
+| `ADMIN-04` | As an administrator, I want to inspect space parameters, identify orphaned family spaces, and audit contributor access hierarchies. | DataTable, SearchInput, StorageUsageBar, FilterDropdown (+1) | GET /api/admin/spaces | memory-service | memory_spaces, space_storage_quotas, users | Events: admin.spaces_oversight_viewed | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `ADMIN-05` | As a support engineer, I want to submit a time-bounded support access request requiring dual-admin cryptographic sign-off before inspecting customer issues. | AccessRequestModal, DualApprovalBadge, DataTable, WebAuthnSignaturePrompt (+1) | POST /api/admin/access-requests/:requestId/approve | identity-service | support_access_requests, audit_logs, outbox_events | Events: admin.access_request_approved, admin.access_session_started; Jobs: revoke-expired-support-access-tokens | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
 | `ADMIN-06` | As a safety moderator, I want to inspect flagged photos or stories to resolve policy violations while protecting family privacy. | ModerationCard, SensitiveImageBlurView, ResolutionActionBar, ConfirmationModal (+1) | POST /api/admin/moderation/:flagId/resolve | memory-service | moderation_flags, memories, media_assets, outbox_events | Events: moderation.item_resolved, media.quarantined | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
 | `ADMIN-07` | As an abuse investigator, I want to review formal user reports, view communication logs between parties, and communicate case findings. | ReportsTable, IncidentDossierModal, PriorityPill, ResolutionDropdown (+1) | PATCH /api/admin/reports/:reportId | identity-service | user_reports, audit_logs, outbox_events | Events: report.status_updated, user.notified; Jobs: send-incident-resolution-notice | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
-| `ADMIN-08` | As an infrastructure engineer, I want to inspect local disk usage, locate unreferenced orphan files, and safely reclaim disk space without card-gated cloud expenses. | StorageGaugeWidget, DerivativeBreakdownBar, SpacesQuotaTable, OrphanManagerCard (+1) | GET /api/admin/storage/stats | media-service | media_assets, space_storage_quotas | Events: admin.storage_scanned; Jobs: scan-orphan-media-files, purge-orphan-media-files | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
+| `ADMIN-08` | As an infrastructure engineer, I want to inspect local disk usage, locate unreferenced orphan files, and safely reclaim disk space without card-gated cloud expenses. | StorageGaugeWidget, DerivativeBreakdownBar, SpacesQuotaTable, OrphanManagerCard (+1) | GET /api/admin/storage/stats | media-service | media_assets, space_storage_quotas | Events: admin.storage_scanned; Jobs: scan-orphan-media-files, purge-orphan-media-files | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `ADMIN-09` | As an archival media engineer, I want to inspect corrupted photo uploads, review EXIF date extraction, and re-trigger derivative generation. | TechnicalInspectorCard, EXIFMetadataGrid, DerivativeHealthRow, LogStreamConsole (+1) | POST /api/admin/media/:mediaId/reprocess | media-service | media_assets, outbox_events | Events: media.reprocessing_requested; Jobs: generate-image-derivatives, extract-media-exif | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
-| `ADMIN-10` | As an infrastructure admin, I want to view active client upload sessions and diagnose stalled client transfers in real time. | UploadSessionsTable, TransferProgressBar, SpeedGaugeBadge, Button | GET /api/admin/uploads/sessions | media-service | media_assets | Events: admin.upload_telemetry_viewed; Jobs: cleanup-expired-upload-sessions | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
-| `ADMIN-11` | As an operations engineer, I want to monitor BullMQ queue latency, active worker concurrency, and job throughput to ensure zero processing backlogs. | QueueCard, JobCountBadgeGroup, WorkerFleetPanel, ThroughputSparkline (+1) | GET /api/admin/queues/telemetry | jobs package | None | Events: admin.queues_viewed | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
+| `ADMIN-10` | As an infrastructure admin, I want to view active client upload sessions and diagnose stalled client transfers in real time. | UploadSessionsTable, TransferProgressBar, SpeedGaugeBadge, Button | GET /api/admin/uploads/sessions | media-service | media_assets | Events: admin.upload_telemetry_viewed; Jobs: cleanup-expired-upload-sessions | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
+| `ADMIN-11` | As an operations engineer, I want to monitor BullMQ queue latency, active worker concurrency, and job throughput to ensure zero processing backlogs. | QueueCard, JobCountBadgeGroup, WorkerFleetPanel, ThroughputSparkline (+1) | GET /api/admin/queues/telemetry | jobs package | None | Events: admin.queues_viewed | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `ADMIN-12` | As an operations engineer, I want to inspect dead-letter jobs, read the root cause stack trace, and retry them after fixing network or file issues. | DLQTable, StackTraceDrawer, ErrorChip, PayloadViewer (+1) | POST /api/admin/queues/:queueName/jobs/:jobId/retry | jobs package | None | Events: admin.job_retried, admin.dlq_cleared | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
-| `ADMIN-13` | As a backend systems engineer, I want to inspect microservice telemetry (api-gateway, identity, memory, media, book) to identify bottlenecks. | ServiceTopologyCard, HealthBeaconBadge, ResourceGauge, LatencyPercentileChart (+1) | GET /api/admin/services/health | api-gateway | None | Events: admin.services_health_checked | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
+| `ADMIN-13` | As a backend systems engineer, I want to inspect microservice telemetry (api-gateway, identity, memory, media, book) to identify bottlenecks. | ServiceTopologyCard, HealthBeaconBadge, ResourceGauge, LatencyPercentileChart (+1) | GET /api/admin/services/health | api-gateway | None | Events: admin.services_health_checked | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `ADMIN-14` | As a publishing engineer, I want to track PDF compilation jobs and 3D GLTF asset compression to ensure books compile in under 30 seconds. | CompilationTable, StageProgressBar, OutputArtifactCard, EngineTelemetryBox (+1) | GET /api/admin/books/rendering/jobs | book-service | books, book_spreads | Events: admin.book_rendering_monitored; Jobs: generate-print-cmyk-pdf, generate-book-3d-model | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
 | `ADMIN-15` | As a prepress quality engineer, I want to review preflight audit logs across customer books to catch print defects before physical printing. | PreflightAuditTable, MarginOverlayPreview, PreflightMetricCard, OverrideModal (+1) | POST /api/admin/preflight/:bookId/override | book-service | books, book_spreads, outbox_events | Events: preflight.warning_overridden | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
-| `ADMIN-16` | As a product manager, I want to manage physical specifications, toggle available linen fabrics, and configure foil stamping options. | FormatCard, MaterialSwatchGrid, DimensionSchematicBox, PageLimitStepper (+1) | PUT /api/admin/catalog/formats/:formatId | commerce-service | print_catalog_formats, outbox_events | Events: catalog.format_updated | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
+| `ADMIN-16` | As a product manager, I want to manage physical specifications, toggle available linen fabrics, and configure foil stamping options. | FormatCard, MaterialSwatchGrid, DimensionSchematicBox, PageLimitStepper (+1) | PUT /api/admin/catalog/formats/:formatId | commerce-service | print_catalog_formats, outbox_events | Events: catalog.format_updated | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `ADMIN-17` | As an operations lead, I want to adjust base book prices and configure flat-rate domestic shipping tiers to maintain sustainable margins. | PricingTable, CurrencyInputField, ShippingZoneCard, MarginSummaryBox (+1) | POST /api/admin/pricing/matrix | commerce-service | pricing_matrix, shipping_rates, outbox_events | Events: pricing.matrix_updated | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
-| `ADMIN-18` | As a print fulfillment operator, I want to view all submitted book orders and advance them to 'In Production' after prepress approval. | OrdersTable, StageFilterTabGroup, BatchActionBar, SearchInput (+1) | GET /api/admin/orders | commerce-service | print_orders, books, users | Events: admin.orders_viewed | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
+| `ADMIN-18` | As a print fulfillment operator, I want to view all submitted book orders and advance them to 'In Production' after prepress approval. | OrdersTable, StageFilterTabGroup, BatchActionBar, SearchInput (+1) | GET /api/admin/orders | commerce-service | print_orders, books, users | Events: admin.orders_viewed | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `ADMIN-19` | As a fulfillment specialist, I want to input the courier tracking number and mark an order as shipped so the customer receives their tracking link. | OrderDetailCard, ShippingAddressBox, CarrierTrackingForm, ProductionTimeline (+1) | POST /api/admin/orders/:orderId/ship | commerce-service | print_orders, outbox_events | Events: order.shipped; Jobs: send-shipping-notification-email | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
 | `ADMIN-20` | As a customer support manager, I want to review a damaged book report, authorize a free reprint remake, or issue a full refund. | RefundsTable, DamageEvidencePreview, RefundDecisionModal, AmountInputField (+1) | POST /api/admin/orders/:orderId/refund | commerce-service | print_orders, order_refunds, outbox_events | Events: order.refunded, order.remake_authorized; Jobs: send-refund-notification-email | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
 | `ADMIN-21` | As a finance engineer, I want to review payment webhook logs and transaction settlement statuses to reconcile daily commerce revenue. | TransactionLedgerTable, WebhookInspectorDrawer, VolumeSummaryCard, SearchInput (+1) | GET /api/admin/transactions | commerce-service | payment_transactions, print_orders | Events: admin.transactions_viewed | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
 | `ADMIN-22` | As a communications manager, I want to edit transactional email templates with brand typography (Cormorant Garamond) and test rendered previews. | TemplateSidebar, MonacoCodeEditor, LiveEmailPreviewFrame, VariableJsonEditor (+1) | PUT /api/admin/templates/:templateKey | identity-service | email_templates, outbox_events | Events: template.updated; Jobs: send-test-email | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
-| `ADMIN-23` | As an engineering lead, I want to toggle feature flags dynamically with percentage rollouts without redeploying microservices. | FeatureFlagsTable, ToggleSwitch, RolloutSlider, TargetGroupDropdown (+1) | PATCH /api/admin/feature-flags/:flagKey | api-gateway | feature_flags, outbox_events | Events: feature_flag.updated | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
+| `ADMIN-23` | As an engineering lead, I want to toggle feature flags dynamically with percentage rollouts without redeploying microservices. | FeatureFlagsTable, ToggleSwitch, RolloutSlider, TargetGroupDropdown (+1) | PATCH /api/admin/feature-flags/:flagKey | api-gateway | feature_flags, outbox_events | Events: feature_flag.updated | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `ADMIN-24` | As an auditor or security officer, I want to search immutable audit logs by admin ID, action type, and date to verify full accountability. | AuditLogsTable, RecordDiffInspector, HashChainBadge, DateRangePicker (+1) | GET /api/admin/audit-logs | identity-service | audit_logs | Events: admin.audit_logs_exported; Jobs: verify-audit-log-cryptographic-chain | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
-| `ADMIN-25` | As an archival support specialist, I want to review incoming customer tickets, read diagnostic logs, and send helpful guidance. | TicketsTable, ConversationThreadView, CannedMacroPicker, ReplyEditorBox (+1) | POST /api/admin/tickets/:ticketId/reply | identity-service | support_tickets, support_replies, outbox_events | Events: support.reply_sent; Jobs: send-support-reply-email | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
+| `ADMIN-25` | As an archival support specialist, I want to review incoming customer tickets, read diagnostic logs, and send helpful guidance. | TicketsTable, ConversationThreadView, CannedMacroPicker, ReplyEditorBox (+1) | POST /api/admin/tickets/:ticketId/reply | identity-service | support_tickets, support_replies, outbox_events | Events: support.reply_sent; Jobs: send-support-reply-email | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `ADMIN-26` | As an administrator, I want to register my hardware YubiKey and configure biometric passkeys to satisfy dual-custody security standards. | AdminProfileCard, FIDO2KeyList, WebAuthnPromptModal, TOTPConfigBox (+1) | POST /api/admin/profile/webauthn/register | identity-service | admin_users, admin_security_keys, audit_logs | Events: admin.security_key_registered | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
 
 ---

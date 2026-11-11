@@ -249,9 +249,22 @@ describe("Interactive Chrome / Playwright DOM, WebGL, SW Offline & 401 Refresh E
       "/sample-book",
       "/pricing",
       "/help",
+      "/login",
+      "/register",
+      "/forgot-password",
+      "/reset-password",
+      "/verify-email",
+      "/invite/sample-invite",
+      "/share/sample-share",
       "/onboarding",
+      "/spaces",
       "/profiles",
       "/collections",
+      "/archive/timeline",
+      "/archive/calendar",
+      "/archive/search",
+      "/archive/favorites",
+      "/circles",
       "/notifications",
       "/trash",
       "/billing",
@@ -261,6 +274,7 @@ describe("Interactive Chrome / Playwright DOM, WebGL, SW Offline & 401 Refresh E
     ];
     for (const r of routesToVerify) {
       await page.goto(`${WEB_BASE}${r}`, { waitUntil: "domcontentloaded" });
+      await page.waitForFunction(() => document.body.innerText.trim().length > 20, { timeout: 10000 });
       const bodyLen = await page.evaluate(() => document.body.innerText.trim().length);
       assert.ok(bodyLen > 20, `Expected non-empty rendered content on ${r}`);
     }
@@ -436,6 +450,60 @@ describe("Interactive Chrome / Playwright DOM, WebGL, SW Offline & 401 Refresh E
     await page.fill("#settings-fullname", "Clara Vance-Bennett");
     await page.click('button:has-text("Save Display Name")');
     await page.getByText("Profile display name updated.").waitFor({ state: "visible", timeout: 10000 });
+
+    assert.equal(pageErrors.length, 0, `Unexpected page errors: ${pageErrors.join("; ")}`);
+    await context.close();
+  });
+
+  test("5. Expanded PWA Sub-Routes, Support Ticket & Multi-Console Admin RBAC Portal in Chrome", async () => {
+    assert.ok(browser, "Browser must be initialized");
+    const cfg = validateServiceConfig(BaseServiceConfigSchema);
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    const pageErrors: string[] = [];
+    page.on("pageerror", (err) => pageErrors.push(err.message));
+
+    const superAdminId = crypto.randomUUID();
+    const adminToken = jwt.sign(
+      { sub: superAdminId, email: "superadmin-e2e@memoria.internal", role: "superadmin" },
+      cfg.JWT_SECRET,
+      { expiresIn: "1h" }
+    );
+
+    await page.addInitScript(
+      ({ apiUrl, token, uid }: { apiUrl: string; token: string; uid: string }) => {
+        window.localStorage.setItem("memoria_api_url_override", apiUrl);
+        window.localStorage.setItem("memoria_web_access_token", token);
+        window.localStorage.setItem(
+          "memoria_web_user",
+          JSON.stringify({ id: uid, email: "superadmin-e2e@memoria.internal", fullName: "Archival Superadmin", role: "superadmin" })
+        );
+      },
+      { apiUrl: gatewayUrl, token: adminToken, uid: superAdminId }
+    );
+
+    // 1. Live /help support ticket submission
+    await page.goto(`${WEB_BASE}/help`, { waitUntil: "networkidle" });
+    await page.fill("#help-subject", "Chrome E2E Foil Inquiry");
+    await page.fill("#help-message", "Checking live ticket creation from /help.");
+    await page.click('button:has-text("Submit Support Note")');
+    await page.getByText("Chrome E2E Foil Inquiry").first().waitFor({ state: "visible", timeout: 10000 });
+
+    // 2. Archive views (timeline, calendar, search, favorites) & /settings storage panel
+    await page.goto(`${WEB_BASE}/archive/timeline`, { waitUntil: "networkidle" });
+    await page.getByText("Timeline View").first().waitFor({ state: "visible", timeout: 10000 });
+    await page.goto(`${WEB_BASE}/archive/calendar`, { waitUntil: "networkidle" });
+    await page.getByText("Archival Calendar Distribution").first().waitFor({ state: "visible", timeout: 10000 });
+    await page.goto(`${WEB_BASE}/settings`, { waitUntil: "networkidle" });
+    await page.getByText("Local Disk Storage").first().waitFor({ state: "visible", timeout: 10000 });
+
+    // 3. Full Admin Portal multi-console navigation
+    await page.goto(`${WEB_BASE}/admin`, { waitUntil: "networkidle" });
+    await page.getByText("System Overview (01/13)").first().waitFor({ state: "visible", timeout: 10000 });
+    await page.click('button:has-text("Storage & Media")');
+    await page.getByText("LocalDiskStorageDriver").first().waitFor({ state: "visible", timeout: 10000 });
+    await page.click('button:has-text("Templates, Flags & Audit")');
+    await page.getByText("webgl_3d_reader").first().waitFor({ state: "visible", timeout: 10000 });
 
     assert.equal(pageErrors.length, 0, `Unexpected page errors: ${pageErrors.join("; ")}`);
     await context.close();

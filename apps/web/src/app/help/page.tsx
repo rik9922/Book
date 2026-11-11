@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { HelpCircle, Keyboard, LifeBuoy, Send } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
+import { submitSupportTicket } from "@/lib/api";
 
 const FAQS = [
   {
@@ -32,12 +33,23 @@ export default function HelpPage() {
   const [message, setMessage] = useState("");
   const [submittedNotice, setSubmittedNotice] = useState<string | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!subject.trim() || !message.trim()) return;
-    setSubmittedNotice(
-      `Support inquiry "${subject.trim()}" logged locally for archival governance review.`
-    );
+    try {
+      const ticket = await submitSupportTicket({
+        subject: subject.trim(),
+        message: message.trim(),
+        category: "archival_help",
+      });
+      setSubmittedNotice(
+        `Support ticket #${ticket.id.slice(0, 8)} ("${ticket.subject}") submitted to archival support.`
+      );
+    } catch {
+      setSubmittedNotice(
+        `Support inquiry "${subject.trim()}" logged locally for archival governance review.`
+      );
+    }
     setSubject("");
     setMessage("");
   };

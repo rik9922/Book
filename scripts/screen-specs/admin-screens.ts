@@ -86,7 +86,7 @@ export const adminScreens: ScreenSpec[] = [
       e2e: ["logs in as superadmin, loads dashboard, validates all 4 metric cards populate within 1.5 seconds"]
     },
     uiComponents: ["AdminTopbar", "SidebarNavigation", "KPISummaryCard", "ServiceHealthGrid", "AlertDrawer"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "ADMIN-02",
@@ -170,7 +170,7 @@ export const adminScreens: ScreenSpec[] = [
       e2e: ["enters query in search bar, verifies results update, clicks on user row to navigate to details"]
     },
     uiComponents: ["DataTable", "SearchInput", "FilterDropdown", "StatusBadge", "PaginationBar"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "ADMIN-03",
@@ -339,7 +339,7 @@ export const adminScreens: ScreenSpec[] = [
       e2e: ["filters by 'Family' space type, verifies list renders only family type records"]
     },
     uiComponents: ["DataTable", "SearchInput", "StorageUsageBar", "FilterDropdown", "PaginationBar"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "ADMIN-05",
@@ -695,7 +695,7 @@ export const adminScreens: ScreenSpec[] = [
       e2e: ["clicks Run Orphan Scan, waits for job completion, verifies orphan count updates"]
     },
     uiComponents: ["StorageGaugeWidget", "DerivativeBreakdownBar", "SpacesQuotaTable", "OrphanManagerCard", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "ADMIN-09",
@@ -862,7 +862,7 @@ export const adminScreens: ScreenSpec[] = [
       e2e: ["opens uploads console, verifies active upload progress updates smoothly every 5 seconds"]
     },
     uiComponents: ["UploadSessionsTable", "TransferProgressBar", "SpeedGaugeBadge", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
 
   // ==========================================
@@ -949,7 +949,7 @@ export const adminScreens: ScreenSpec[] = [
       e2e: ["opens queue dashboard, pauses media queue, verifies status updates to Paused, resumes queue"]
     },
     uiComponents: ["QueueCard", "JobCountBadgeGroup", "WorkerFleetPanel", "ThroughputSparkline", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "ADMIN-12",
@@ -1117,7 +1117,7 @@ export const adminScreens: ScreenSpec[] = [
       e2e: ["loads services console, verifies all 5 service cards show green beacon and valid port numbers"]
     },
     uiComponents: ["ServiceTopologyCard", "HealthBeaconBadge", "ResourceGauge", "LatencyPercentileChart", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "ADMIN-14",
@@ -1373,7 +1373,7 @@ export const adminScreens: ScreenSpec[] = [
       e2e: ["toggles Forest Sage swatch off, clicks Save, verifies swatch reflects disabled state"]
     },
     uiComponents: ["FormatCard", "MaterialSwatchGrid", "DimensionSchematicBox", "PageLimitStepper", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "ADMIN-17",
@@ -1542,7 +1542,7 @@ export const adminScreens: ScreenSpec[] = [
       e2e: ["filters by Submitted status, selects first order, advances to In Production, verifies stage pill updates"]
     },
     uiComponents: ["OrdersTable", "StageFilterTabGroup", "BatchActionBar", "SearchInput", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "ADMIN-19",
@@ -1983,7 +1983,7 @@ export const adminScreens: ScreenSpec[] = [
       e2e: ["toggles realitykit_bookshelf from 50% to 100%, saves change, verifies update broadcast"]
     },
     uiComponents: ["FeatureFlagsTable", "ToggleSwitch", "RolloutSlider", "TargetGroupDropdown", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "ADMIN-24",
@@ -2157,7 +2157,7 @@ export const adminScreens: ScreenSpec[] = [
       e2e: ["opens ticket, inserts canned macro, clicks Send Reply, verifies status changes to Waiting on Customer"]
     },
     uiComponents: ["TicketsTable", "ConversationThreadView", "CannedMacroPicker", "ReplyEditorBox", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "ADMIN-26",

@@ -10,6 +10,7 @@ import {
   createFastifyErrorHandler,
   UnauthorizedError,
   ForbiddenError,
+  calculatePrintOrderPricing,
   createSuccessResponse,
   createErrorResponse,
   createDomainEvent,
@@ -23,14 +24,17 @@ import {
   PostgresCommerceRepository,
   PostgresSpaceRepository,
   PostgresCollaborationRepository,
+  PostgresBookRepository,
   PostgresOutboxRepository,
   SpaceRepository,
   CollaborationRepository,
+  BookRepository,
   OutboxRepository,
   PrintOrderRecord,
 } from "@memory-capsule/database";
 
 const logger: Logger = createServiceLogger("commerce-service");
+const ADMIN_ROLES = new Set(["superadmin", "admin", "ops_admin", "compliance_officer", "support_agent"]);
 
 class InMemoryCommerceTestRepo implements CommerceRepository {
   private orders = new Map<string, PrintOrderRecord>();
@@ -58,6 +62,9 @@ class InMemoryCommerceTestRepo implements CommerceRepository {
       this.orders.set(id, { ...order, status, updatedAt: new Date().toISOString() });
     }
   }
+  async listAllOrders(): Promise<PrintOrderRecord[]> {
+    return Array.from(this.orders.values());
+  }
 }
 
 export async function buildCommerceService(): Promise<FastifyInstance> {
@@ -78,9 +85,10 @@ export async function buildCommerceService(): Promise<FastifyInstance> {
   }
 
   const eventBus: EventBus = await createEventBus(cfg.NATS_URL);
+  const inMemoryRepo = new InMemoryCommerceTestRepo();
   const commerceRepo: CommerceRepository = dbUrl
     ? new PostgresCommerceRepository(db)
-    : new InMemoryCommerceTestRepo();
+    : inMemoryRepo;
   const outboxRepo: OutboxRepository | null = dbUrl ? new PostgresOutboxRepository(db) : null;
 
   const memoryDb: DatabaseClient | null = cfg.MEMORY_DATABASE_URL
@@ -94,6 +102,24 @@ export async function buildCommerceService(): Promise<FastifyInstance> {
   const collabRepo: CollaborationRepository | null = collabDb
     ? new PostgresCollaborationRepository(collabDb)
     : null;
+
+  const bookDb: DatabaseClient | null = cfg.BOOK_DATABASE_URL
+    ? createDatabaseClient(cfg.BOOK_DATABASE_URL)
+    : null;
+  const bookRepo: BookRepository | null = bookDb ? new PostgresBookRepository(bookDb) : null;
+
+  // In-memory fallbacks when running isolated unit tests without commerce_db
+  const memTracking = new Map<string, { carrier: string; trackingNumber: string; trackingUrl: string; updatedAt: string }>();
+  const memRefunds: Array<Record<string, any>> = [];
+  const memFormats = new Map<string, { formatId: string; label: string; dimensionsCm: string; baseCents: number; enabled: boolean }>([
+    ["hardcover_square_8x8", { formatId: "hardcover_square_8x8", label: 'Square Heirloom 8×8"', dimensionsCm: "20.3 × 20.3 cm", baseCents: 4200, enabled: true }],
+    ["hardcover_standard_8x10", { formatId: "hardcover_standard_8x10", label: 'Standard Archive 8×10"', dimensionsCm: "20.3 × 25.4 cm", baseCents: 4800, enabled: true }],
+    ["hardcover_grand_12x12", { formatId: "hardcover_grand_12x12", label: 'Grand Estate 12×12"', dimensionsCm: "30.5 × 30.5 cm", baseCents: 6800, enabled: true }],
+  ]);
+  const memShippingRates = new Map<string, { zoneCode: string; label: string; rateCents: number; estimatedDays: string }>([
+    ["US", { zoneCode: "US", label: "Domestic Archival Parcel (US)", rateCents: 900, estimatedDays: "5–7 business days" }],
+    ["INTL", { zoneCode: "INTL", label: "International Insured Courier", rateCents: 2400, estimatedDays: "10–14 business days" }],
+  ]);
 
   let outboxTimer: NodeJS.Timeout | null = null;
   if (outboxRepo?.relayPending) {
@@ -119,23 +145,39 @@ export async function buildCommerceService(): Promise<FastifyInstance> {
     if (collabDb) {
       await collabDb.close().catch((err) => logger.warn({ err }, "[Commerce] Collab DB close warning"));
     }
+    if (bookDb) {
+      await bookDb.close().catch((err) => logger.warn({ err }, "[Commerce] Book DB close warning"));
+    }
     await db.close().catch((err) => logger.warn({ err }, "[Commerce] DB close warning"));
   });
 
   await app.register(cors, { origin: true, credentials: true });
   await app.register(fastifyJwt, { secret: cfg.JWT_SECRET });
 
-  async function requireAuthUser(req: FastifyRequest): Promise<string> {
+  async function requireAuthClaims(req: FastifyRequest): Promise<{ userId: string; role: string }> {
     try {
       const claims: any = await req.jwtVerify();
       const userId = claims?.sub || claims?.userId;
       if (!userId || typeof userId !== "string") {
         throw new UnauthorizedError("Missing subject in JWT");
       }
-      return userId;
+      return { userId, role: typeof claims?.role === "string" ? claims.role : "member" };
     } catch {
       throw new UnauthorizedError("Valid authentication token required");
     }
+  }
+
+  async function requireAuthUser(req: FastifyRequest): Promise<string> {
+    const claims = await requireAuthClaims(req);
+    return claims.userId;
+  }
+
+  async function requireAdminUser(req: FastifyRequest): Promise<{ userId: string; role: string }> {
+    const claims = await requireAuthClaims(req);
+    if (!ADMIN_ROLES.has(claims.role)) {
+      throw new ForbiddenError("Administrative privileges required");
+    }
+    return claims;
   }
 
   async function assertSpaceAccess(
@@ -213,6 +255,7 @@ export async function buildCommerceService(): Promise<FastifyInstance> {
     spaceId: z.string().uuid(),
     bookId: z.string().uuid(),
     quantity: z.number().int().min(1).max(20).default(1),
+    format: z.enum(["hardcover_square_8x8", "hardcover_standard_8x10", "hardcover_grand_12x12"]).optional(),
     shippingAddress: z.object({
       recipientName: z.string().min(1),
       line1: z.string().min(1),
@@ -221,11 +264,21 @@ export async function buildCommerceService(): Promise<FastifyInstance> {
       country: z.string().min(2).default("US"),
     }),
     printSpec: z.object({
+      format: z.enum(["hardcover_square_8x8", "hardcover_standard_8x10", "hardcover_grand_12x12"]).optional(),
       paperWeight: z.enum(["140gsm_matte", "170gsm_lustre"]).default("170gsm_lustre"),
       binding: z.enum(["hardcover_linen", "french_morocco"]).default("french_morocco"),
       editionHash: z.string().optional(),
     }),
   });
+
+  async function resolveBookFormat(bookId: string, requestedFormat?: string): Promise<string> {
+    if (requestedFormat) return requestedFormat;
+    if (bookRepo) {
+      const book = await bookRepo.findBookById(bookId);
+      if (book?.format) return book.format;
+    }
+    return "hardcover_standard_8x10";
+  }
 
   app.post("/api/v1/orders", async (req: FastifyRequest, reply: FastifyReply) => {
     const userId = await requireAuthUser(req);
@@ -234,29 +287,67 @@ export async function buildCommerceService(): Promise<FastifyInstance> {
       return reply.status(400).send(createErrorResponse("VALIDATION_ERROR", "Invalid print order payload"));
     }
 
-    const { spaceId, bookId, quantity, shippingAddress, printSpec } = parseResult.data;
+    const { spaceId, bookId, quantity, format, shippingAddress, printSpec } = parseResult.data;
     await assertSpaceAccess(spaceId, userId, true);
-    const unitPriceCents = printSpec.binding === "french_morocco" ? 6800 : 4800;
-    const totalCents = unitPriceCents * quantity;
 
+    const resolvedFormat = await resolveBookFormat(bookId, format || printSpec.format);
+    const quote = calculatePrintOrderPricing({
+      format: resolvedFormat,
+      binding: printSpec.binding,
+      paperWeight: printSpec.paperWeight,
+      quantity,
+      country: shippingAddress.country,
+    });
+
+    const orderId = crypto.randomUUID();
     const order = await commerceRepo.createOrder({
-      id: crypto.randomUUID(),
+      id: orderId,
       spaceId,
       userId,
       bookId,
       status: "submitted",
-      totalCents,
-      currency: "USD",
+      totalCents: quote.totalCents,
+      currency: quote.currency,
       shippingAddress,
-      printSpec: { ...printSpec, quantity, paymentMode: "sandbox_zero_budget" },
+      printSpec: {
+        ...printSpec,
+        format: quote.format,
+        quantity: quote.quantity,
+        unitCents: quote.unitCents,
+        subtotalCents: quote.subtotalCents,
+        shippingCents: quote.shippingCents,
+        taxCents: quote.taxCents,
+        estimatedDays: quote.estimatedDays,
+        paymentMode: "sandbox_zero_budget",
+      },
     });
+
+    if (dbUrl) {
+      await db.query(
+        `INSERT INTO order_items (id, order_id, book_id, edition_hash, quantity, unit_price_cents)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [
+          crypto.randomUUID(),
+          order.id,
+          bookId,
+          printSpec.editionHash || "draft-edition",
+          quote.quantity,
+          quote.unitCents,
+        ]
+      ).catch((err) => logger.warn({ err, orderId: order.id }, "[Commerce] Non-fatal order_items insert warning"));
+      await db.query(
+        `INSERT INTO fulfilment_records (id, order_id, provider, status)
+         VALUES ($1, $2, 'local_print_press', 'queued')`,
+        [crypto.randomUUID(), order.id]
+      ).catch((err) => logger.warn({ err, orderId: order.id }, "[Commerce] Non-fatal fulfilment_records insert warning"));
+    }
 
     await publishDomainEvent("commerce.order.created", "commerce.order.created", order.id, {
       orderId: order.id,
       spaceId,
       userId,
       bookId,
-      totalCents,
+      totalCents: quote.totalCents,
     });
 
     return reply.status(201).send(createSuccessResponse(order));
@@ -271,32 +362,17 @@ export async function buildCommerceService(): Promise<FastifyInstance> {
       paperWeight?: string;
       quantity?: number;
       country?: string;
+      printSpec?: { format?: string; binding?: string; paperWeight?: string };
+      shippingAddress?: { country?: string };
     }) || {};
-    const quantity = Math.min(Math.max(Number(body.quantity || 1), 1), 20);
-    const baseCents =
-      body.format === "hardcover_grand_12x12"
-        ? 6800
-        : body.format === "hardcover_square_8x8"
-        ? 4200
-        : 4800;
-    const bindingSurcharge = body.binding === "french_morocco" ? 2000 : 0;
-    const paperSurcharge = body.paperWeight === "170gsm_lustre" ? 400 : 0;
-    const unitCents = baseCents + bindingSurcharge + paperSurcharge;
-    const subtotalCents = unitCents * quantity;
-    const isDomestic = !body.country || body.country.toUpperCase() === "US";
-    const shippingCents = isDomestic ? 900 : 2400;
-    return reply.status(200).send(
-      createSuccessResponse({
-        currency: "USD",
-        quantity,
-        unitCents,
-        subtotalCents,
-        shippingCents,
-        taxCents: 0,
-        totalCents: subtotalCents + shippingCents,
-        estimatedDays: isDomestic ? "5–7 business days" : "10–14 business days",
-      })
-    );
+    const quote = calculatePrintOrderPricing({
+      format: body.format || body.printSpec?.format,
+      binding: body.binding || body.printSpec?.binding,
+      paperWeight: body.paperWeight || body.printSpec?.paperWeight,
+      quantity: body.quantity,
+      country: body.country || body.shippingAddress?.country,
+    });
+    return reply.status(200).send(createSuccessResponse(quote));
   });
 
   // List Authenticated User's Orders Across All Spaces (PWA-75 / PWA-76)
@@ -346,6 +422,111 @@ export async function buildCommerceService(): Promise<FastifyInstance> {
     }
   );
 
+  // Live Order Tracking Timeline (PWA-75 / IOS-53)
+  app.get(
+    "/api/v1/orders/:orderId/tracking",
+    async (req: FastifyRequest<{ Params: { orderId: string } }>, reply: FastifyReply) => {
+      const userId = await requireAuthUser(req);
+      const order = await commerceRepo.getOrderById(req.params.orderId);
+      if (!order) {
+        return reply.status(404).send(createErrorResponse("ORDER_NOT_FOUND", "Print order not found"));
+      }
+      await assertSpaceAccess(order.spaceId, userId, false);
+
+      let trackingNumber: string | null = null;
+      let trackingUrl: string | null = null;
+      let carrier = "Archival Press Courier";
+      if (dbUrl) {
+        const res = await db.query(
+          `SELECT provider, tracking_number as "trackingNumber", tracking_url as "trackingUrl"
+           FROM fulfilment_records WHERE order_id = $1 ORDER BY updated_at DESC LIMIT 1`,
+          [order.id]
+        );
+        if (res.rows[0]) {
+          carrier = res.rows[0].provider || carrier;
+          trackingNumber = res.rows[0].trackingNumber || null;
+          trackingUrl = res.rows[0].trackingUrl || null;
+        }
+      } else {
+        const m = memTracking.get(order.id);
+        if (m) {
+          carrier = m.carrier;
+          trackingNumber = m.trackingNumber;
+          trackingUrl = m.trackingUrl;
+        }
+      }
+
+      const stages = ["submitted", "preflight_passed", "in_production", "shipped", "delivered"];
+      const currentIdx = Math.max(0, stages.indexOf(order.status));
+      return reply.status(200).send(
+        createSuccessResponse({
+          orderId: order.id,
+          status: order.status,
+          carrier,
+          trackingNumber,
+          trackingUrl,
+          estimatedDays: order.printSpec?.estimatedDays || "5–7 business days",
+          timeline: stages.map((stage, idx) => ({
+            stage,
+            completed: idx <= currentIdx,
+            active: idx === currentIdx,
+          })),
+        })
+      );
+    }
+  );
+
+  // Reorder Immutable Historical Edition (PWA-76)
+  app.post(
+    "/api/v1/orders/:orderId/reorder",
+    async (req: FastifyRequest<{ Params: { orderId: string }; Body?: { quantity?: number } }>, reply: FastifyReply) => {
+      const userId = await requireAuthUser(req);
+      const original = await commerceRepo.getOrderById(req.params.orderId);
+      if (!original) {
+        return reply.status(404).send(createErrorResponse("ORDER_NOT_FOUND", "Original order not found"));
+      }
+      await assertSpaceAccess(original.spaceId, userId, true);
+
+      const quantity = Math.min(Math.max(Number(req.body?.quantity || original.printSpec?.quantity || 1), 1), 20);
+      const quote = calculatePrintOrderPricing({
+        format: original.printSpec?.format,
+        binding: original.printSpec?.binding,
+        paperWeight: original.printSpec?.paperWeight,
+        quantity,
+        country: original.shippingAddress?.country || "US",
+      });
+
+      const reorder = await commerceRepo.createOrder({
+        id: crypto.randomUUID(),
+        spaceId: original.spaceId,
+        userId,
+        bookId: original.bookId,
+        status: "submitted",
+        totalCents: quote.totalCents,
+        currency: quote.currency,
+        shippingAddress: original.shippingAddress,
+        printSpec: {
+          ...original.printSpec,
+          quantity: quote.quantity,
+          unitCents: quote.unitCents,
+          subtotalCents: quote.subtotalCents,
+          shippingCents: quote.shippingCents,
+          reorderedFromOrderId: original.id,
+          paymentMode: "sandbox_zero_budget",
+        },
+      });
+
+      await publishDomainEvent("commerce.order.reordered", "commerce.order.reordered", reorder.id, {
+        orderId: reorder.id,
+        originalOrderId: original.id,
+        spaceId: reorder.spaceId,
+        userId,
+      });
+
+      return reply.status(201).send(createSuccessResponse(reorder));
+    }
+  );
+
   app.get(
     "/api/v1/orders/spaces/:spaceId",
     async (req: FastifyRequest<{ Params: { spaceId: string } }>, reply: FastifyReply) => {
@@ -391,6 +572,248 @@ export async function buildCommerceService(): Promise<FastifyInstance> {
       });
 
       return reply.status(200).send(createSuccessResponse(updated));
+    }
+  );
+
+  // ==========================================
+  // ADMIN COMMERCE OPERATIONS (ADMIN-16..21)
+  // ==========================================
+
+  app.get("/api/v1/admin/orders", async (req: FastifyRequest, reply: FastifyReply) => {
+    await requireAdminUser(req);
+    if (dbUrl) {
+      const res = await db.query(
+        `SELECT o.id, o.space_id as "spaceId", o.user_id as "userId", o.book_id as "bookId",
+                o.status, o.total_cents as "totalCents", o.currency, o.shipping_address as "shippingAddress",
+                o.print_spec as "printSpec", o.created_at::text as "createdAt", o.updated_at::text as "updatedAt",
+                f.tracking_number as "trackingNumber", f.provider as "carrier"
+         FROM print_orders o
+         LEFT JOIN fulfilment_records f ON f.order_id = o.id
+         ORDER BY o.created_at DESC LIMIT 200`
+      );
+      return reply.status(200).send(createSuccessResponse(res.rows));
+    }
+    const orders = await inMemoryRepo.listAllOrders();
+    return reply.status(200).send(createSuccessResponse(orders));
+  });
+
+  app.post(
+    "/api/v1/admin/orders/:orderId/ship",
+    async (
+      req: FastifyRequest<{
+        Params: { orderId: string };
+        Body: { trackingNumber?: string; carrier?: string; trackingUrl?: string };
+      }>,
+      reply: FastifyReply
+    ) => {
+      await requireAdminUser(req);
+      const order = await commerceRepo.getOrderById(req.params.orderId);
+      if (!order) {
+        return reply.status(404).send(createErrorResponse("ORDER_NOT_FOUND", "Print order not found"));
+      }
+      const trackingNumber = req.body?.trackingNumber?.trim() || `MEM-TRK-${order.id.slice(0, 8).toUpperCase()}`;
+      const carrier = req.body?.carrier?.trim() || "Archival Press Courier";
+      const trackingUrl = req.body?.trackingUrl?.trim() || `https://tracking.memoria.local/${trackingNumber}`;
+
+      await commerceRepo.updateOrderStatus(order.id, "shipped");
+      if (dbUrl) {
+        await db.query(
+          `UPDATE fulfilment_records
+           SET provider = $1, tracking_number = $2, tracking_url = $3, status = 'shipped', updated_at = NOW()
+           WHERE order_id = $4`,
+          [carrier, trackingNumber, trackingUrl, order.id]
+        );
+      } else {
+        memTracking.set(order.id, { carrier, trackingNumber, trackingUrl, updatedAt: new Date().toISOString() });
+      }
+
+      await publishDomainEvent("commerce.order.status_updated", "commerce.order.status_updated", order.id, {
+        orderId: order.id,
+        spaceId: order.spaceId,
+        userId: order.userId,
+        status: "shipped",
+        trackingNumber,
+      });
+
+      const updated = await commerceRepo.getOrderById(order.id);
+      return reply.status(200).send(createSuccessResponse({ ...updated, trackingNumber, carrier, trackingUrl }));
+    }
+  );
+
+  app.post(
+    "/api/v1/admin/orders/:orderId/refund",
+    async (
+      req: FastifyRequest<{
+        Params: { orderId: string };
+        Body: { refundType?: "refund" | "remake"; reason?: string; amountCents?: number };
+      }>,
+      reply: FastifyReply
+    ) => {
+      const admin = await requireAdminUser(req);
+      const order = await commerceRepo.getOrderById(req.params.orderId);
+      if (!order) {
+        return reply.status(404).send(createErrorResponse("ORDER_NOT_FOUND", "Print order not found"));
+      }
+      const refundType = req.body?.refundType === "remake" ? "remake" : "refund";
+      const reason = req.body?.reason?.trim() || "Customer archival quality guarantee";
+      const amountCents = refundType === "remake" ? 0 : Math.min(order.totalCents, Math.max(0, Number(req.body?.amountCents ?? order.totalCents)));
+      const record = {
+        id: crypto.randomUUID(),
+        orderId: order.id,
+        amountCents,
+        refundType,
+        reason,
+        status: "processed",
+        processedBy: admin.userId,
+        createdAt: new Date().toISOString(),
+      };
+      if (dbUrl) {
+        await db.query(
+          `INSERT INTO order_refunds (id, order_id, amount_cents, refund_type, reason, status, processed_by)
+           VALUES ($1, $2, $3, $4, $5, 'processed', $6)`,
+          [record.id, record.orderId, record.amountCents, record.refundType, record.reason, record.processedBy]
+        );
+      } else {
+        memRefunds.unshift(record);
+      }
+      if (refundType === "refund") {
+        await commerceRepo.updateOrderStatus(order.id, "cancelled");
+      }
+      return reply.status(201).send(createSuccessResponse(record));
+    }
+  );
+
+  app.get("/api/v1/admin/transactions", async (req: FastifyRequest, reply: FastifyReply) => {
+    await requireAdminUser(req);
+    if (dbUrl) {
+      const [ordersRes, refundsRes] = await Promise.all([
+        db.query(
+          `SELECT id, book_id as "bookId", status, total_cents as "totalCents", currency,
+                  print_spec->>'paymentMode' as "paymentMode", created_at::text as "createdAt"
+           FROM print_orders ORDER BY created_at DESC LIMIT 100`
+        ),
+        db.query(
+          `SELECT id, order_id as "orderId", amount_cents as "amountCents", refund_type as "refundType",
+                  reason, status, created_at::text as "createdAt"
+           FROM order_refunds ORDER BY created_at DESC LIMIT 100`
+        ),
+      ]);
+      return reply.status(200).send(
+        createSuccessResponse({
+          transactions: ordersRes.rows,
+          refunds: refundsRes.rows,
+        })
+      );
+    }
+    return reply.status(200).send(
+      createSuccessResponse({
+        transactions: await inMemoryRepo.listAllOrders(),
+        refunds: memRefunds,
+      })
+    );
+  });
+
+  app.get("/api/v1/admin/catalog/formats", async (req: FastifyRequest, reply: FastifyReply) => {
+    await requireAdminUser(req);
+    if (dbUrl) {
+      const res = await db.query(
+        `SELECT format_id as "formatId", label, dimensions_cm as "dimensionsCm",
+                base_cents as "baseCents", enabled, updated_at::text as "updatedAt"
+         FROM print_catalog_formats ORDER BY base_cents ASC`
+      );
+      return reply.status(200).send(createSuccessResponse(res.rows));
+    }
+    return reply.status(200).send(createSuccessResponse(Array.from(memFormats.values())));
+  });
+
+  app.put(
+    "/api/v1/admin/catalog/formats/:formatId",
+    async (
+      req: FastifyRequest<{
+        Params: { formatId: string };
+        Body: { label?: string; baseCents?: number; enabled?: boolean };
+      }>,
+      reply: FastifyReply
+    ) => {
+      await requireAdminUser(req);
+      const { formatId } = req.params;
+      if (dbUrl) {
+        const res = await db.query(
+          `UPDATE print_catalog_formats
+           SET label = COALESCE($1, label),
+               base_cents = COALESCE($2, base_cents),
+               enabled = COALESCE($3, enabled),
+               updated_at = NOW()
+           WHERE format_id = $4
+           RETURNING format_id as "formatId", label, dimensions_cm as "dimensionsCm", base_cents as "baseCents", enabled`,
+          [req.body?.label || null, req.body?.baseCents ?? null, req.body?.enabled ?? null, formatId]
+        );
+        if (!res.rows[0]) {
+          return reply.status(404).send(createErrorResponse("FORMAT_NOT_FOUND", "Catalog format not found"));
+        }
+        return reply.status(200).send(createSuccessResponse(res.rows[0]));
+      }
+      const existing = memFormats.get(formatId);
+      if (!existing) {
+        return reply.status(404).send(createErrorResponse("FORMAT_NOT_FOUND", "Catalog format not found"));
+      }
+      const updated = {
+        ...existing,
+        ...(req.body?.label ? { label: req.body.label } : {}),
+        ...(typeof req.body?.baseCents === "number" ? { baseCents: req.body.baseCents } : {}),
+        ...(typeof req.body?.enabled === "boolean" ? { enabled: req.body.enabled } : {}),
+      };
+      memFormats.set(formatId, updated);
+      return reply.status(200).send(createSuccessResponse(updated));
+    }
+  );
+
+  app.get("/api/v1/admin/pricing/matrix", async (req: FastifyRequest, reply: FastifyReply) => {
+    await requireAdminUser(req);
+    if (dbUrl) {
+      const [formatsRes, shippingRes] = await Promise.all([
+        db.query(`SELECT format_id as "formatId", label, base_cents as "baseCents", enabled FROM print_catalog_formats ORDER BY base_cents ASC`),
+        db.query(`SELECT zone_code as "zoneCode", label, rate_cents as "rateCents", estimated_days as "estimatedDays" FROM shipping_rates ORDER BY rate_cents ASC`),
+      ]);
+      return reply.status(200).send(createSuccessResponse({ formats: formatsRes.rows, shippingRates: shippingRes.rows }));
+    }
+    return reply.status(200).send(
+      createSuccessResponse({
+        formats: Array.from(memFormats.values()),
+        shippingRates: Array.from(memShippingRates.values()),
+      })
+    );
+  });
+
+  app.post(
+    "/api/v1/admin/pricing/matrix",
+    async (
+      req: FastifyRequest<{ Body: { zoneCode: string; rateCents: number; estimatedDays?: string } }>,
+      reply: FastifyReply
+    ) => {
+      await requireAdminUser(req);
+      const { zoneCode, rateCents, estimatedDays } = req.body || {};
+      if (!zoneCode || typeof rateCents !== "number" || rateCents < 0) {
+        return reply.status(400).send(createErrorResponse("VALIDATION_ERROR", "zoneCode and non-negative rateCents required"));
+      }
+      if (dbUrl) {
+        const res = await db.query(
+          `INSERT INTO shipping_rates (zone_code, label, rate_cents, estimated_days, updated_at)
+           VALUES ($1, $2, $3, $4, NOW())
+           ON CONFLICT (zone_code) DO UPDATE SET rate_cents = $3, estimated_days = COALESCE($4, shipping_rates.estimated_days), updated_at = NOW()
+           RETURNING zone_code as "zoneCode", label, rate_cents as "rateCents", estimated_days as "estimatedDays"`,
+          [zoneCode.toUpperCase(), `${zoneCode.toUpperCase()} Courier Rate`, rateCents, estimatedDays || "5–10 business days"]
+        );
+        return reply.status(200).send(createSuccessResponse(res.rows[0]));
+      }
+      const next = {
+        zoneCode: zoneCode.toUpperCase(),
+        label: `${zoneCode.toUpperCase()} Courier Rate`,
+        rateCents,
+        estimatedDays: estimatedDays || "5–10 business days",
+      };
+      memShippingRates.set(next.zoneCode, next);
+      return reply.status(200).send(createSuccessResponse(next));
     }
   );
 

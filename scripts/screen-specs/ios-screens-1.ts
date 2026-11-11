@@ -352,7 +352,7 @@ export const iosScreens1: ScreenSpec[] = [
       e2e: ["submits recovery email in simulator, sheet advances to code entry"]
     },
     uiComponents: ["RecoverySheetView", "TextField", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "IOS-05",
@@ -439,7 +439,7 @@ export const iosScreens1: ScreenSpec[] = [
       e2e: ["enters code '123456', verifies auto-submit and navigation"]
     },
     uiComponents: ["OTPCodeField", "CountdownTimer", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "IOS-06",
@@ -520,7 +520,7 @@ export const iosScreens1: ScreenSpec[] = [
       e2e: ["launches deep link, taps Accept, verifies active space updates"]
     },
     uiComponents: ["InvitationSheetView", "SpaceBanner", "RoleBadge", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "IOS-07",
@@ -780,7 +780,7 @@ export const iosScreens1: ScreenSpec[] = [
       e2e: ["creates profile with photo, verifies saved state in database"]
     },
     uiComponents: ["CreateProfileSheet", "AvatarPickerButton", "DatePickerField", "Button"],
-    verifiedStatus: "Implemented & Verified"
+    verifiedStatus: "Implemented (UI/Route Scaffolded)"
   },
   {
     id: "IOS-10",
@@ -1453,7 +1453,7 @@ export const iosScreens1: ScreenSpec[] = [
       e2e: ["simulates photo capture, verifies image saved to local disk and upload queued"]
     },
     uiComponents: ["CameraViewfinder", "ShutterButton", "PHPickerWrapper", "Button"],
-    verifiedStatus: "Implemented & Verified"
+    verifiedStatus: "Implemented (UI/Route Scaffolded)"
   },
   {
     id: "IOS-18",
@@ -1962,7 +1962,7 @@ export const iosScreens1: ScreenSpec[] = [
       e2e: ["scrubs timeline to 1980, verifies smooth scroll, taps memory card"]
     },
     uiComponents: ["TimelineView", "TimelineNode", "DecadeScrubberBar", "MemoryCard"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "IOS-24",
@@ -2128,7 +2128,7 @@ export const iosScreens1: ScreenSpec[] = [
       e2e: ["taps June 18 cell, confirms memory list updates below calendar"]
     },
     uiComponents: ["CalendarHeatmapView", "CalendarDayCell", "DayMemoryList", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "IOS-26",

@@ -105,6 +105,93 @@ public struct PrintOrderDTO: Identifiable, Codable, Sendable {
     public let createdAt: String
 }
 
+public struct TimelineGroupDTO: Identifiable, Decodable, Sendable {
+    public var id: String { yearMonth }
+    public let yearMonth: String
+    public let year: String
+    public let items: [Memory]
+}
+
+public struct TimelineResponseDTO: Decodable, Sendable {
+    public let total: Int
+    public let groups: [TimelineGroupDTO]
+}
+
+public struct CalendarAnniversaryDTO: Identifiable, Decodable, Sendable {
+    public var id: String { profileId }
+    public let profileId: String
+    public let name: String
+    public let relationship: String?
+    public let birthDate: String?
+}
+
+public struct CalendarResponseDTO: Decodable, Sendable {
+    public let days: [String: [Memory]]
+    public let anniversaries: [CalendarAnniversaryDTO]
+    public let totalMemories: Int
+}
+
+public struct SpaceActivityItemDTO: Identifiable, Decodable, Sendable {
+    public let id: String
+    public let kind: String
+    public let title: String
+    public let actorId: String?
+    public let timestamp: String
+}
+
+public struct StorageCategoriesDTO: Decodable, Sendable {
+    public let imagesBytes: Int
+    public let videoBytes: Int
+    public let audioBytes: Int
+    public let docsBytes: Int
+}
+
+public struct StorageBreakdownDTO: Decodable, Sendable {
+    public let spaceId: String
+    public let usedBytes: Int
+    public let maxBytes: Int
+    public let assetCount: Int
+    public let categories: StorageCategoriesDTO
+}
+
+public struct UserPreferencesDTO: Codable, Sendable {
+    public let reducedMotion: Bool?
+    public let language: String?
+    public let biometricLock: Bool?
+
+    public init(reducedMotion: Bool? = nil, language: String? = nil, biometricLock: Bool? = nil) {
+        self.reducedMotion = reducedMotion
+        self.language = language
+        self.biometricLock = biometricLock
+    }
+}
+
+public struct SupportTicketDTO: Identifiable, Decodable, Sendable {
+    public let id: String
+    public let subject: String
+    public let category: String
+    public let message: String
+    public let status: String
+    public let createdAt: String
+}
+
+public struct BookPreflightCheckDTO: Identifiable, Decodable, Sendable {
+    public let id: String
+    public let label: String
+    public let passed: Bool
+    public let detail: String
+}
+
+public struct BookPreflightReportDTO: Decodable, Sendable {
+    public let bookId: String
+    public let version: Int
+    public let isFrozenForPrint: Bool
+    public let frozenEditionHash: String?
+    public let passed: Bool
+    public let checks: [BookPreflightCheckDTO]
+    public let checkedAt: String
+}
+
 public actor MemoriaAPIClient {
     public static let shared = MemoriaAPIClient()
 
@@ -596,6 +683,135 @@ public actor MemoriaAPIClient {
             throw NSError(domain: "MemoriaAPIClient", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Failed to load orders"])
         }
         struct Envelope: Decodable { let success: Bool; let data: [PrintOrderDTO] }
+        return try JSONDecoder().decode(Envelope.self, from: data).data
+    }
+
+    public func forgotPassword(email: String) async throws {
+        var request = createRequest(path: "auth/forgot-password", method: "POST")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["email": email])
+        let (_, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            throw NSError(domain: "MemoriaAPIClient", code: (response as? HTTPURLResponse)?.statusCode ?? 400, userInfo: [NSLocalizedDescriptionKey: "Failed to send password reset instructions"])
+        }
+    }
+
+    public func verifyEmailCode(tokenOrCode: String) async throws {
+        let payload: [String: String] = tokenOrCode.count >= 16
+            ? ["token": tokenOrCode]
+            : ["code": tokenOrCode]
+        let body = try JSONSerialization.data(withJSONObject: payload)
+        let (_, httpResponse) = try await performAuthenticatedData(path: "auth/verify-code", method: "POST", body: body)
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw NSError(domain: "MemoriaAPIClient", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Invalid verification code"])
+        }
+    }
+
+    public func acceptInvitation(token: String) async throws {
+        let body = try JSONSerialization.data(withJSONObject: ["token": token])
+        let (_, httpResponse) = try await performAuthenticatedData(path: "collab/invitations/accept", method: "POST", body: body)
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw NSError(domain: "MemoriaAPIClient", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Invalid or expired invitation token"])
+        }
+    }
+
+    public func fetchTimeline(spaceId: String) async throws -> TimelineResponseDTO {
+        let (data, httpResponse) = try await performAuthenticatedData(path: "spaces/\(spaceId)/timeline", method: "GET")
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw NSError(domain: "MemoriaAPIClient", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Failed to load timeline"])
+        }
+        struct Envelope: Decodable { let success: Bool; let data: TimelineResponseDTO }
+        return try JSONDecoder().decode(Envelope.self, from: data).data
+    }
+
+    public func fetchCalendar(spaceId: String, year: String? = nil, month: String? = nil) async throws -> CalendarResponseDTO {
+        var queryItems: [URLQueryItem] = []
+        if let year, !year.isEmpty { queryItems.append(URLQueryItem(name: "year", value: year)) }
+        if let month, !month.isEmpty { queryItems.append(URLQueryItem(name: "month", value: month)) }
+        let (data, httpResponse) = try await performAuthenticatedData(path: "spaces/\(spaceId)/calendar", queryItems: queryItems, method: "GET")
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw NSError(domain: "MemoriaAPIClient", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Failed to load calendar"])
+        }
+        struct Envelope: Decodable { let success: Bool; let data: CalendarResponseDTO }
+        return try JSONDecoder().decode(Envelope.self, from: data).data
+    }
+
+    public func fetchSpaceActivity(spaceId: String) async throws -> [SpaceActivityItemDTO] {
+        let (data, httpResponse) = try await performAuthenticatedData(path: "spaces/\(spaceId)/activity", method: "GET")
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw NSError(domain: "MemoriaAPIClient", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Failed to load space activity"])
+        }
+        struct Envelope: Decodable { let success: Bool; let data: [SpaceActivityItemDTO] }
+        return try JSONDecoder().decode(Envelope.self, from: data).data
+    }
+
+    public func editMemory(memoryId: String, title: String, content: String?, location: String?) async throws -> Memory {
+        var dict: [String: Any] = ["title": title]
+        if let content { dict["content"] = content }
+        if let location { dict["location"] = location }
+        let body = try JSONSerialization.data(withJSONObject: dict)
+        let (data, httpResponse) = try await performAuthenticatedData(path: "memories/\(memoryId)", method: "PATCH", body: body)
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw NSError(domain: "MemoriaAPIClient", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Failed to update memory"])
+        }
+        struct Envelope: Decodable { let success: Bool; let data: Memory }
+        return try JSONDecoder().decode(Envelope.self, from: data).data
+    }
+
+    public func applyMediaNonDestructiveEdit(mediaId: String, rotateDegrees: Int, warmth: Double, cropPreset: String = "original") async throws {
+        let body = try JSONSerialization.data(withJSONObject: [
+            "rotateDegrees": rotateDegrees,
+            "warmth": warmth,
+            "cropPreset": cropPreset,
+        ])
+        let (_, httpResponse) = try await performAuthenticatedData(path: "media/\(mediaId)/derivatives", method: "POST", body: body)
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw NSError(domain: "MemoriaAPIClient", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Failed to save non-destructive image adjustments"])
+        }
+    }
+
+    public func updatePreferences(biometricLock: Bool, reducedMotion: Bool, language: String = "en") async throws -> UserPreferencesDTO {
+        let body = try JSONSerialization.data(withJSONObject: [
+            "biometricLock": biometricLock,
+            "reducedMotion": reducedMotion,
+            "language": language,
+        ])
+        let (data, httpResponse) = try await performAuthenticatedData(path: "auth/me/preferences", method: "PATCH", body: body)
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw NSError(domain: "MemoriaAPIClient", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Failed to save preferences"])
+        }
+        struct Envelope: Decodable { let success: Bool; let data: UserPreferencesDTO }
+        return try JSONDecoder().decode(Envelope.self, from: data).data
+    }
+
+    public func fetchStorageBreakdown(spaceId: String) async throws -> StorageBreakdownDTO {
+        let (data, httpResponse) = try await performAuthenticatedData(path: "media/spaces/\(spaceId)/storage/breakdown", method: "GET")
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw NSError(domain: "MemoriaAPIClient", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Failed to load storage breakdown"])
+        }
+        struct Envelope: Decodable { let success: Bool; let data: StorageBreakdownDTO }
+        return try JSONDecoder().decode(Envelope.self, from: data).data
+    }
+
+    public func submitSupportTicket(subject: String, category: String, message: String) async throws -> SupportTicketDTO {
+        let body = try JSONSerialization.data(withJSONObject: [
+            "subject": subject,
+            "category": category,
+            "message": message,
+        ])
+        let (data, httpResponse) = try await performAuthenticatedData(path: "support/tickets", method: "POST", body: body)
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw NSError(domain: "MemoriaAPIClient", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Failed to submit support ticket"])
+        }
+        struct Envelope: Decodable { let success: Bool; let data: SupportTicketDTO }
+        return try JSONDecoder().decode(Envelope.self, from: data).data
+    }
+
+    public func runPreflight(bookId: String) async throws -> BookPreflightReportDTO {
+        let (data, httpResponse) = try await performAuthenticatedData(path: "books/\(bookId)/preflight", method: "POST", body: Data("{}".utf8))
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw NSError(domain: "MemoriaAPIClient", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Preflight verification failed"])
+        }
+        struct Envelope: Decodable { let success: Bool; let data: BookPreflightReportDTO }
         return try JSONDecoder().decode(Envelope.self, from: data).data
     }
 }

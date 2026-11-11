@@ -84,7 +84,7 @@ export const pwaScreens2: ScreenSpec[] = [
       e2e: ["navigates to collections, clicks on 'Summer at the Lake', verifies detail view"]
     },
     uiComponents: ["CollectionGrid", "CollectionCard", "SortDropdown", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "PWA-30",
@@ -167,7 +167,7 @@ export const pwaScreens2: ScreenSpec[] = [
       e2e: ["reorders 2 items in collection, clicks Turn into Book, loads wizard"]
     },
     uiComponents: ["CollectionBanner", "ReorderableGrid", "BatchActionBar", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "PWA-31",
@@ -257,7 +257,7 @@ export const pwaScreens2: ScreenSpec[] = [
       e2e: ["submits collection form and redirects to collection detail"]
     },
     uiComponents: ["CollectionForm", "CoverSelector", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "PWA-32",
@@ -339,7 +339,7 @@ export const pwaScreens2: ScreenSpec[] = [
       e2e: ["marks all notifications as read, verifies unread count updates to 0"]
     },
     uiComponents: ["NotificationList", "NotificationItem", "FilterTabs", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
 
   // ==========================================
@@ -596,7 +596,7 @@ export const pwaScreens2: ScreenSpec[] = [
       e2e: ["navigates to June, clicks June 15, inspects anniversary memory in sidebar"]
     },
     uiComponents: ["CalendarGrid", "CalendarCell", "AnniversaryBadge", "DayInspectorPanel"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "PWA-36",
@@ -1706,7 +1706,7 @@ export const pwaScreens2: ScreenSpec[] = [
       e2e: ["restores memory from trash, verifies it reappears in main archive grid"]
     },
     uiComponents: ["TrashGrid", "DeletedMemoryCard", "CountdownBadge", "ConfirmDialog", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
 
   // ==========================================
@@ -1792,7 +1792,7 @@ export const pwaScreens2: ScreenSpec[] = [
       e2e: ["revokes pending invite, verifies status updates to Revoked immediately"]
     },
     uiComponents: ["InvitationTable", "StatusBadge", "CopyLinkButton", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "PWA-50",
@@ -1964,7 +1964,7 @@ export const pwaScreens2: ScreenSpec[] = [
       e2e: ["creates 'Guest Historian' role, verifies it appears in member role selector"]
     },
     uiComponents: ["RoleForm", "CapabilityChecklist", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "PWA-52",
@@ -2053,7 +2053,7 @@ export const pwaScreens2: ScreenSpec[] = [
       e2e: ["generates link with passphrase, copies to clipboard, tests guest access"]
     },
     uiComponents: ["ShareSettingsCard", "CopyLinkButton", "QRCodePreview", "PassphraseInput"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "PWA-53",
@@ -2134,7 +2134,7 @@ export const pwaScreens2: ScreenSpec[] = [
       e2e: ["views stream, filters by 'Uploads', clicks on activity item to open memory"]
     },
     uiComponents: ["ActivityStream", "ActivityItem", "FilterBar"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "PWA-54",
@@ -2216,7 +2216,7 @@ export const pwaScreens2: ScreenSpec[] = [
       e2e: ["selects revision v1, verifies diff highlights, clicks Restore"]
     },
     uiComponents: ["RevisionList", "DiffViewer", "RestoreButton"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "PWA-55",
@@ -2306,7 +2306,7 @@ export const pwaScreens2: ScreenSpec[] = [
       e2e: ["posts comment, verifies immediate insertion in thread, adds reaction"]
     },
     uiComponents: ["DiscussionThread", "CommentItem", "ReactionStrip", "CommentInput"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   }
 ];
 

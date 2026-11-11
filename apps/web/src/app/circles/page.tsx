@@ -2,14 +2,24 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { Bell, Check, MailPlus, Trash2, UserPlus, Users } from "lucide-react";
+import { Bell, Check, Copy, Link2, MailPlus, RefreshCw, Shield, Trash2, UserPlus, Users } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import {
   apiRequest,
+  createCustomRole,
+  createShareLink,
+  getSpaceActivity,
   getStoredSession,
+  listCustomRoles,
+  listShareLinks,
+  listSpaceInvitations,
   MemorySpaceDTO,
   NotificationDTO,
+  resendSpaceInvitation,
+  revokeSpaceInvitation,
+  SpaceInvitationDTO,
   SpaceProfileDTO,
+  updateSpaceMemberRole,
 } from "@/lib/api";
 
 interface MemberRecord {
@@ -25,6 +35,10 @@ export default function CirclesPage() {
   const [spaces, setSpaces] = useState<MemorySpaceDTO[]>([]);
   const [spaceId, setSpaceId] = useState("");
   const [members, setMembers] = useState<MemberRecord[]>([]);
+  const [invitations, setInvitations] = useState<SpaceInvitationDTO[]>([]);
+  const [customRoles, setCustomRoles] = useState<Array<{ id: string; name: string; description: string }>>([]);
+  const [shareLinks, setShareLinks] = useState<Array<{ id: string; token: string; hasPassphrase: boolean; allowDownloads: boolean; expiresAt: string; accessCount: number }>>([]);
+  const [activity, setActivity] = useState<Array<{ id: string; kind: string; title: string; timestamp: string }>>([]);
   const [profiles, setProfiles] = useState<SpaceProfileDTO[]>([]);
   const [notifications, setNotifications] = useState<NotificationDTO[]>([]);
   const [loading, setLoading] = useState(true);
@@ -36,6 +50,11 @@ export default function CirclesPage() {
   const [inviteRole, setInviteRole] = useState<"admin" | "contributor" | "viewer">("contributor");
   const [redeemToken, setRedeemToken] = useState("");
 
+  // Custom role & Share link forms
+  const [customRoleName, setCustomRoleName] = useState("");
+  const [sharePassphrase, setSharePassphrase] = useState("");
+  const [shareAllowDownloads, setShareAllowDownloads] = useState(false);
+
   // Profile form
   const [profileName, setProfileName] = useState("");
   const [profileRel, setProfileRel] = useState("");
@@ -44,7 +63,7 @@ export default function CirclesPage() {
   const loadCircleData = useCallback(async (targetSpaceId: string) => {
     if (!targetSpaceId) return;
     try {
-      const [memRes, profRes, notifRes] = await Promise.allSettled([
+      const [memRes, profRes, notifRes, invRes, roleRes, linkRes, actRes] = await Promise.allSettled([
         apiRequest<{ members?: MemberRecord[]; items?: MemberRecord[] } | MemberRecord[]>(
           `/collab/spaces/${targetSpaceId}/members`
         ),
@@ -54,6 +73,10 @@ export default function CirclesPage() {
         apiRequest<{ notifications?: NotificationDTO[]; items?: NotificationDTO[] } | NotificationDTO[]>(
           "/notifications"
         ),
+        listSpaceInvitations(targetSpaceId),
+        listCustomRoles(targetSpaceId),
+        listShareLinks(targetSpaceId),
+        getSpaceActivity(targetSpaceId),
       ]);
 
       if (memRes.status === "fulfilled") {
@@ -68,6 +91,10 @@ export default function CirclesPage() {
         const val = notifRes.value;
         setNotifications(Array.isArray(val) ? val : val.notifications || val.items || []);
       }
+      if (invRes.status === "fulfilled") setInvitations(invRes.value || []);
+      if (roleRes.status === "fulfilled") setCustomRoles(roleRes.value || []);
+      if (linkRes.status === "fulfilled") setShareLinks(linkRes.value || []);
+      if (actRes.status === "fulfilled") setActivity(actRes.value || []);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load family circle details.");
     }
@@ -201,6 +228,71 @@ export default function CirclesPage() {
     }
   };
 
+  const handleUpdateRole = async (userId: string, role: "admin" | "contributor" | "viewer") => {
+    if (!spaceId) return;
+    try {
+      await updateSpaceMemberRole(spaceId, userId, role);
+      setMembers((prev) => prev.map((m) => (m.userId === userId ? { ...m, role } : m)));
+      setNotice(`Updated member role to ${role}.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update role.");
+    }
+  };
+
+  const handleResendInvite = async (invId: string) => {
+    if (!spaceId) return;
+    try {
+      await resendSpaceInvitation(spaceId, invId);
+      setNotice("Invitation reminder dispatched.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to resend invite.");
+    }
+  };
+
+  const handleRevokeInvite = async (invId: string) => {
+    if (!spaceId) return;
+    try {
+      await revokeSpaceInvitation(spaceId, invId);
+      setInvitations((prev) => prev.map((i) => (i.id === invId ? { ...i, status: "revoked" } : i)));
+      setNotice("Invitation revoked.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to revoke invite.");
+    }
+  };
+
+  const handleCreateCustomRole = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!spaceId || !customRoleName.trim()) return;
+    try {
+      const created: any = await createCustomRole(spaceId, {
+        name: customRoleName.trim(),
+        permissions: { can_create_memories: true, can_edit_books: false, can_invite: false },
+      });
+      setCustomRoles((prev) => [created, ...prev]);
+      setCustomRoleName("");
+      setNotice(`Created custom role "${created.name}".`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create custom role.");
+    }
+  };
+
+  const handleCreateShareLink = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!spaceId) return;
+    try {
+      const created = await createShareLink(spaceId, {
+        passphrase: sharePassphrase.trim() || undefined,
+        allowDownloads: shareAllowDownloads,
+        expiresInDays: 30,
+      });
+      setShareLinks((prev) => [{ ...created, allowDownloads: shareAllowDownloads, accessCount: 0 }, ...prev]);
+      setSharePassphrase("");
+      setNotice(`Generated share link: /share/${created.token}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create share link.");
+    }
+  };
+
   return (
     <AppShell
       title="Family Circles & Profiles"
@@ -273,14 +365,28 @@ export default function CirclesPage() {
                           </span>
                         </div>
                         {m.role !== "owner" && (
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveMember(m.userId)}
-                            aria-label={`Remove member ${m.userId}`}
-                            className="p-2 rounded-lg text-[#B6423E] hover:bg-[#FDF2F2]"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                          <div className="flex items-center gap-2">
+                            <select
+                              aria-label={`Role for ${m.userId}`}
+                              value={m.role}
+                              onChange={(e) =>
+                                handleUpdateRole(m.userId, e.target.value as "admin" | "contributor" | "viewer")
+                              }
+                              className="px-2 py-1 rounded-lg bg-white border border-[#E7E2DA] text-[11px]"
+                            >
+                              <option value="admin">Admin</option>
+                              <option value="contributor">Contributor</option>
+                              <option value="viewer">Viewer</option>
+                            </select>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveMember(m.userId)}
+                              aria-label={`Remove member ${m.userId}`}
+                              className="p-2 rounded-lg text-[#B6423E] hover:bg-[#FDF2F2]"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         )}
                       </li>
                     ))}
@@ -479,6 +585,137 @@ export default function CirclesPage() {
                   </ul>
                 )}
               </div>
+            </section>
+          </div>
+
+          {/* Outbound Invitations, Custom Roles, Passphrase Share Links & Activity Stream (PWA-49..53) */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <section className="bg-[#FFFFFF] rounded-2xl border border-[#E7E2DA] p-6 space-y-4">
+              <h2 className="font-serif text-lg font-bold text-[#20242C] flex items-center gap-2">
+                <RefreshCw className="w-4 h-4 text-[#76556F]" aria-hidden="true" />
+                Outbound Invitations ({invitations.length})
+              </h2>
+              {invitations.length === 0 ? (
+                <p className="text-xs text-[#5C5955]">No invitations issued for this space yet.</p>
+              ) : (
+                <ul className="space-y-2 text-xs">
+                  {invitations.map((inv) => (
+                    <li key={inv.id} className="p-3 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <p className="font-semibold text-[#20242C]">{inv.inviteeEmail}</p>
+                        <p className="text-[11px] text-[#5C5955] uppercase">{inv.role} • {inv.status}</p>
+                      </div>
+                      {inv.status === "pending" && (
+                        <div className="flex gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => handleResendInvite(inv.id)}
+                            className="px-2.5 py-1 rounded-lg bg-white border border-[#E7E2DA] text-[11px] font-medium"
+                          >
+                            Resend
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleRevokeInvite(inv.id)}
+                            className="px-2.5 py-1 rounded-lg bg-[#FDF2F2] text-[#B6423E] text-[11px] font-medium"
+                          >
+                            Revoke
+                          </button>
+                        </div>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+
+            <section className="bg-[#FFFFFF] rounded-2xl border border-[#E7E2DA] p-6 space-y-4">
+              <h2 className="font-serif text-lg font-bold text-[#20242C] flex items-center gap-2">
+                <Shield className="w-4 h-4 text-[#5F735E]" aria-hidden="true" />
+                Custom Space Roles ({customRoles.length})
+              </h2>
+              <form onSubmit={handleCreateCustomRole} className="flex gap-2">
+                <input
+                  type="text"
+                  value={customRoleName}
+                  onChange={(e) => setCustomRoleName(e.target.value)}
+                  placeholder="e.g. Junior Contributor"
+                  className="flex-1 px-3 py-2 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] text-xs"
+                />
+                <button type="submit" className="px-4 py-2 rounded-xl bg-[#20242C] text-white text-xs font-semibold">
+                  Create Role
+                </button>
+              </form>
+              {customRoles.length > 0 && (
+                <ul className="space-y-1.5 text-xs">
+                  {customRoles.map((r) => (
+                    <li key={r.id} className="p-2.5 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] font-semibold text-[#20242C]">
+                      {r.name}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+
+            <section className="bg-[#FFFFFF] rounded-2xl border border-[#E7E2DA] p-6 space-y-4">
+              <h2 className="font-serif text-lg font-bold text-[#20242C] flex items-center gap-2">
+                <Link2 className="w-4 h-4 text-[#76556F]" aria-hidden="true" />
+                Passphrase-Protected Share Links ({shareLinks.length})
+              </h2>
+              <form onSubmit={handleCreateShareLink} className="space-y-3">
+                <div className="flex flex-wrap gap-2">
+                  <input
+                    type="password"
+                    value={sharePassphrase}
+                    onChange={(e) => setSharePassphrase(e.target.value)}
+                    placeholder="Optional passphrase"
+                    className="flex-1 px-3 py-2 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] text-xs"
+                  />
+                  <label className="inline-flex items-center gap-1.5 text-xs text-[#20242C]">
+                    <input
+                      type="checkbox"
+                      checked={shareAllowDownloads}
+                      onChange={(e) => setShareAllowDownloads(e.target.checked)}
+                    />
+                    Allow downloads
+                  </label>
+                </div>
+                <button type="submit" className="px-4 py-2 rounded-xl bg-[#76556F] text-white text-xs font-semibold">
+                  Generate Share Link
+                </button>
+              </form>
+              {shareLinks.length > 0 && (
+                <ul className="space-y-2 text-xs">
+                  {shareLinks.map((l) => (
+                    <li key={l.id} className="p-2.5 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] flex items-center justify-between gap-2">
+                      <Link href={`/share/${l.token}`} className="font-mono text-[#76556F] hover:underline truncate">
+                        /share/{l.token}
+                      </Link>
+                      <span className="inline-flex items-center gap-1 text-[11px] text-[#5C5955]">
+                        <Copy className="w-3 h-3" /> {l.hasPassphrase ? "Protected" : "Open"}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+
+            <section className="bg-[#FFFFFF] rounded-2xl border border-[#E7E2DA] p-6 space-y-4">
+              <h2 className="font-serif text-lg font-bold text-[#20242C]">
+                Space Activity Stream ({activity.length})
+              </h2>
+              {activity.length === 0 ? (
+                <p className="text-xs text-[#5C5955]">No contributions recorded yet.</p>
+              ) : (
+                <ul className="space-y-2 text-xs max-h-56 overflow-y-auto">
+                  {activity.slice(0, 15).map((a) => (
+                    <li key={a.id} className="p-2.5 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] flex justify-between">
+                      <span><strong>{a.title}</strong> ({a.kind.replace("_", " ")})</span>
+                      <span className="text-[11px] text-[#5C5955]">{new Date(a.timestamp).toLocaleDateString()}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </section>
           </div>
         </div>

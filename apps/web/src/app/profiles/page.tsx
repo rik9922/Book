@@ -327,14 +327,22 @@ export default function ProfilesPage() {
                         </p>
                       )}
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => handleDelete(selectedProfile)}
-                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[#FDF2F2] text-xs font-medium text-[#B6423E]"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
-                      Remove
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <Link
+                        href={`/profiles/${selectedProfile.id}?spaceId=${encodeURIComponent(spaceId)}`}
+                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[#F0ECE1] text-xs font-medium text-[#20242C]"
+                      >
+                        Full Profile
+                      </Link>
+                      <button
+                        type="button"
+                        onClick={() => handleDelete(selectedProfile)}
+                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[#FDF2F2] text-xs font-medium text-[#B6423E]"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
+                        Remove
+                      </button>
+                    </div>
                   </div>
 
                   <form onSubmit={handleUpdate} className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-4 border-t border-[#F0ECE1]">

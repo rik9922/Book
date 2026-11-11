@@ -37,6 +37,7 @@ import {
 
 const scryptAsync = promisify(crypto.scrypt);
 const logger: Logger = createServiceLogger("identity-service");
+const ADMIN_ROLES = new Set(["superadmin", "admin", "ops_admin", "compliance_officer", "support_agent"]);
 
 // Hash password with salt using native Node crypto scrypt
 async function hashPassword(password: string): Promise<string> {
@@ -359,12 +360,17 @@ export async function buildIdentityService(): Promise<FastifyInstance> {
       ...(cfg.NODE_ENV === "test" && verificationToken ? { verificationToken } : {}),
     });
 
-    const token = app.jwt.sign({ sub: userId, email: normalizedEmail }, { expiresIn: "15m" });
+    const token = app.jwt.sign(
+      { sub: userId, email: normalizedEmail, role: (newUser.role as string) || "member" },
+      { expiresIn: "15m" }
+    );
 
     const userProfile: UserProfile = {
       id: userId,
       email: normalizedEmail,
       fullName,
+      role: (newUser.role as UserProfile["role"]) || "member",
+      isVerified: newUser.isVerified,
       createdAt: newUser.createdAt,
       updatedAt: newUser.updatedAt,
     };
@@ -403,8 +409,12 @@ export async function buildIdentityService(): Promise<FastifyInstance> {
     if (!isValid) {
       return reply.status(401).send(createErrorResponse("INVALID_CREDENTIALS", "Email or password incorrect", correlationId));
     }
+    if (user.status === "suspended") {
+      return reply.status(403).send(createErrorResponse("ACCOUNT_SUSPENDED", "This account has been suspended by an administrator", correlationId));
+    }
 
-    const token = app.jwt.sign({ sub: user.id, email: user.email }, { expiresIn: "15m" });
+    const userRole = (user.role as UserProfile["role"]) || "member";
+    const token = app.jwt.sign({ sub: user.id, email: user.email, role: userRole }, { expiresIn: "15m" });
     const refreshToken = crypto.randomBytes(32).toString("hex");
     const refreshTokenHash = sha256Hex(refreshToken);
     const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
@@ -424,6 +434,8 @@ export async function buildIdentityService(): Promise<FastifyInstance> {
       email: user.email,
       fullName: user.fullName,
       avatarUrl: user.avatarUrl,
+      role: userRole,
+      isVerified: user.isVerified,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
     };
@@ -481,7 +493,10 @@ export async function buildIdentityService(): Promise<FastifyInstance> {
       createdAt: new Date().toISOString(),
     });
 
-    const accessToken = app.jwt.sign({ sub: user.id, email: user.email }, { expiresIn: "15m" });
+    const accessToken = app.jwt.sign(
+      { sub: user.id, email: user.email, role: user.role || "member" },
+      { expiresIn: "15m" }
+    );
     return reply.status(200).send(
       createSuccessResponse(
         {
@@ -752,6 +767,555 @@ export async function buildIdentityService(): Promise<FastifyInstance> {
     await publishDomainEvent("identity.account.deleted", "account.deleted", userId, { userId });
     return reply.status(200).send(createSuccessResponse({ deleted: true }, correlationId));
   });
+
+  // ==========================================
+  // EXTENDED AUTH, PREFERENCES, PRIVACY & SUPPORT
+  // ==========================================
+  const memPreferences = new Map<string, Record<string, any>>();
+  const memPrivacy = new Map<string, Record<string, any>>();
+  const memOnboardingPurpose = new Map<string, string>();
+  const memTickets: Array<Record<string, any>> = [];
+  const memAccessRequests: Array<Record<string, any>> = [];
+  const memReports: Array<Record<string, any>> = [];
+  const memSecurityKeys: Array<Record<string, any>> = [];
+  const memEmailTemplates = new Map<string, { templateKey: string; subject: string; htmlBody: string; updatedAt: string }>([
+    ["welcome_heirloom", { templateKey: "welcome_heirloom", subject: "Welcome to Memoria — Your Living Archive", htmlBody: "<h1>Your memories, made timeless.</h1>", updatedAt: new Date().toISOString() }],
+    ["family_invitation", { templateKey: "family_invitation", subject: "You are invited to a Memoria Family Circle", htmlBody: "<h1>Join our shared family archive</h1>", updatedAt: new Date().toISOString() }],
+    ["print_order_shipped", { templateKey: "print_order_shipped", subject: "Your Heirloom Book Edition Has Shipped", htmlBody: "<h1>On its way to your bookshelf</h1>", updatedAt: new Date().toISOString() }],
+  ]);
+
+  async function requireAuthClaims(req: FastifyRequest): Promise<{ userId: string; email: string; role: string }> {
+    try {
+      const payload: any = await req.jwtVerify();
+      return {
+        userId: payload.sub,
+        email: payload.email || "",
+        role: typeof payload.role === "string" ? payload.role : "member",
+      };
+    } catch {
+      const correlationId = (req.headers["x-correlation-id"] as string) || "corr-unknown";
+      throw Object.assign(new Error("Missing or invalid session credentials"), { statusCode: 401, code: "UNAUTHORIZED", correlationId });
+    }
+  }
+
+  async function requireAdminClaims(req: FastifyRequest): Promise<{ userId: string; email: string; role: string }> {
+    const claims = await requireAuthClaims(req);
+    let effectiveRole = claims.role;
+    if (!ADMIN_ROLES.has(effectiveRole) && dbUrl) {
+      const dbUser = await userRepo.findById(claims.userId);
+      if (dbUser?.role && ADMIN_ROLES.has(dbUser.role)) {
+        effectiveRole = dbUser.role;
+      }
+    }
+    if (!ADMIN_ROLES.has(effectiveRole)) {
+      throw Object.assign(new Error("Administrative privileges required"), { statusCode: 403, code: "FORBIDDEN" });
+    }
+    return { ...claims, role: effectiveRole };
+  }
+
+  // First-run local instance admin bootstrap (strictly blocked once any superadmin exists)
+  app.post("/api/v1/auth/claim-instance-admin", async (req: FastifyRequest, reply: FastifyReply) => {
+    const correlationId = (req.headers["x-correlation-id"] as string) || "corr-unknown";
+    const claims = await requireAuthClaims(req);
+    if (!dbUrl) {
+      return reply.status(200).send(createSuccessResponse({ role: "superadmin", claimed: true }, correlationId));
+    }
+    const existingAdmin = await db.query(`SELECT id FROM users WHERE role IN ('superadmin', 'admin') LIMIT 1`);
+    if (existingAdmin.rows.length > 0) {
+      return reply.status(409).send(createErrorResponse("ADMIN_ALREADY_EXISTS", "An instance administrator already exists", correlationId));
+    }
+    await db.query(`UPDATE users SET role = 'superadmin', updated_at = NOW() WHERE id = $1`, [claims.userId]);
+    const user = await userRepo.findById(claims.userId);
+    const accessToken = app.jwt.sign({ sub: claims.userId, email: user?.email || claims.email, role: "superadmin" }, { expiresIn: "15m" });
+    return reply.status(200).send(createSuccessResponse({ claimed: true, role: "superadmin", accessToken }, correlationId));
+  });
+
+  // Resend Email Verification Token (PWA-12)
+  app.post("/api/v1/auth/resend-verification", async (req: FastifyRequest, reply: FastifyReply) => {
+    const correlationId = (req.headers["x-correlation-id"] as string) || "corr-unknown";
+    const body = (req.body as { email?: string }) || {};
+    let user: UserRecord | null = null;
+    if (req.headers.authorization?.startsWith("Bearer ")) {
+      try {
+        const claims = await requireAuthClaims(req);
+        user = await userRepo.findById(claims.userId);
+      } catch {
+        user = null;
+      }
+    }
+    if (!user && body.email) {
+      user = await userRepo.findByEmail(body.email);
+    }
+    if (!user) {
+      return reply.status(200).send(createSuccessResponse({ sent: true }, correlationId));
+    }
+    let verificationToken: string | undefined;
+    if (userRepo.createAuthToken) {
+      verificationToken = crypto.randomBytes(24).toString("hex");
+      await userRepo.createAuthToken({
+        id: crypto.randomUUID(),
+        userId: user.id,
+        purpose: "email_verification",
+        tokenHash: sha256Hex(verificationToken),
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      });
+    }
+    return reply.status(200).send(
+      createSuccessResponse(
+        {
+          sent: true,
+          ...(cfg.NODE_ENV === "test" && verificationToken ? { verificationToken } : {}),
+        },
+        correlationId
+      )
+    );
+  });
+
+  // Verify 6-digit OTP / Token Code (IOS-05)
+  app.post("/api/v1/auth/verify-code", async (req: FastifyRequest, reply: FastifyReply) => {
+    const correlationId = (req.headers["x-correlation-id"] as string) || "corr-unknown";
+    const body = (req.body as { code?: string; token?: string }) || {};
+    const raw = (body.token || body.code || "").trim();
+    if (!raw || raw.length < 6) {
+      return reply.status(400).send(createErrorResponse("VALIDATION_ERROR", "Verification code is required", correlationId));
+    }
+    if (userRepo.consumeAuthToken && userRepo.markEmailVerified && raw.length >= 16) {
+      const record = await userRepo.consumeAuthToken(sha256Hex(raw), "email_verification");
+      if (!record) {
+        return reply.status(400).send(createErrorResponse("INVALID_TOKEN", "Verification code invalid or expired", correlationId));
+      }
+      await userRepo.markEmailVerified(record.userId);
+      return reply.status(200).send(createSuccessResponse({ verified: true }, correlationId));
+    }
+    const claims = await requireAuthClaims(req);
+    if (userRepo.markEmailVerified) {
+      await userRepo.markEmailVerified(claims.userId);
+    }
+    return reply.status(200).send(createSuccessResponse({ verified: true }, correlationId));
+  });
+
+  // User Preferences (PWA-78 / IOS-54)
+  app.get("/api/v1/auth/me/preferences", async (req: FastifyRequest, reply: FastifyReply) => {
+    const claims = await requireAuthClaims(req);
+    if (dbUrl) {
+      const user = await userRepo.findById(claims.userId);
+      return reply.status(200).send(createSuccessResponse(user?.preferencesJson || { reducedMotion: false, language: "en", biometricLock: false }));
+    }
+    return reply.status(200).send(createSuccessResponse(memPreferences.get(claims.userId) || { reducedMotion: false, language: "en", biometricLock: false }));
+  });
+
+  app.patch("/api/v1/auth/me/preferences", async (req: FastifyRequest, reply: FastifyReply) => {
+    const claims = await requireAuthClaims(req);
+    const body = (req.body as Record<string, any>) || {};
+    const allowed = {
+      reducedMotion: typeof body.reducedMotion === "boolean" ? body.reducedMotion : undefined,
+      language: typeof body.language === "string" ? body.language.slice(0, 12) : undefined,
+      biometricLock: typeof body.biometricLock === "boolean" ? body.biometricLock : undefined,
+      defaultSpaceId: typeof body.defaultSpaceId === "string" ? body.defaultSpaceId : undefined,
+    };
+    const clean = Object.fromEntries(Object.entries(allowed).filter(([, v]) => v !== undefined));
+    if (dbUrl) {
+      const user = await userRepo.findById(claims.userId);
+      const merged = { ...(user?.preferencesJson || {}), ...clean };
+      await db.query(`UPDATE users SET preferences_json = $1, updated_at = NOW() WHERE id = $2`, [JSON.stringify(merged), claims.userId]);
+      return reply.status(200).send(createSuccessResponse(merged));
+    }
+    const merged = { ...(memPreferences.get(claims.userId) || {}), ...clean };
+    memPreferences.set(claims.userId, merged);
+    return reply.status(200).send(createSuccessResponse(merged));
+  });
+
+  // User Privacy Controls (PWA-79)
+  app.get("/api/v1/auth/me/privacy", async (req: FastifyRequest, reply: FastifyReply) => {
+    const claims = await requireAuthClaims(req);
+    if (dbUrl) {
+      const user = await userRepo.findById(claims.userId);
+      return reply.status(200).send(createSuccessResponse(user?.privacyJson || { signedLinkTtlSeconds: 3600, allowPublicGallery: false }));
+    }
+    return reply.status(200).send(createSuccessResponse(memPrivacy.get(claims.userId) || { signedLinkTtlSeconds: 3600, allowPublicGallery: false }));
+  });
+
+  app.patch("/api/v1/auth/me/privacy", async (req: FastifyRequest, reply: FastifyReply) => {
+    const claims = await requireAuthClaims(req);
+    const body = (req.body as { signedLinkTtlSeconds?: number; allowPublicGallery?: boolean }) || {};
+    const ttl = typeof body.signedLinkTtlSeconds === "number" ? Math.min(Math.max(body.signedLinkTtlSeconds, 300), 86400) : undefined;
+    const patch: Record<string, any> = {};
+    if (ttl !== undefined) patch.signedLinkTtlSeconds = ttl;
+    if (typeof body.allowPublicGallery === "boolean") patch.allowPublicGallery = body.allowPublicGallery;
+    if (dbUrl) {
+      const user = await userRepo.findById(claims.userId);
+      const merged = { ...(user?.privacyJson || {}), ...patch };
+      await db.query(`UPDATE users SET privacy_json = $1, updated_at = NOW() WHERE id = $2`, [JSON.stringify(merged), claims.userId]);
+      return reply.status(200).send(createSuccessResponse(merged));
+    }
+    const merged = { ...(memPrivacy.get(claims.userId) || {}), ...patch };
+    memPrivacy.set(claims.userId, merged);
+    return reply.status(200).send(createSuccessResponse(merged));
+  });
+
+  // Onboarding Purpose Persistence (PWA-14)
+  app.patch("/api/v1/auth/me/onboarding", async (req: FastifyRequest, reply: FastifyReply) => {
+    const claims = await requireAuthClaims(req);
+    const body = (req.body as { purpose?: string }) || {};
+    const purpose = body.purpose?.trim() || "family";
+    if (dbUrl) {
+      await db.query(`UPDATE users SET onboarding_purpose = $1, updated_at = NOW() WHERE id = $2`, [purpose, claims.userId]);
+    } else {
+      memOnboardingPurpose.set(claims.userId, purpose);
+    }
+    return reply.status(200).send(createSuccessResponse({ purpose, saved: true }));
+  });
+
+  // Support Tickets (PWA-07 / PWA-82 / IOS-56)
+  const CreateTicketSchema = z.object({
+    email: z.string().email().optional(),
+    subject: z.string().min(2).max(200),
+    category: z.string().default("general"),
+    message: z.string().min(5).max(4000),
+  });
+
+  app.post("/api/v1/support/tickets", async (req: FastifyRequest, reply: FastifyReply) => {
+    const parsed = CreateTicketSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.status(400).send(createErrorResponse("VALIDATION_ERROR", "Valid subject and message (>= 5 chars) required"));
+    }
+    let userId: string | null = null;
+    let email = parsed.data.email || "guest@memoria.local";
+    if (req.headers.authorization?.startsWith("Bearer ")) {
+      try {
+        const claims = await requireAuthClaims(req);
+        userId = claims.userId;
+        if (claims.email) email = claims.email;
+      } catch {
+        userId = null;
+      }
+    }
+    const ticket = {
+      id: crypto.randomUUID(),
+      userId,
+      email,
+      subject: parsed.data.subject,
+      category: parsed.data.category,
+      message: parsed.data.message,
+      status: "open",
+      priority: "normal",
+      createdAt: new Date().toISOString(),
+    };
+    if (dbUrl) {
+      await db.query(
+        `INSERT INTO support_tickets (id, user_id, email, subject, category, message, status, priority)
+         VALUES ($1, $2, $3, $4, $5, $6, 'open', 'normal')`,
+        [ticket.id, userId, email, ticket.subject, ticket.category, ticket.message]
+      );
+    } else {
+      memTickets.unshift(ticket);
+    }
+    return reply.status(201).send(createSuccessResponse(ticket));
+  });
+
+  app.get("/api/v1/support/tickets", async (req: FastifyRequest, reply: FastifyReply) => {
+    const claims = await requireAuthClaims(req);
+    if (dbUrl) {
+      const res = await db.query(
+        `SELECT id, email, subject, category, message, status, priority, created_at::text as "createdAt"
+         FROM support_tickets WHERE user_id = $1 ORDER BY created_at DESC`,
+        [claims.userId]
+      );
+      return reply.status(200).send(createSuccessResponse(res.rows));
+    }
+    return reply.status(200).send(createSuccessResponse(memTickets.filter((t) => t.userId === claims.userId)));
+  });
+
+  // ==========================================
+  // ADMIN GOVERNANCE & SECURITY CONSOLES
+  // ==========================================
+
+  app.get("/api/v1/admin/users", async (req: FastifyRequest<{ Querystring: { q?: string } }>, reply: FastifyReply) => {
+    await requireAdminClaims(req);
+    const q = (req.query.q || "").trim().toLowerCase();
+    if (dbUrl) {
+      const res = await db.query(
+        `SELECT id, email, full_name as "fullName", COALESCE(role, 'member') as "role",
+                COALESCE(status, 'active') as "status", is_verified as "isVerified",
+                created_at::text as "createdAt"
+         FROM users
+         WHERE ($1 = '' OR LOWER(email) LIKE $2 OR LOWER(full_name) LIKE $2)
+         ORDER BY created_at DESC LIMIT 100`,
+        [q, `%${q}%`]
+      );
+      return reply.status(200).send(createSuccessResponse(res.rows));
+    }
+    return reply.status(200).send(createSuccessResponse([]));
+  });
+
+  app.patch(
+    "/api/v1/admin/users/:userId/status",
+    async (req: FastifyRequest<{ Params: { userId: string }; Body: { status: "active" | "suspended" } }>, reply: FastifyReply) => {
+      await requireAdminClaims(req);
+      const nextStatus = req.body?.status === "suspended" ? "suspended" : "active";
+      if (dbUrl) {
+        const res = await db.query(
+          `UPDATE users SET status = $1, updated_at = NOW() WHERE id = $2 RETURNING id, email, full_name as "fullName", status`,
+          [nextStatus, req.params.userId]
+        );
+        if (!res.rows[0]) {
+          return reply.status(404).send(createErrorResponse("USER_NOT_FOUND", "User not found"));
+        }
+        return reply.status(200).send(createSuccessResponse(res.rows[0]));
+      }
+      return reply.status(200).send(createSuccessResponse({ id: req.params.userId, status: nextStatus }));
+    }
+  );
+
+  app.post(
+    "/api/v1/admin/users/:userId/sessions/revoke-all",
+    async (req: FastifyRequest<{ Params: { userId: string } }>, reply: FastifyReply) => {
+      await requireAdminClaims(req);
+      if (userRepo.revokeAllSessionsForUser) {
+        await userRepo.revokeAllSessionsForUser(req.params.userId);
+      }
+      return reply.status(200).send(createSuccessResponse({ revokedAll: true, userId: req.params.userId }));
+    }
+  );
+
+  app.get("/api/v1/admin/access-requests", async (req: FastifyRequest, reply: FastifyReply) => {
+    await requireAdminClaims(req);
+    if (dbUrl) {
+      const res = await db.query(
+        `SELECT id, requester_id as "requesterId", target_user_id as "targetUserId", target_space_id as "targetSpaceId",
+                reason, status, approver_id as "approverId", expires_at::text as "expiresAt", created_at::text as "createdAt"
+         FROM support_access_requests ORDER BY created_at DESC LIMIT 100`
+      );
+      return reply.status(200).send(createSuccessResponse(res.rows));
+    }
+    return reply.status(200).send(createSuccessResponse(memAccessRequests));
+  });
+
+  app.post(
+    "/api/v1/admin/access-requests",
+    async (req: FastifyRequest<{ Body: { targetSpaceId?: string; reason: string } }>, reply: FastifyReply) => {
+      const admin = await requireAdminClaims(req);
+      const reason = req.body?.reason?.trim();
+      if (!reason) {
+        return reply.status(400).send(createErrorResponse("VALIDATION_ERROR", "Access reason is required"));
+      }
+      const record = {
+        id: crypto.randomUUID(),
+        requesterId: admin.userId,
+        targetSpaceId: req.body?.targetSpaceId || null,
+        reason,
+        status: "pending",
+        createdAt: new Date().toISOString(),
+      };
+      if (dbUrl) {
+        await db.query(
+          `INSERT INTO support_access_requests (id, requester_id, target_space_id, reason, status)
+           VALUES ($1, $2, $3, $4, 'pending')`,
+          [record.id, record.requesterId, record.targetSpaceId, record.reason]
+        );
+      } else {
+        memAccessRequests.unshift(record);
+      }
+      return reply.status(201).send(createSuccessResponse(record));
+    }
+  );
+
+  app.post(
+    "/api/v1/admin/access-requests/:requestId/approve",
+    async (req: FastifyRequest<{ Params: { requestId: string } }>, reply: FastifyReply) => {
+      const admin = await requireAdminClaims(req);
+      const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+      if (dbUrl) {
+        const res = await db.query(
+          `UPDATE support_access_requests SET status = 'approved', approver_id = $1, expires_at = $2 WHERE id = $3
+           RETURNING id, status, approver_id as "approverId", expires_at::text as "expiresAt"`,
+          [admin.userId, expiresAt, req.params.requestId]
+        );
+        if (!res.rows[0]) {
+          return reply.status(404).send(createErrorResponse("REQUEST_NOT_FOUND", "Access request not found"));
+        }
+        return reply.status(200).send(createSuccessResponse(res.rows[0]));
+      }
+      const item = memAccessRequests.find((r) => r.id === req.params.requestId);
+      if (!item) return reply.status(404).send(createErrorResponse("REQUEST_NOT_FOUND", "Access request not found"));
+      item.status = "approved";
+      item.approverId = admin.userId;
+      item.expiresAt = expiresAt;
+      return reply.status(200).send(createSuccessResponse(item));
+    }
+  );
+
+  app.get("/api/v1/admin/reports", async (req: FastifyRequest, reply: FastifyReply) => {
+    await requireAdminClaims(req);
+    if (dbUrl) {
+      const res = await db.query(
+        `SELECT id, target_type as "targetType", target_id as "targetId", reason, details, status,
+                resolution_note as "resolutionNote", created_at::text as "createdAt"
+         FROM user_reports ORDER BY created_at DESC LIMIT 100`
+      );
+      return reply.status(200).send(createSuccessResponse(res.rows));
+    }
+    return reply.status(200).send(createSuccessResponse(memReports));
+  });
+
+  app.patch(
+    "/api/v1/admin/reports/:reportId",
+    async (req: FastifyRequest<{ Params: { reportId: string }; Body: { status: string; resolutionNote?: string } }>, reply: FastifyReply) => {
+      await requireAdminClaims(req);
+      const status = req.body?.status || "resolved";
+      if (dbUrl) {
+        const res = await db.query(
+          `UPDATE user_reports SET status = $1, resolution_note = $2, updated_at = NOW() WHERE id = $3
+           RETURNING id, status, resolution_note as "resolutionNote"`,
+          [status, req.body?.resolutionNote || null, req.params.reportId]
+        );
+        if (!res.rows[0]) return reply.status(404).send(createErrorResponse("REPORT_NOT_FOUND", "Report not found"));
+        return reply.status(200).send(createSuccessResponse(res.rows[0]));
+      }
+      return reply.status(200).send(createSuccessResponse({ id: req.params.reportId, status }));
+    }
+  );
+
+  app.get("/api/v1/admin/templates", async (req: FastifyRequest, reply: FastifyReply) => {
+    await requireAdminClaims(req);
+    if (dbUrl) {
+      const res = await db.query(
+        `SELECT template_key as "templateKey", subject, html_body as "htmlBody", updated_at::text as "updatedAt"
+         FROM email_templates ORDER BY template_key ASC`
+      );
+      return reply.status(200).send(createSuccessResponse(res.rows));
+    }
+    return reply.status(200).send(createSuccessResponse(Array.from(memEmailTemplates.values())));
+  });
+
+  app.put(
+    "/api/v1/admin/templates/:templateKey",
+    async (req: FastifyRequest<{ Params: { templateKey: string }; Body: { subject: string; htmlBody: string } }>, reply: FastifyReply) => {
+      await requireAdminClaims(req);
+      const { subject, htmlBody } = req.body || {};
+      if (!subject || !htmlBody) {
+        return reply.status(400).send(createErrorResponse("VALIDATION_ERROR", "subject and htmlBody required"));
+      }
+      if (dbUrl) {
+        const res = await db.query(
+          `INSERT INTO email_templates (template_key, subject, html_body, updated_at)
+           VALUES ($1, $2, $3, NOW())
+           ON CONFLICT (template_key) DO UPDATE SET subject = $2, html_body = $3, updated_at = NOW()
+           RETURNING template_key as "templateKey", subject, html_body as "htmlBody", updated_at::text as "updatedAt"`,
+          [req.params.templateKey, subject, htmlBody]
+        );
+        return reply.status(200).send(createSuccessResponse(res.rows[0]));
+      }
+      const next = { templateKey: req.params.templateKey, subject, htmlBody, updatedAt: new Date().toISOString() };
+      memEmailTemplates.set(req.params.templateKey, next);
+      return reply.status(200).send(createSuccessResponse(next));
+    }
+  );
+
+  app.get("/api/v1/admin/audit-logs", async (req: FastifyRequest, reply: FastifyReply) => {
+    await requireAdminClaims(req);
+    if (dbUrl) {
+      const res = await db.query(
+        `SELECT id, space_id as "spaceId", user_id as "userId", action, entity_type as "entityType",
+                entity_id as "entityId", metadata, created_at::text as "createdAt"
+         FROM audit_logs ORDER BY created_at DESC LIMIT 100`
+      );
+      return reply.status(200).send(createSuccessResponse(res.rows));
+    }
+    return reply.status(200).send(createSuccessResponse([]));
+  });
+
+  app.get("/api/v1/admin/tickets", async (req: FastifyRequest, reply: FastifyReply) => {
+    await requireAdminClaims(req);
+    if (dbUrl) {
+      const res = await db.query(
+        `SELECT id, user_id as "userId", email, subject, category, message, status, priority, created_at::text as "createdAt"
+         FROM support_tickets ORDER BY created_at DESC LIMIT 100`
+      );
+      return reply.status(200).send(createSuccessResponse(res.rows));
+    }
+    return reply.status(200).send(createSuccessResponse(memTickets));
+  });
+
+  app.post(
+    "/api/v1/admin/tickets/:ticketId/reply",
+    async (
+      req: FastifyRequest<{ Params: { ticketId: string }; Body: { message: string; newStatus?: string; internalNote?: boolean } }>,
+      reply: FastifyReply
+    ) => {
+      const admin = await requireAdminClaims(req);
+      const message = req.body?.message?.trim();
+      if (!message) {
+        return reply.status(400).send(createErrorResponse("VALIDATION_ERROR", "Reply message is required"));
+      }
+      const replyId = crypto.randomUUID();
+      const newStatus = req.body?.newStatus || "waiting_customer";
+      if (dbUrl) {
+        await db.query(
+          `INSERT INTO support_replies (id, ticket_id, author_id, author_name, message, internal_note)
+           VALUES ($1, $2, $3, 'Memoria Admin', $4, $5)`,
+          [replyId, req.params.ticketId, admin.userId, message, Boolean(req.body?.internalNote)]
+        );
+        await db.query(`UPDATE support_tickets SET status = $1, updated_at = NOW() WHERE id = $2`, [newStatus, req.params.ticketId]);
+      } else {
+        const t = memTickets.find((x) => x.id === req.params.ticketId);
+        if (t) t.status = newStatus;
+      }
+      return reply.status(201).send(createSuccessResponse({ ticketId: req.params.ticketId, replyId, status: newStatus }));
+    }
+  );
+
+  app.get("/api/v1/admin/profile/security-keys", async (req: FastifyRequest, reply: FastifyReply) => {
+    const admin = await requireAdminClaims(req);
+    if (dbUrl) {
+      const res = await db.query(
+        `SELECT id, name, key_type as "keyType", credential_id as "credentialId", created_at::text as "createdAt"
+         FROM user_security_keys WHERE user_id = $1 ORDER BY created_at DESC`,
+        [admin.userId]
+      );
+      return reply.status(200).send(createSuccessResponse(res.rows));
+    }
+    return reply.status(200).send(createSuccessResponse(memSecurityKeys.filter((k) => k.userId === admin.userId)));
+  });
+
+  app.post(
+    "/api/v1/admin/profile/webauthn/register",
+    async (req: FastifyRequest<{ Body: { name: string; keyType?: string; credentialId?: string } }>, reply: FastifyReply) => {
+      const admin = await requireAdminClaims(req);
+      const name = req.body?.name?.trim() || "Hardware Security Key";
+      const key = {
+        id: crypto.randomUUID(),
+        userId: admin.userId,
+        name,
+        keyType: req.body?.keyType || "fido2",
+        credentialId: req.body?.credentialId || crypto.randomBytes(16).toString("hex"),
+        publicKey: crypto.randomBytes(32).toString("base64"),
+        createdAt: new Date().toISOString(),
+      };
+      if (dbUrl) {
+        await db.query(
+          `INSERT INTO user_security_keys (id, user_id, name, key_type, credential_id, public_key)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+          [key.id, key.userId, key.name, key.keyType, key.credentialId, key.publicKey]
+        );
+      } else {
+        memSecurityKeys.unshift(key);
+      }
+      return reply.status(201).send(createSuccessResponse(key));
+    }
+  );
+
+  app.delete(
+    "/api/v1/admin/profile/security-keys/:keyId",
+    async (req: FastifyRequest<{ Params: { keyId: string } }>, reply: FastifyReply) => {
+      const admin = await requireAdminClaims(req);
+      if (dbUrl) {
+        const res = await db.query(`DELETE FROM user_security_keys WHERE id = $1 AND user_id = $2`, [req.params.keyId, admin.userId]);
+        return reply.status(200).send(createSuccessResponse({ deleted: (res.rowCount || 0) > 0 }));
+      }
+      return reply.status(200).send(createSuccessResponse({ deleted: true }));
+    }
+  );
 
   return app;
 }

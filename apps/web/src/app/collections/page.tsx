@@ -275,14 +275,22 @@ export default function CollectionsPage() {
                         {activeCollection.description || "Curated chapter grouping."}
                       </p>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteCollection(activeCollection)}
-                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[#FDF2F2] text-xs font-medium text-[#B6423E]"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
-                      Delete
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <Link
+                        href={`/collections/${activeCollection.id}?spaceId=${encodeURIComponent(spaceId)}`}
+                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[#76556F] text-white text-xs font-medium"
+                      >
+                        Curate &amp; Order
+                      </Link>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteCollection(activeCollection)}
+                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[#FDF2F2] text-xs font-medium text-[#B6423E]"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
+                        Delete
+                      </button>
+                    </div>
                   </div>
 
                   {memories.length > 0 && (

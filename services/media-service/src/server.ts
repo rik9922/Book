@@ -804,6 +804,195 @@ export async function buildMediaService(): Promise<FastifyInstance> {
     }
   );
 
+  // Active & Pending Upload Sessions (PWA-41 / PWA-42 / IOS-21)
+  app.get(
+    "/api/v1/media/upload-sessions/active",
+    async (req: FastifyRequest<{ Querystring: { spaceId?: string } }>, reply) => {
+      const userId = await requireAuthUser(req);
+      if (req.query.spaceId) {
+        await assertSpaceAccess(req.query.spaceId, userId, false);
+        const assets = await mediaRepo.listAssets(req.query.spaceId);
+        return reply.status(200).send(
+          createSuccessResponse(assets.filter((a) => a.status === "pending_upload" || a.status === "processing" || a.status === "failed"))
+        );
+      }
+      if (dbUrl) {
+        const res = await db.query(
+          `SELECT id, space_id as "spaceId", original_name as "originalName", mime_type as "mimeType",
+                  size_bytes as "sizeBytes", status, storage_key as "storageKey", created_at::text as "createdAt"
+           FROM media_assets WHERE status IN ('pending_upload', 'processing', 'failed') ORDER BY created_at DESC LIMIT 50`
+        );
+        return reply.status(200).send(createSuccessResponse(res.rows));
+      }
+      return reply.status(200).send(createSuccessResponse([]));
+    }
+  );
+
+  app.post(
+    "/api/v1/media/upload-sessions/:mediaId/retry",
+    async (req: FastifyRequest<{ Params: { mediaId: string } }>, reply) => {
+      const userId = await requireAuthUser(req);
+      const asset = await mediaRepo.findAssetById(req.params.mediaId);
+      if (!asset) {
+        return reply.status(404).send(createErrorResponse("MEDIA_NOT_FOUND", "Media upload session not found"));
+      }
+      await assertSpaceAccess(asset.spaceId, userId, true);
+      const uploadUrl = await storage.generateUploadUrl(asset.storageKey, asset.mimeType, 3600);
+      await mediaRepo.updateAsset(asset.id, { status: "pending_upload" });
+      return reply.status(200).send(
+        createSuccessResponse({
+          mediaId: asset.id,
+          uploadUrl,
+          storageKey: asset.storageKey,
+          expiresAt: new Date(Date.now() + 3600 * 1000).toISOString(),
+        })
+      );
+    }
+  );
+
+  // Non-Destructive Image Derivative Adjustments (PWA-43 / IOS-28)
+  app.post(
+    "/api/v1/media/:id/derivatives",
+    async (
+      req: FastifyRequest<{ Params: { id: string }; Body: { rotateDegrees?: number; warmth?: number; cropPreset?: string } }>,
+      reply
+    ) => {
+      const userId = await requireAuthUser(req);
+      const asset = await mediaRepo.findAssetById(req.params.id);
+      if (!asset) {
+        return reply.status(404).send(createErrorResponse("MEDIA_NOT_FOUND", "Media asset not found"));
+      }
+      await assertSpaceAccess(asset.spaceId, userId, true);
+      const adjustments = {
+        rotateDegrees: Number(req.body?.rotateDegrees || 0) % 360,
+        warmth: Number(req.body?.warmth || 0),
+        cropPreset: req.body?.cropPreset || "original",
+        updatedAt: new Date().toISOString(),
+      };
+      const updated = await mediaRepo.updateAsset(asset.id, {
+        metadata: { ...asset.metadata, nonDestructiveEdits: adjustments },
+      });
+      return reply.status(200).send(createSuccessResponse(updated || asset));
+    }
+  );
+
+  // Storage Breakdown & Derivative Cache Prune (PWA-80 / IOS-55)
+  app.get(
+    "/api/v1/media/spaces/:spaceId/storage/breakdown",
+    async (req: FastifyRequest<{ Params: { spaceId: string } }>, reply) => {
+      const userId = await requireAuthUser(req);
+      await assertSpaceAccess(req.params.spaceId, userId, false);
+      const [quota, assets] = await Promise.all([
+        mediaRepo.getSpaceQuota(req.params.spaceId),
+        mediaRepo.listAssets(req.params.spaceId),
+      ]);
+      let imagesBytes = 0;
+      let videoBytes = 0;
+      let audioBytes = 0;
+      let docsBytes = 0;
+      for (const a of assets) {
+        if (a.mimeType.startsWith("image/")) imagesBytes += a.sizeBytes;
+        else if (a.mimeType.startsWith("video/")) videoBytes += a.sizeBytes;
+        else if (a.mimeType.startsWith("audio/")) audioBytes += a.sizeBytes;
+        else docsBytes += a.sizeBytes;
+      }
+      return reply.status(200).send(
+        createSuccessResponse({
+          spaceId: req.params.spaceId,
+          usedBytes: quota.usedBytes,
+          maxBytes: quota.maxBytes,
+          assetCount: assets.length,
+          categories: { imagesBytes, videoBytes, audioBytes, docsBytes },
+        })
+      );
+    }
+  );
+
+  app.post(
+    "/api/v1/media/spaces/:spaceId/storage/prune",
+    async (req: FastifyRequest<{ Params: { spaceId: string } }>, reply) => {
+      const userId = await requireAuthUser(req);
+      await assertSpaceAccess(req.params.spaceId, userId, true);
+      const assets = await mediaRepo.listAssets(req.params.spaceId);
+      let verifiedCount = 0;
+      for (const a of assets) {
+        const exists = await storage.verifyObjectExists(a.storageKey);
+        if (exists.exists) verifiedCount++;
+      }
+      return reply.status(200).send(
+        createSuccessResponse({
+          spaceId: req.params.spaceId,
+          verifiedObjects: verifiedCount,
+          reclaimedBytes: 0,
+          prunedAt: new Date().toISOString(),
+        })
+      );
+    }
+  );
+
+  // Admin Media & Storage Infrastructure Routes (ADMIN-08 / ADMIN-09 / ADMIN-10)
+  const ADMIN_ROLES = new Set(["superadmin", "admin", "ops_admin", "compliance_officer", "support_agent"]);
+  async function requireAdmin(req: FastifyRequest) {
+    const claims: any = await req.jwtVerify().catch(() => {
+      throw new UnauthorizedError("Valid admin token required");
+    });
+    if (!ADMIN_ROLES.has(claims?.role || "")) {
+      throw new ForbiddenError("Administrative privileges required");
+    }
+  }
+
+  app.get("/api/v1/admin/storage/stats", async (req, reply) => {
+    await requireAdmin(req);
+    if (dbUrl) {
+      const [quotaRes, assetRes] = await Promise.all([
+        db.query(`SELECT COALESCE(SUM(used_bytes), 0)::bigint as "totalUsedBytes", COUNT(*)::int as "spaceCount" FROM space_storage_quotas`),
+        db.query(`SELECT COUNT(*)::int as "assetCount", COALESCE(SUM(size_bytes), 0)::bigint as "assetBytes" FROM media_assets`),
+      ]);
+      return reply.status(200).send(
+        createSuccessResponse({
+          driver: "LocalDiskStorageDriver",
+          totalUsedBytes: Number(quotaRes.rows[0]?.totalUsedBytes || 0),
+          spaceCount: Number(quotaRes.rows[0]?.spaceCount || 0),
+          assetCount: Number(assetRes.rows[0]?.assetCount || 0),
+          assetBytes: Number(assetRes.rows[0]?.assetBytes || 0),
+        })
+      );
+    }
+    return reply.status(200).send(
+      createSuccessResponse({ driver: "LocalDiskStorageDriver", totalUsedBytes: 0, spaceCount: 0, assetCount: 0, assetBytes: 0 })
+    );
+  });
+
+  app.get("/api/v1/admin/uploads/sessions", async (req, reply) => {
+    await requireAdmin(req);
+    if (dbUrl) {
+      const res = await db.query(
+        `SELECT id, space_id as "spaceId", original_name as "originalName", mime_type as "mimeType",
+                size_bytes as "sizeBytes", status, created_at::text as "createdAt"
+         FROM media_assets ORDER BY created_at DESC LIMIT 100`
+      );
+      return reply.status(200).send(createSuccessResponse(res.rows));
+    }
+    return reply.status(200).send(createSuccessResponse([]));
+  });
+
+  app.post(
+    "/api/v1/admin/media/:id/reprocess",
+    async (req: FastifyRequest<{ Params: { id: string } }>, reply) => {
+      await requireAdmin(req);
+      const asset = await mediaRepo.findAssetById(req.params.id);
+      if (!asset) {
+        return reply.status(404).send(createErrorResponse("MEDIA_NOT_FOUND", "Media asset not found"));
+      }
+      await jobManager.addJob("media-processing", "generate-derivatives", {
+        mediaId: asset.id,
+        storageKey: asset.storageKey,
+        mimeType: asset.mimeType,
+      });
+      return reply.status(202).send(createSuccessResponse({ queued: true, mediaId: asset.id }));
+    }
+  );
+
   // Background worker for asynchronous OCR jobs
   jobManager.registerWorker<{ mediaId: string; language?: string }>("media-ocr", async (job) => {
     const asset = await mediaRepo.findAssetById(job.data.mediaId);

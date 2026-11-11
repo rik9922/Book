@@ -293,6 +293,12 @@ export default function SpacesPage() {
                 <div className="pt-3 border-t border-[#F0ECE1] flex flex-wrap items-center justify-between gap-2">
                   <div className="flex gap-2">
                     <Link
+                      href={`/spaces/${s.id}`}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[#76556F] text-white text-xs font-medium"
+                    >
+                      Open Vault
+                    </Link>
+                    <Link
                       href="/archive"
                       className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[#F7F4EE] text-xs font-medium text-[#20242C]"
                     >

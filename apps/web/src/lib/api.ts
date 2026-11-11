@@ -27,6 +27,8 @@ export interface AuthUser {
   email: string;
   fullName: string;
   avatarUrl?: string | null;
+  role?: string;
+  isVerified?: boolean;
 }
 
 export interface MemorySpaceDTO {
@@ -689,4 +691,455 @@ export async function deleteAccount(password: string): Promise<{ deleted: boolea
     method: "POST",
     body: JSON.stringify({ password }),
   });
+}
+
+// Extended Auth, Preferences, Privacy, Onboarding & Support
+export async function resendVerificationEmail(email?: string): Promise<{ sent: boolean; verificationToken?: string }> {
+  return apiRequest("/auth/resend-verification", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+}
+
+export async function claimInstanceAdmin(): Promise<{ claimed: boolean; role: string; accessToken: string }> {
+  return apiRequest("/auth/claim-instance-admin", {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
+export async function getPreferences(): Promise<{
+  reducedMotion: boolean;
+  language: string;
+  biometricLock: boolean;
+  defaultSpaceId?: string;
+}> {
+  return apiRequest("/auth/me/preferences");
+}
+
+export async function updatePreferences(payload: {
+  reducedMotion?: boolean;
+  language?: string;
+  biometricLock?: boolean;
+  defaultSpaceId?: string;
+}) {
+  return apiRequest("/auth/me/preferences", {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function getPrivacySettings(): Promise<{
+  signedLinkTtlSeconds: number;
+  allowPublicGallery: boolean;
+}> {
+  return apiRequest("/auth/me/privacy");
+}
+
+export async function updatePrivacySettings(payload: {
+  signedLinkTtlSeconds?: number;
+  allowPublicGallery?: boolean;
+}) {
+  return apiRequest("/auth/me/privacy", {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function saveOnboardingPurpose(purpose: string) {
+  return apiRequest("/auth/me/onboarding", {
+    method: "PATCH",
+    body: JSON.stringify({ purpose }),
+  });
+}
+
+export async function submitSupportTicket(payload: {
+  email?: string;
+  subject: string;
+  category?: string;
+  message: string;
+}) {
+  return apiRequest<{ id: string; subject: string; status: string }>("/support/tickets", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+// Extended Space, Archive, Media, Collab, Book & Commerce
+export async function getSpaceTimeline(spaceId: string) {
+  return apiRequest<{ total: number; groups: Array<{ yearMonth: string; year: string; items: MemoryDTO[] }> }>(
+    `/spaces/${spaceId}/timeline`
+  );
+}
+
+export async function getSpaceCalendar(spaceId: string, year?: string, month?: string) {
+  const qs = new URLSearchParams();
+  if (year) qs.set("year", year);
+  if (month) qs.set("month", month);
+  const suffix = qs.toString() ? `?${qs.toString()}` : "";
+  return apiRequest<{
+    days: Record<string, MemoryDTO[]>;
+    anniversaries: Array<{ profileId: string; name: string; relationship?: string; birthDate?: string }>;
+    totalMemories: number;
+  }>(`/spaces/${spaceId}/calendar${suffix}`);
+}
+
+export async function getSpaceActivity(spaceId: string) {
+  return apiRequest<Array<{ id: string; kind: string; title: string; actorId: string; timestamp: string }>>(
+    `/spaces/${spaceId}/activity`
+  );
+}
+
+export async function getMemoryHistory(memoryId: string) {
+  return apiRequest<
+    Array<{
+      id: string;
+      memoryId: string;
+      editorId: string;
+      title: string;
+      content: string;
+      capturedAt?: string;
+      changeSummary: string;
+      createdAt: string;
+    }>
+  >(`/memories/${memoryId}/history`);
+}
+
+export async function getCollectionDetail(spaceId: string, collectionId: string) {
+  return apiRequest<CollectionDTO & { memories: MemoryDTO[] }>(
+    `/spaces/${spaceId}/collections/${collectionId}`
+  );
+}
+
+export async function reorderCollectionMemories(spaceId: string, collectionId: string, memoryIds: string[]) {
+  return apiRequest<CollectionDTO>(`/spaces/${spaceId}/collections/${collectionId}/reorder`, {
+    method: "PUT",
+    body: JSON.stringify({ memoryIds }),
+  });
+}
+
+export async function getStorageBreakdown(spaceId: string) {
+  return apiRequest<{
+    spaceId: string;
+    usedBytes: number;
+    maxBytes: number;
+    assetCount: number;
+    categories: { imagesBytes: number; videoBytes: number; audioBytes: number; docsBytes: number };
+  }>(`/media/spaces/${spaceId}/storage/breakdown`);
+}
+
+export async function pruneStorageCache(spaceId: string) {
+  return apiRequest<{ spaceId: string; verifiedObjects: number; reclaimedBytes: number; prunedAt: string }>(
+    `/media/spaces/${spaceId}/storage/prune`,
+    { method: "POST", body: JSON.stringify({}) }
+  );
+}
+
+export async function listActiveUploadSessions(spaceId: string) {
+  return apiRequest<
+    Array<{ id: string; originalName: string; mimeType: string; sizeBytes: number; status: string }>
+  >(`/media/upload-sessions/active?spaceId=${encodeURIComponent(spaceId)}`);
+}
+
+export async function retryUploadSession(mediaId: string) {
+  return apiRequest<{ mediaId: string; uploadUrl: string; storageKey: string }>(
+    `/media/upload-sessions/${mediaId}/retry`,
+    { method: "POST", body: JSON.stringify({}) }
+  );
+}
+
+export async function saveMediaNonDestructiveEdits(
+  mediaId: string,
+  payload: { rotateDegrees?: number; warmth?: number; cropPreset?: string }
+) {
+  return apiRequest(`/media/${mediaId}/derivatives`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function listSpaceInvitations(spaceId: string) {
+  return apiRequest<SpaceInvitationDTO[]>(`/collab/spaces/${spaceId}/invitations`);
+}
+
+export async function resendSpaceInvitation(spaceId: string, invitationId: string) {
+  return apiRequest<{ resent: boolean }>(`/collab/spaces/${spaceId}/invitations/${invitationId}/resend`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
+export async function revokeSpaceInvitation(spaceId: string, invitationId: string) {
+  return apiRequest<{ revoked: boolean }>(`/collab/spaces/${spaceId}/invitations/${invitationId}`, {
+    method: "DELETE",
+  });
+}
+
+export async function updateSpaceMemberRole(
+  spaceId: string,
+  userId: string,
+  role: "admin" | "contributor" | "viewer",
+  permissions?: Record<string, boolean>
+) {
+  return apiRequest<SpaceMemberDTO>(`/collab/spaces/${spaceId}/members/${userId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ role, permissions }),
+  });
+}
+
+export async function listCustomRoles(spaceId: string) {
+  return apiRequest<Array<{ id: string; name: string; description: string; permissions: Record<string, boolean> }>>(
+    `/collab/spaces/${spaceId}/roles`
+  );
+}
+
+export async function createCustomRole(
+  spaceId: string,
+  payload: { name: string; description?: string; permissions: Record<string, boolean> }
+) {
+  return apiRequest(`/collab/spaces/${spaceId}/roles`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function listShareLinks(spaceId: string) {
+  return apiRequest<
+    Array<{ id: string; token: string; hasPassphrase: boolean; allowDownloads: boolean; expiresAt: string; accessCount: number }>
+  >(`/collab/spaces/${spaceId}/share-links`);
+}
+
+export async function createShareLink(
+  spaceId: string,
+  payload: { passphrase?: string; allowDownloads?: boolean; expiresInDays?: number }
+) {
+  return apiRequest<{ id: string; token: string; hasPassphrase: boolean; expiresAt: string }>(
+    `/collab/spaces/${spaceId}/share-links`,
+    { method: "POST", body: JSON.stringify(payload) }
+  );
+}
+
+export async function verifyShareLink(token: string, passphrase?: string) {
+  return apiRequest<{ valid: boolean; spaceId: string; allowDownloads: boolean; expiresAt: string }>(
+    `/collab/share-links/${token}/verify`,
+    { method: "POST", body: JSON.stringify({ passphrase }) }
+  );
+}
+
+export async function curateBookMemories(
+  bookId: string,
+  memories: Array<{ id: string; title: string; content?: string; capturedAt?: string }>,
+  template?: string
+) {
+  return apiRequest<BookDTO>(`/books/${bookId}/curate`, {
+    method: "POST",
+    body: JSON.stringify({ memories, template }),
+  });
+}
+
+export async function getBookChapters(bookId: string) {
+  return apiRequest<Array<{ id: string; title: string; subtitle?: string; sortOrder: number }>>(
+    `/books/${bookId}/chapters`
+  );
+}
+
+export async function saveBookChapters(
+  bookId: string,
+  chapters: Array<{ id?: string; title: string; subtitle?: string }>
+) {
+  return apiRequest(`/books/${bookId}/chapters`, {
+    method: "PUT",
+    body: JSON.stringify({ chapters }),
+  });
+}
+
+export async function reorderBookSpreads(bookId: string, spreadIds: string[]) {
+  return apiRequest<BookDTO>(`/books/${bookId}/spreads/reorder`, {
+    method: "PUT",
+    body: JSON.stringify({ spreadIds }),
+  });
+}
+
+export async function getBookProof(bookId: string) {
+  return apiRequest<{ book: BookDTO; pageCount: number; bleedMm: number; safeMarginMm: number; preflight: PreflightReportDTO }>(
+    `/books/${bookId}/proof`
+  );
+}
+
+export async function getBookEditions(bookId: string) {
+  return apiRequest<
+    Array<{ editionNumber: number; status: string; editionHash: string | null; spreadCount: number; updatedAt: string }>
+  >(`/books/${bookId}/editions`);
+}
+
+export async function cloneNextBookEdition(bookId: string) {
+  return apiRequest<BookDTO>(`/books/${bookId}/editions`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
+export async function getOrderTracking(orderId: string) {
+  return apiRequest<{
+    orderId: string;
+    status: string;
+    carrier: string;
+    trackingNumber: string | null;
+    trackingUrl: string | null;
+    estimatedDays: string;
+    timeline: Array<{ stage: string; completed: boolean; active: boolean }>;
+  }>(`/orders/${orderId}/tracking`);
+}
+
+export async function reorderPrintOrder(orderId: string, quantity = 1) {
+  return apiRequest<PrintOrderDTO>(`/orders/${orderId}/reorder`, {
+    method: "POST",
+    body: JSON.stringify({ quantity }),
+  });
+}
+
+// Admin Governance Endpoints (ADMIN-01..26)
+export async function getAdminOverview() {
+  return apiRequest<{ usersCount: number; spacesCount: number; storage: Record<string, any> | null; ordersCount: number }>(
+    "/admin/overview/metrics"
+  );
+}
+export async function getAdminServicesHealth() {
+  return apiRequest<Array<{ service: string; status: string; latencyMs: number }>>("/admin/services/health");
+}
+export async function getAdminUsers(q = "") {
+  return apiRequest<Array<{ id: string; email: string; fullName: string; role: string; status: string; isVerified: boolean; createdAt: string }>>(
+    `/admin/users${q ? `?q=${encodeURIComponent(q)}` : ""}`
+  );
+}
+export async function updateAdminUserStatus(userId: string, status: "active" | "suspended") {
+  return apiRequest(`/admin/users/${userId}/status`, { method: "PATCH", body: JSON.stringify({ status }) });
+}
+export async function revokeAdminUserSessions(userId: string) {
+  return apiRequest(`/admin/users/${userId}/sessions/revoke-all`, { method: "POST", body: JSON.stringify({}) });
+}
+export async function getAdminSpaces() {
+  return apiRequest<MemorySpaceDTO[]>("/admin/spaces");
+}
+export async function getAdminAccessRequests() {
+  return apiRequest<Array<{ id: string; requesterId: string; targetSpaceId?: string; reason: string; status: string; createdAt: string }>>(
+    "/admin/access-requests"
+  );
+}
+export async function createAdminAccessRequest(reason: string, targetSpaceId?: string) {
+  return apiRequest("/admin/access-requests", { method: "POST", body: JSON.stringify({ reason, targetSpaceId }) });
+}
+export async function approveAdminAccessRequest(requestId: string) {
+  return apiRequest(`/admin/access-requests/${requestId}/approve`, { method: "POST", body: JSON.stringify({}) });
+}
+export async function getAdminModerationFlags() {
+  return apiRequest<Array<{ id: string; spaceId: string; memoryId: string; reason: string; status: string; createdAt: string }>>(
+    "/admin/moderation"
+  );
+}
+export async function resolveAdminModerationFlag(flagId: string, decision: "approved" | "quarantined") {
+  return apiRequest(`/admin/moderation/${flagId}/resolve`, { method: "POST", body: JSON.stringify({ decision }) });
+}
+export async function getAdminReports() {
+  return apiRequest<Array<{ id: string; targetType: string; targetId: string; reason: string; status: string; createdAt: string }>>(
+    "/admin/reports"
+  );
+}
+export async function resolveAdminReport(reportId: string, status: string, resolutionNote?: string) {
+  return apiRequest(`/admin/reports/${reportId}`, { method: "PATCH", body: JSON.stringify({ status, resolutionNote }) });
+}
+export async function getAdminStorageStats() {
+  return apiRequest<{ driver: string; totalUsedBytes: number; spaceCount: number; assetCount: number; assetBytes: number }>(
+    "/admin/storage/stats"
+  );
+}
+export async function getAdminUploadSessions() {
+  return apiRequest<Array<{ id: string; spaceId: string; originalName: string; mimeType: string; sizeBytes: number; status: string }>>(
+    "/admin/uploads/sessions"
+  );
+}
+export async function reprocessAdminMedia(mediaId: string) {
+  return apiRequest(`/admin/media/${mediaId}/reprocess`, { method: "POST", body: JSON.stringify({}) });
+}
+export async function getAdminQueuesTelemetry() {
+  return apiRequest<{ queues: Array<{ name: string; active: number; waiting: number; completed: number; failed: number }>; deadLetterJobs: any[] }>(
+    "/admin/queues/telemetry"
+  );
+}
+export async function retryAdminQueueJob(queueName: string, jobId: string) {
+  return apiRequest(`/admin/queues/${queueName}/jobs/${jobId}/retry`, { method: "POST", body: JSON.stringify({}) });
+}
+export async function getAdminBookJobs() {
+  return apiRequest<Array<{ id: string; title: string; format: string; version: number; isFrozenForPrint: boolean; updatedAt: string }>>(
+    "/admin/books/rendering/jobs"
+  );
+}
+export async function overrideAdminPreflight(bookId: string, note: string) {
+  return apiRequest(`/admin/preflight/${bookId}/override`, { method: "POST", body: JSON.stringify({ note }) });
+}
+export async function getAdminCatalogFormats() {
+  return apiRequest<Array<{ formatId: string; label: string; dimensionsCm: string; baseCents: number; enabled: boolean }>>(
+    "/admin/catalog/formats"
+  );
+}
+export async function updateAdminCatalogFormat(formatId: string, payload: { label?: string; baseCents?: number; enabled?: boolean }) {
+  return apiRequest(`/admin/catalog/formats/${formatId}`, { method: "PUT", body: JSON.stringify(payload) });
+}
+export async function getAdminPricingMatrix() {
+  return apiRequest<{ formats: any[]; shippingRates: Array<{ zoneCode: string; label: string; rateCents: number; estimatedDays: string }> }>(
+    "/admin/pricing/matrix"
+  );
+}
+export async function updateAdminShippingRate(zoneCode: string, rateCents: number, estimatedDays?: string) {
+  return apiRequest("/admin/pricing/matrix", { method: "POST", body: JSON.stringify({ zoneCode, rateCents, estimatedDays }) });
+}
+export async function getAdminOrders() {
+  return apiRequest<Array<PrintOrderDTO & { trackingNumber?: string; carrier?: string }>>("/admin/orders");
+}
+export async function shipAdminOrder(orderId: string, trackingNumber?: string, carrier?: string) {
+  return apiRequest(`/admin/orders/${orderId}/ship`, { method: "POST", body: JSON.stringify({ trackingNumber, carrier }) });
+}
+export async function refundAdminOrder(orderId: string, refundType: "refund" | "remake", reason: string) {
+  return apiRequest(`/admin/orders/${orderId}/refund`, { method: "POST", body: JSON.stringify({ refundType, reason }) });
+}
+export async function getAdminTransactions() {
+  return apiRequest<{ transactions: any[]; refunds: any[] }>("/admin/transactions");
+}
+export async function getAdminEmailTemplates() {
+  return apiRequest<Array<{ templateKey: string; subject: string; htmlBody: string; updatedAt: string }>>("/admin/templates");
+}
+export async function updateAdminEmailTemplate(templateKey: string, subject: string, htmlBody: string) {
+  return apiRequest(`/admin/templates/${templateKey}`, { method: "PUT", body: JSON.stringify({ subject, htmlBody }) });
+}
+export async function getAdminFeatureFlags() {
+  return apiRequest<Array<{ flagKey: string; description: string; enabled: boolean; rolloutPercentage: number }>>(
+    "/admin/feature-flags"
+  );
+}
+export async function updateAdminFeatureFlag(flagKey: string, enabled: boolean, rolloutPercentage?: number) {
+  return apiRequest(`/admin/feature-flags/${flagKey}`, { method: "PATCH", body: JSON.stringify({ enabled, rolloutPercentage }) });
+}
+export async function getAdminAuditLogs() {
+  return apiRequest<Array<{ id: string; action: string; entityType: string; entityId: string; userId?: string; createdAt: string }>>(
+    "/admin/audit-logs"
+  );
+}
+export async function getAdminTickets() {
+  return apiRequest<Array<{ id: string; email: string; subject: string; category: string; message: string; status: string; createdAt: string }>>(
+    "/admin/tickets"
+  );
+}
+export async function replyAdminTicket(ticketId: string, message: string, newStatus = "waiting_customer") {
+  return apiRequest(`/admin/tickets/${ticketId}/reply`, { method: "POST", body: JSON.stringify({ message, newStatus }) });
+}
+export async function getAdminSecurityKeys() {
+  return apiRequest<Array<{ id: string; name: string; keyType: string; credentialId: string; createdAt: string }>>(
+    "/admin/profile/security-keys"
+  );
+}
+export async function registerAdminSecurityKey(name: string, keyType = "fido2") {
+  return apiRequest("/admin/profile/webauthn/register", { method: "POST", body: JSON.stringify({ name, keyType }) });
+}
+export async function deleteAdminSecurityKey(keyId: string) {
+  return apiRequest(`/admin/profile/security-keys/${keyId}`, { method: "DELETE" });
 }

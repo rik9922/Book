@@ -1,4 +1,4 @@
-const CACHE_NAME = "memoria-archive-shell-v2";
+const CACHE_NAME = "memoria-archive-shell-v3";
 const SHELL_ROUTES = [
   "/",
   "/how-it-works",
@@ -7,6 +7,11 @@ const SHELL_ROUTES = [
   "/sample-book",
   "/pricing",
   "/help",
+  "/login",
+  "/register",
+  "/forgot-password",
+  "/reset-password",
+  "/verify-email",
   "/onboarding",
   "/dashboard",
   "/spaces",
@@ -14,6 +19,10 @@ const SHELL_ROUTES = [
   "/collections",
   "/notifications",
   "/archive",
+  "/archive/timeline",
+  "/archive/calendar",
+  "/archive/search",
+  "/archive/favorites",
   "/trash",
   "/circles",
   "/studio",

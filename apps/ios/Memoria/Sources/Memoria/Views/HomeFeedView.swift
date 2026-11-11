@@ -5,12 +5,17 @@ public struct HomeFeedView: View {
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var isCreatingMemory = false
+    @State private var isCapturingVideo = false
+    @State private var isRecordingVoice = false
+    @State private var isShowingUploadQueue = false
+    @State private var isShowingSpaceSwitcher = false
     @State private var isShowingAuth = false
+    @State private var activeSpaceId: String
 
-    public let spaceId: String
+    public var spaceId: String { activeSpaceId }
 
     public init(spaceId: String = "e8cf4fc3-137e-4397-883d-21cd6a7cb61f") {
-        self.spaceId = spaceId
+        self._activeSpaceId = State(initialValue: spaceId)
     }
 
     public var body: some View {
@@ -59,41 +64,90 @@ public struct HomeFeedView: View {
             .navigationTitle("Memoria")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button {
-                        isShowingAuth = true
-                    } label: {
-                        Image(systemName: "person.crop.circle")
-                            .foregroundStyle(MemoriaTheme.plum)
+                    HStack(spacing: 12) {
+                        Button {
+                            isShowingAuth = true
+                        } label: {
+                            Image(systemName: "person.crop.circle")
+                                .foregroundStyle(MemoriaTheme.plum)
+                        }
+                        .accessibilityLabel("Account Access")
+                        Button {
+                            isShowingSpaceSwitcher = true
+                        } label: {
+                            Image(systemName: "square.stack.3d.up")
+                                .foregroundStyle(MemoriaTheme.sageFunc)
+                        }
+                        .accessibilityLabel("Switch Space")
                     }
                 }
                 ToolbarItem(placement: .primaryAction) {
                     HStack(spacing: 12) {
                         NavigationLink {
-                            CollectionsView(spaceId: spaceId)
+                            TimelineCalendarView(spaceId: activeSpaceId, localMemories: memories)
+                        } label: {
+                            Image(systemName: "calendar")
+                                .foregroundStyle(MemoriaTheme.ink)
+                        }
+                        .accessibilityLabel("Timeline & Calendar")
+                        NavigationLink {
+                            CollectionsView(spaceId: activeSpaceId)
                         } label: {
                             Image(systemName: "folder")
                                 .foregroundStyle(MemoriaTheme.sageFunc)
                         }
+                        .accessibilityLabel("Collections")
                         NavigationLink {
-                            TrashRecoveryView(spaceId: spaceId)
+                            TrashRecoveryView(spaceId: activeSpaceId)
                         } label: {
                             Image(systemName: "trash")
                                 .foregroundStyle(MemoriaTheme.textSecondary)
                         }
-                        Button {
-                            isCreatingMemory = true
+                        .accessibilityLabel("Trash Recovery")
+                        Menu {
+                            Button("Photo or Story", systemImage: "square.and.pencil") {
+                                isCreatingMemory = true
+                            }
+                            Button("Video Trim Studio", systemImage: "video") {
+                                isCapturingVideo = true
+                            }
+                            Button("Voice Oral History", systemImage: "mic") {
+                                isRecordingVoice = true
+                            }
+                            Button("Upload Queue", systemImage: "arrow.up.circle") {
+                                isShowingUploadQueue = true
+                            }
                         } label: {
                             Image(systemName: "plus.circle.fill")
                                 .font(.title3)
                                 .foregroundStyle(MemoriaTheme.plum)
                         }
+                        .accessibilityLabel("Capture Memory")
                     }
                 }
             }
             .sheet(isPresented: $isCreatingMemory) {
-                MemoryCreateView(spaceId: spaceId) { newMemory in
+                MemoryCreateView(spaceId: activeSpaceId) { newMemory in
                     memories.insert(newMemory, at: 0)
                 }
+            }
+            .sheet(isPresented: $isCapturingVideo) {
+                VideoCaptureTrimView(spaceId: activeSpaceId) { newMemory in
+                    memories.insert(newMemory, at: 0)
+                }
+            }
+            .sheet(isPresented: $isRecordingVoice) {
+                VoiceRecorderView(spaceId: activeSpaceId) { newMemory in
+                    memories.insert(newMemory, at: 0)
+                }
+            }
+            .sheet(isPresented: $isShowingUploadQueue) {
+                UploadQueueSheetView()
+            }
+            .sheet(isPresented: $isShowingSpaceSwitcher, onDismiss: {
+                Task { await loadMemories() }
+            }) {
+                SpaceOverviewSheet(activeSpaceId: $activeSpaceId)
             }
             .sheet(isPresented: $isShowingAuth) {
                 AuthSheetView { _ in

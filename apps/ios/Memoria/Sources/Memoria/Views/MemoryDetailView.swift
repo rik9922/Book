@@ -1,12 +1,15 @@
 import SwiftUI
 
 public struct MemoryDetailView: View {
-    public let memory: Memory
+    @State private var memory: Memory
     @State private var comments: [MemoryCommentDTO] = []
     @State private var newComment = ""
+    @State private var isEditing = false
+    @State private var editingMediaId: String?
+    @State private var isShowingPlayer = false
 
     public init(memory: Memory) {
-        self.memory = memory
+        self._memory = State(initialValue: memory)
     }
 
     public var body: some View {
@@ -65,6 +68,12 @@ public struct MemoryDetailView: View {
                                     .font(.caption.monospaced())
                                     .foregroundStyle(MemoriaTheme.ink)
                                     .lineLimit(1)
+                                Spacer()
+                                Button("Edit") {
+                                    editingMediaId = mediaId
+                                }
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(MemoriaTheme.plum)
                             }
                             .padding(10)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -72,6 +81,24 @@ public struct MemoryDetailView: View {
                             .clipShape(RoundedRectangle(cornerRadius: 10))
                         }
                     }
+                }
+
+                HStack(spacing: 12) {
+                    Button {
+                        isShowingPlayer = true
+                    } label: {
+                        Label("Inspect / Play Media", systemImage: "play.rectangle")
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(MemoriaTheme.sageFunc)
+
+                    Button {
+                        isEditing = true
+                    } label: {
+                        Label("Edit Story", systemImage: "pencil")
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(MemoriaTheme.plum)
                 }
 
                 if !memory.tags.isEmpty {
@@ -134,6 +161,22 @@ public struct MemoryDetailView: View {
         .task {
             if let fetched = try? await MemoriaAPIClient.shared.fetchComments(memoryId: memory.id) {
                 comments = fetched
+            }
+        }
+        .sheet(isPresented: $isEditing) {
+            EditMemorySheet(memory: memory) { updated in
+                memory = updated
+            }
+        }
+        .sheet(isPresented: $isShowingPlayer) {
+            MediaPlaybackView(memory: memory)
+        }
+        .sheet(isPresented: Binding(
+            get: { editingMediaId != nil },
+            set: { if !$0 { editingMediaId = nil } }
+        )) {
+            if let mediaId = editingMediaId {
+                CoreImageEditorView(mediaId: mediaId)
             }
         }
     }

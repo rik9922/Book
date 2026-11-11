@@ -1,12 +1,24 @@
 import SwiftUI
 
+public enum AuthFlowMode: String, CaseIterable, Identifiable {
+    case signIn = "Sign In"
+    case register = "Register"
+    case recover = "Recover"
+    case verify = "Verify OTP"
+    case invite = "Accept Invite"
+
+    public var id: String { rawValue }
+}
+
 public struct AuthSheetView: View {
     @Environment(\.dismiss) private var dismiss
 
-    @State private var isRegisterMode = false
+    @State private var mode: AuthFlowMode = .signIn
     @State private var fullName = ""
     @State private var email = ""
     @State private var password = ""
+    @State private var verificationCode = ""
+    @State private var inviteToken = ""
     @State private var isSubmitting = false
     @State private var errorMessage: String?
     @State private var statusMessage: String?
@@ -14,7 +26,8 @@ public struct AuthSheetView: View {
 
     public var onAuthenticated: ((AuthSessionDTO) -> Void)?
 
-    public init(onAuthenticated: ((AuthSessionDTO) -> Void)? = nil) {
+    public init(initialMode: AuthFlowMode = .signIn, onAuthenticated: ((AuthSessionDTO) -> Void)? = nil) {
+        self._mode = State(initialValue: initialMode)
         self.onAuthenticated = onAuthenticated
     }
 
@@ -22,24 +35,67 @@ public struct AuthSheetView: View {
         NavigationStack {
             Form {
                 Section {
-                    Picker("Mode", selection: $isRegisterMode) {
-                        Text("Sign In").tag(false)
-                        Text("Create Account").tag(true)
+                    Picker("Access Mode", selection: $mode) {
+                        ForEach(AuthFlowMode.allCases) { item in
+                            Text(item.rawValue).tag(item)
+                        }
                     }
-                    .pickerStyle(.segmented)
+                    #if os(iOS)
+                    .pickerStyle(.menu)
+                    #endif
                 }
 
-                Section("Archival Credentials") {
-                    if isRegisterMode {
-                        TextField("Full Name", text: $fullName)
+                switch mode {
+                case .signIn, .register:
+                    Section("Archival Credentials") {
+                        if mode == .register {
+                            TextField("Full Name", text: $fullName)
+                        }
+                        TextField("Email Address", text: $email)
+                        #if os(iOS)
+                            .keyboardType(.emailAddress)
+                            .textInputAutocapitalization(.never)
+                        #endif
+                            .autocorrectionDisabled()
+                        SecureField("Password (min 8 chars)", text: $password)
                     }
-                    TextField("Email Address", text: $email)
-                    #if os(iOS)
-                        .keyboardType(.emailAddress)
-                        .textInputAutocapitalization(.never)
-                    #endif
-                        .autocorrectionDisabled()
-                    SecureField("Password (min 8 chars)", text: $password)
+
+                case .recover:
+                    Section("Vault Recovery (IOS-04)") {
+                        Text("Enter the email linked to your archival vault to receive a time-limited reset token.")
+                            .font(.caption)
+                            .foregroundStyle(MemoriaTheme.textSecondary)
+                        TextField("Email Address", text: $email)
+                        #if os(iOS)
+                            .keyboardType(.emailAddress)
+                            .textInputAutocapitalization(.never)
+                        #endif
+                            .autocorrectionDisabled()
+                    }
+
+                case .verify:
+                    Section("Email Verification (IOS-05)") {
+                        Text("Enter your 6-digit verification code or archival verification token.")
+                            .font(.caption)
+                            .foregroundStyle(MemoriaTheme.textSecondary)
+                        TextField("6-Digit Code or Token", text: $verificationCode)
+                        #if os(iOS)
+                            .textInputAutocapitalization(.never)
+                        #endif
+                            .autocorrectionDisabled()
+                    }
+
+                case .invite:
+                    Section("Family Circle Invitation (IOS-06)") {
+                        Text("Paste a circle invitation token shared by a Space Steward.")
+                            .font(.caption)
+                            .foregroundStyle(MemoriaTheme.textSecondary)
+                        TextField("Invitation Token", text: $inviteToken)
+                        #if os(iOS)
+                            .textInputAutocapitalization(.never)
+                        #endif
+                            .autocorrectionDisabled()
+                    }
                 }
 
                 if let errorMessage {
@@ -67,13 +123,13 @@ public struct AuthSheetView: View {
                             if isSubmitting {
                                 ProgressView()
                             } else {
-                                Text(isRegisterMode ? "Create Archival Account" : "Sign In to Vault")
+                                Text(primaryButtonTitle)
                                     .fontWeight(.semibold)
                             }
                             Spacer()
                         }
                     }
-                    .disabled(isSubmitting || email.isEmpty || password.count < 8 || (isRegisterMode && fullName.isEmpty))
+                    .disabled(isPrimaryDisabled)
                 }
 
                 if hasSessionToken {
@@ -102,28 +158,73 @@ public struct AuthSheetView: View {
         }
     }
 
+    private var primaryButtonTitle: String {
+        switch mode {
+        case .signIn: return "Sign In to Vault"
+        case .register: return "Create Archival Account"
+        case .recover: return "Send Reset Instructions"
+        case .verify: return "Verify Email Code"
+        case .invite: return "Accept Circle Invitation"
+        }
+    }
+
+    private var isPrimaryDisabled: Bool {
+        if isSubmitting { return true }
+        switch mode {
+        case .signIn:
+            return email.trimmingCharacters(in: .whitespaces).isEmpty || password.count < 8
+        case .register:
+            return fullName.trimmingCharacters(in: .whitespaces).isEmpty || email.trimmingCharacters(in: .whitespaces).isEmpty || password.count < 8
+        case .recover:
+            return email.trimmingCharacters(in: .whitespaces).isEmpty
+        case .verify:
+            return verificationCode.trimmingCharacters(in: .whitespaces).count < 6
+        case .invite:
+            return inviteToken.trimmingCharacters(in: .whitespaces).isEmpty
+        }
+    }
+
     private func submit() async {
         isSubmitting = true
         errorMessage = nil
         statusMessage = nil
         do {
-            let session: AuthSessionDTO
-            if isRegisterMode {
-                session = try await MemoriaAPIClient.shared.register(
+            switch mode {
+            case .signIn:
+                let session = try await MemoriaAPIClient.shared.login(
+                    email: email.trimmingCharacters(in: .whitespacesAndNewlines),
+                    password: password
+                )
+                hasSessionToken = true
+                statusMessage = "Authenticated as \(session.user.fullName)"
+                onAuthenticated?(session)
+                dismiss()
+            case .register:
+                let session = try await MemoriaAPIClient.shared.register(
                     email: email.trimmingCharacters(in: .whitespacesAndNewlines),
                     password: password,
                     fullName: fullName.trimmingCharacters(in: .whitespacesAndNewlines)
                 )
-            } else {
-                session = try await MemoriaAPIClient.shared.login(
-                    email: email.trimmingCharacters(in: .whitespacesAndNewlines),
-                    password: password
+                hasSessionToken = true
+                statusMessage = "Authenticated as \(session.user.fullName)"
+                onAuthenticated?(session)
+                dismiss()
+            case .recover:
+                try await MemoriaAPIClient.shared.forgotPassword(
+                    email: email.trimmingCharacters(in: .whitespacesAndNewlines)
                 )
+                statusMessage = "If an archival vault exists for that email, recovery instructions have been queued."
+            case .verify:
+                try await MemoriaAPIClient.shared.verifyEmailCode(
+                    tokenOrCode: verificationCode.trimmingCharacters(in: .whitespacesAndNewlines)
+                )
+                statusMessage = "Vault email verified."
+            case .invite:
+                try await MemoriaAPIClient.shared.acceptInvitation(
+                    token: inviteToken.trimmingCharacters(in: .whitespacesAndNewlines)
+                )
+                statusMessage = "Circle invitation accepted! Refresh Circles to view your new vault."
             }
-            hasSessionToken = true
-            statusMessage = "Authenticated as \(session.user.fullName)"
-            onAuthenticated?(session)
-            dismiss()
         } catch {
             errorMessage = error.localizedDescription
         }

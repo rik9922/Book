@@ -219,6 +219,85 @@ struct Book3DEngineTests {
         #expect(catalog.formats.first?.baseCents == 4200)
     }
 
+    @Test("Verify Expanded Timeline, Calendar, Activity, Storage, Support & Preflight DTO Decoding")
+    func testExpandedDTOsAndRouteComposition() async throws {
+        let timelineJson = """
+        {
+          "total": 1,
+          "groups": [
+            {
+              "yearMonth": "2026-06",
+              "year": "2026",
+              "items": [
+                {
+                  "id": "mem-101",
+                  "spaceId": "spc-1",
+                  "authorId": "usr-1",
+                  "title": "Summer Orchard",
+                  "content": "Picked apples together.",
+                  "format": "image",
+                  "capturedAt": "2026-06-14T12:00:00Z",
+                  "location": "Vermont",
+                  "latitude": null,
+                  "longitude": null,
+                  "isFavorite": true,
+                  "associatedProfileIds": [],
+                  "mediaIds": [],
+                  "tags": ["summer"],
+                  "createdAt": "2026-06-14T12:00:00Z",
+                  "updatedAt": null
+                }
+              ]
+            }
+          ]
+        }
+        """
+        let timeline = try JSONDecoder().decode(TimelineResponseDTO.self, from: Data(timelineJson.utf8))
+        #expect(timeline.total == 1)
+        #expect(timeline.groups.first?.yearMonth == "2026-06")
+
+        let storageJson = """
+        {
+          "spaceId": "spc-1",
+          "usedBytes": 4096,
+          "maxBytes": 1073741824,
+          "assetCount": 2,
+          "categories": {
+            "imagesBytes": 3072,
+            "videoBytes": 0,
+            "audioBytes": 1024,
+            "docsBytes": 0
+          }
+        }
+        """
+        let storage = try JSONDecoder().decode(StorageBreakdownDTO.self, from: Data(storageJson.utf8))
+        #expect(storage.assetCount == 2)
+        #expect(storage.categories.imagesBytes == 3072)
+
+        let preflightJson = """
+        {
+          "bookId": "bk-1",
+          "version": 3,
+          "isFrozenForPrint": false,
+          "frozenEditionHash": null,
+          "passed": true,
+          "checks": [
+            { "id": "dpi_resolution", "label": "300 DPI Archival Print Profile", "passed": true, "detail": "OK" }
+          ],
+          "checkedAt": "2026-11-11T00:00:00Z"
+        }
+        """
+        let preflight = try JSONDecoder().decode(BookPreflightReportDTO.self, from: Data(preflightJson.utf8))
+        #expect(preflight.passed)
+        #expect(preflight.checks.first?.id == "dpi_resolution")
+
+        let client = MemoriaAPIClient(baseURL: URL(string: "http://127.0.0.1:4000/api/v1")!)
+        let tlUrl = await client.buildURL(path: "spaces/spc-1/timeline")
+        let pfUrl = await client.buildURL(path: "books/bk-1/preflight")
+        #expect(tlUrl.absoluteString == "http://127.0.0.1:4000/api/v1/spaces/spc-1/timeline")
+        #expect(pfUrl.absoluteString == "http://127.0.0.1:4000/api/v1/books/bk-1/preflight")
+    }
+
     #if os(iOS) && canImport(RealityKit)
     @Test("Verify Bundled MemoriaHeirloomBook.usdz Loads and Matches Node Hierarchy")
     @MainActor

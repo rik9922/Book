@@ -16,6 +16,11 @@ export interface UserRecord {
   fullName: string;
   passwordHash: string;
   avatarUrl?: string | null;
+  role?: string;
+  status?: string;
+  preferencesJson?: Record<string, any>;
+  privacyJson?: Record<string, any>;
+  onboardingPurpose?: string | null;
   isVerified: boolean;
   createdAt: string;
   updatedAt: string;
@@ -69,7 +74,12 @@ export class PostgresUserRepository implements UserRepository {
   async findByEmail(email: string): Promise<UserRecord | null> {
     const res = await this.db.query(
       `SELECT id, email, full_name as "fullName", password_hash as "passwordHash",
-              avatar_url as "avatarUrl", is_verified as "isVerified",
+              avatar_url as "avatarUrl", COALESCE(role, 'member') as "role",
+              COALESCE(status, 'active') as "status",
+              COALESCE(preferences_json, '{}'::jsonb) as "preferencesJson",
+              COALESCE(privacy_json, '{}'::jsonb) as "privacyJson",
+              onboarding_purpose as "onboardingPurpose",
+              is_verified as "isVerified",
               created_at::text as "createdAt", updated_at::text as "updatedAt"
        FROM users WHERE email = $1 LIMIT 1`,
       [email.toLowerCase().trim()]
@@ -80,7 +90,12 @@ export class PostgresUserRepository implements UserRepository {
   async findById(id: string): Promise<UserRecord | null> {
     const res = await this.db.query(
       `SELECT id, email, full_name as "fullName", password_hash as "passwordHash",
-              avatar_url as "avatarUrl", is_verified as "isVerified",
+              avatar_url as "avatarUrl", COALESCE(role, 'member') as "role",
+              COALESCE(status, 'active') as "status",
+              COALESCE(preferences_json, '{}'::jsonb) as "preferencesJson",
+              COALESCE(privacy_json, '{}'::jsonb) as "privacyJson",
+              onboarding_purpose as "onboardingPurpose",
+              is_verified as "isVerified",
               created_at::text as "createdAt", updated_at::text as "updatedAt"
        FROM users WHERE id = $1 LIMIT 1`,
       [id]
@@ -90,15 +105,19 @@ export class PostgresUserRepository implements UserRepository {
 
   async create(user: Omit<UserRecord, "createdAt" | "updatedAt">): Promise<UserRecord> {
     const now = new Date().toISOString();
+    const role = user.role || "member";
+    const status = user.status || "active";
     await this.db.query(
-      `INSERT INTO users (id, email, full_name, password_hash, avatar_url, is_verified, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      `INSERT INTO users (id, email, full_name, password_hash, avatar_url, role, status, is_verified, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
       [
         user.id,
         user.email.toLowerCase().trim(),
         user.fullName,
         user.passwordHash,
         user.avatarUrl || null,
+        role,
+        status,
         user.isVerified ?? false,
         now,
         now,
@@ -106,6 +125,8 @@ export class PostgresUserRepository implements UserRepository {
     );
     return {
       ...user,
+      role,
+      status,
       createdAt: now,
       updatedAt: now,
     };

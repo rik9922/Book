@@ -168,7 +168,7 @@ export const pwaScreens1: ScreenSpec[] = [
       e2e: ["navigates from / to /how-it-works and tests tab clicks"]
     },
     uiComponents: ["WorkflowStepper", "StageCard", "ArchivalDiagram", "PublicHeader"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "PWA-03",
@@ -249,7 +249,7 @@ export const pwaScreens1: ScreenSpec[] = [
       e2e: ["visitor filters by Childhood and clicks Start with Template"]
     },
     uiComponents: ["FilterChipBar", "UseCaseCard", "PublicHeader"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "PWA-04",
@@ -330,7 +330,7 @@ export const pwaScreens1: ScreenSpec[] = [
       e2e: ["browses gallery, filters by format, clicks on sample book"]
     },
     uiComponents: ["GalleryGrid", "BookCoverPreview", "FormatFilter", "PublicHeader"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "PWA-05",
@@ -497,7 +497,7 @@ export const pwaScreens1: ScreenSpec[] = [
       e2e: ["adjusts storage sliders and verifies computed disk consumption"]
     },
     uiComponents: ["StorageCalculator", "TransparencyMatrix", "PublicHeader"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "PWA-07",
@@ -588,7 +588,7 @@ export const pwaScreens1: ScreenSpec[] = [
       e2e: ["searches FAQ, fills contact form, receives ticket confirmation"]
     },
     uiComponents: ["FAQAccordion", "SearchInput", "SupportForm", "PublicHeader"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
 
   // ==========================================
@@ -863,7 +863,7 @@ export const pwaScreens1: ScreenSpec[] = [
       e2e: ["submits email and verifies neutral confirmation message"]
     },
     uiComponents: ["AuthCard", "InputField", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "PWA-11",
@@ -951,7 +951,7 @@ export const pwaScreens1: ScreenSpec[] = [
       e2e: ["submits valid token with new password and signs in successfully"]
     },
     uiComponents: ["AuthCard", "InputField", "PasswordStrengthMeter", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "PWA-12",
@@ -1032,7 +1032,7 @@ export const pwaScreens1: ScreenSpec[] = [
       e2e: ["navigates with token, verifies success state, proceeds to onboarding"]
     },
     uiComponents: ["StatusBadge", "Button", "CooldownTimer"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "PWA-13",
@@ -1113,7 +1113,7 @@ export const pwaScreens1: ScreenSpec[] = [
       e2e: ["accepts invitation, redirects to target space timeline"]
     },
     uiComponents: ["InvitationCard", "SpaceBadge", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "PWA-14",
@@ -1196,7 +1196,7 @@ export const pwaScreens1: ScreenSpec[] = [
       e2e: ["selects Family Heritage and clicks Continue"]
     },
     uiComponents: ["WizardHeader", "PurposeCardGrid", "OnboardingFooter"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "PWA-15",

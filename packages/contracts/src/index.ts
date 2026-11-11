@@ -95,10 +95,71 @@ export const UserProfileSchema = z.object({
   email: z.string().email(),
   fullName: z.string(),
   avatarUrl: z.string().url().nullable().optional(),
+  role: z.enum(["member", "admin", "superadmin", "ops_admin", "compliance_officer", "support_agent"]).optional(),
+  isVerified: z.boolean().optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
 export type UserProfile = z.infer<typeof UserProfileSchema>;
+
+// ==========================================
+// 5B. SHARED ZERO-MARKUP PRINT PRICING
+// ==========================================
+
+export interface PrintPricingInput {
+  format?: "hardcover_square_8x8" | "hardcover_standard_8x10" | "hardcover_grand_12x12" | string;
+  binding?: "hardcover_linen" | "french_morocco" | string;
+  paperWeight?: "140gsm_matte" | "170gsm_lustre" | string;
+  quantity?: number;
+  country?: string;
+}
+
+export interface PrintPricingQuote {
+  currency: "USD";
+  format: "hardcover_square_8x8" | "hardcover_standard_8x10" | "hardcover_grand_12x12";
+  binding: "hardcover_linen" | "french_morocco";
+  paperWeight: "140gsm_matte" | "170gsm_lustre";
+  quantity: number;
+  unitCents: number;
+  subtotalCents: number;
+  shippingCents: number;
+  taxCents: number;
+  totalCents: number;
+  estimatedDays: string;
+}
+
+export function calculatePrintOrderPricing(input: PrintPricingInput): PrintPricingQuote {
+  const format =
+    input.format === "hardcover_grand_12x12" || input.format === "hardcover_square_8x8"
+      ? input.format
+      : "hardcover_standard_8x10";
+  const binding = input.binding === "french_morocco" ? "french_morocco" : "hardcover_linen";
+  const paperWeight = input.paperWeight === "170gsm_lustre" ? "170gsm_lustre" : "140gsm_matte";
+  const quantity = Math.min(Math.max(Number(input.quantity || 1), 1), 20);
+  const baseCents =
+    format === "hardcover_grand_12x12" ? 6800 : format === "hardcover_square_8x8" ? 4200 : 4800;
+  const bindingSurcharge = binding === "french_morocco" ? 2000 : 0;
+  const paperSurcharge = paperWeight === "170gsm_lustre" ? 400 : 0;
+  const unitCents = baseCents + bindingSurcharge + paperSurcharge;
+  const subtotalCents = unitCents * quantity;
+  const normalizedCountry = (input.country || "US").trim().toUpperCase();
+  const isDomestic = normalizedCountry === "US";
+  const shippingCents = isDomestic ? 900 : 2400;
+
+  return {
+    currency: "USD",
+    format,
+    binding,
+    paperWeight,
+    quantity,
+    unitCents,
+    subtotalCents,
+    shippingCents,
+    taxCents: 0,
+    totalCents: subtotalCents + shippingCents,
+    estimatedDays: isDomestic ? "5–7 business days" : "10–14 business days",
+  };
+}
 
 export const AuthTokenResponseSchema = z.object({
   accessToken: z.string(),

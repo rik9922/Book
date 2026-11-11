@@ -8,6 +8,11 @@ public struct SettingsView: View {
     @State private var microphoneStatus = "Checking..."
     @State private var cacheCleared = false
     @State private var showOnboarding = false
+    @State private var showSupportHelp = false
+    @State private var biometricLock = false
+    @State private var reducedMotion = false
+    @State private var storageBreakdown: StorageBreakdownDTO?
+    @State private var preferenceStatus: String?
 
     public init() {}
 
@@ -40,7 +45,39 @@ public struct SettingsView: View {
                     }
                 }
 
-                Section("Offline Storage & Cache") {
+                Section("Privacy & Security (IOS-54)") {
+                    Toggle("Require Face ID / Biometric Lock", isOn: $biometricLock)
+                        .tint(MemoriaTheme.plum)
+                        .onChange(of: biometricLock) { _, _ in
+                            Task { await savePreferences() }
+                        }
+                    Toggle("Reduce 3D Book Animations", isOn: $reducedMotion)
+                        .tint(MemoriaTheme.sageFunc)
+                        .onChange(of: reducedMotion) { _, _ in
+                            Task { await savePreferences() }
+                        }
+                    if let preferenceStatus {
+                        Text(preferenceStatus)
+                            .font(.caption)
+                            .foregroundStyle(MemoriaTheme.sageFunc)
+                    }
+                }
+
+                Section("Offline Storage & Cache (IOS-55)") {
+                    if let storageBreakdown {
+                        HStack {
+                            Text("Remote Vault Assets (\(storageBreakdown.assetCount))")
+                            Spacer()
+                            Text(ByteCountFormatter.string(fromByteCount: Int64(storageBreakdown.usedBytes), countStyle: .file))
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(MemoriaTheme.ink)
+                        }
+                    }
+                    Button("Refresh Storage Breakdown") {
+                        Task { await loadStorageBreakdown() }
+                    }
+                    .foregroundStyle(MemoriaTheme.plum)
+
                     Button("Clear Local Archive Cache") {
                         LocalStorageService.shared.clearCache()
                         cacheCleared = true
@@ -52,6 +89,13 @@ public struct SettingsView: View {
                             .font(.caption)
                             .foregroundStyle(MemoriaTheme.textSecondary)
                     }
+                }
+
+                Section("Support & Help (IOS-56)") {
+                    Button("Help Guides & Submit Support Ticket") {
+                        showSupportHelp = true
+                    }
+                    .foregroundStyle(MemoriaTheme.plum)
                 }
 
                 Section("Application Identity") {
@@ -104,8 +148,12 @@ public struct SettingsView: View {
             .sheet(isPresented: $showOnboarding) {
                 OnboardingFlowView()
             }
+            .sheet(isPresented: $showSupportHelp) {
+                SupportHelpSheetView()
+            }
             .task {
                 checkPermissions()
+                await loadStorageBreakdown()
             }
         }
     }
@@ -150,5 +198,23 @@ public struct SettingsView: View {
         @unknown default:
             microphoneStatus = "Unknown"
         }
+    }
+
+    private func savePreferences() async {
+        do {
+            _ = try await MemoriaAPIClient.shared.updatePreferences(
+                biometricLock: biometricLock,
+                reducedMotion: reducedMotion
+            )
+            preferenceStatus = "Preferences synced to archival profile."
+        } catch {
+            preferenceStatus = "Saved locally on device (sign in to sync)."
+        }
+    }
+
+    private func loadStorageBreakdown() async {
+        storageBreakdown = try? await MemoriaAPIClient.shared.fetchStorageBreakdown(
+            spaceId: "e8cf4fc3-137e-4397-883d-21cd6a7cb61f"
+        )
     }
 }

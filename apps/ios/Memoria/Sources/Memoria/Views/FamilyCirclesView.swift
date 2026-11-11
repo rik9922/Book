@@ -6,6 +6,7 @@ public struct FamilyCirclesView: View {
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var showAuthSheet = false
+    @State private var showInviteSheet = false
 
     public init() {}
 
@@ -65,10 +66,21 @@ public struct FamilyCirclesView: View {
                         NavigationLink("People & Profiles Directory") {
                             ProfilesDirectoryView(spaceId: firstSpaceId)
                         }
+                        NavigationLink("Circle Activity Feed") {
+                            SpaceActivityFeedView(spaceId: firstSpaceId)
+                        }
+                    } else {
+                        NavigationLink("Circle Activity Feed") {
+                            SpaceActivityFeedView(spaceId: "e8cf4fc3-137e-4397-883d-21cd6a7cb61f")
+                        }
                     }
                     NavigationLink("Notification Center") {
                         NotificationsCenterView()
                     }
+                    Button("Accept Invitation Token") {
+                        showInviteSheet = true
+                    }
+                    .foregroundStyle(MemoriaTheme.plum)
                 }
 
                 Section("Recent Family Notifications") {
@@ -117,6 +129,11 @@ public struct FamilyCirclesView: View {
             }
             .sheet(isPresented: $showAuthSheet) {
                 AuthSheetView { _ in
+                    Task { await loadData() }
+                }
+            }
+            .sheet(isPresented: $showInviteSheet) {
+                AuthSheetView(initialMode: .invite) { _ in
                     Task { await loadData() }
                 }
             }

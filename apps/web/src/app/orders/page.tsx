@@ -3,15 +3,16 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
-import { FileText, Package, Printer, RefreshCw, X } from "lucide-react";
+import { FileText, Package, Printer, RefreshCw, Truck, X } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import {
-  apiRequest,
   getOrderReceipt,
+  getOrderTracking,
   getStoredSession,
   listMyOrders,
   OrderReceiptDTO,
   PrintOrderDTO,
+  reorderPrintOrder,
 } from "@/lib/api";
 
 const ORDER_STAGES = ["submitted", "preflight_passed", "in_production", "shipped", "delivered"] as const;
@@ -20,6 +21,7 @@ export default function OrdersPage() {
   const [signedIn, setSignedIn] = useState(false);
   const [orders, setOrders] = useState<PrintOrderDTO[]>([]);
   const [receipt, setReceipt] = useState<OrderReceiptDTO | null>(null);
+  const [trackingInfo, setTrackingInfo] = useState<Record<string, { carrier: string; trackingNumber: string | null; estimatedDays: string }>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -106,29 +108,28 @@ export default function OrdersPage() {
     setError(null);
     setNotice(null);
     try {
-      const created = await apiRequest<PrintOrderDTO>("/orders", {
-        method: "POST",
-        body: JSON.stringify({
-          spaceId: order.spaceId,
-          bookId: order.bookId,
-          quantity: 1,
-          shippingAddress: order.shippingAddress || {
-            recipientName: "Archive Owner",
-            line1: "100 Heirloom Way",
-            city: "Portland",
-            postalCode: "97205",
-            country: "US",
-          },
-          printSpec: {
-            paperWeight: order.printSpec?.paperWeight === "170gsm_lustre" ? "170gsm_lustre" : "140gsm_matte",
-            binding: order.printSpec?.binding === "french_morocco" ? "french_morocco" : "hardcover_linen",
-          },
-        }),
-      });
+      const created = await reorderPrintOrder(order.id, 1);
       setOrders((prev) => [created, ...prev]);
       setNotice(`Reordered edition as ${created.id}.`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Reorder failed.");
+    }
+  };
+
+  const handleLoadTracking = async (orderId: string) => {
+    setError(null);
+    try {
+      const info = await getOrderTracking(orderId);
+      setTrackingInfo((prev) => ({
+        ...prev,
+        [orderId]: {
+          carrier: info.carrier,
+          trackingNumber: info.trackingNumber,
+          estimatedDays: info.estimatedDays,
+        },
+      }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to load courier tracking.");
     }
   };
 
@@ -205,6 +206,14 @@ export default function OrdersPage() {
                         <div className="flex flex-wrap gap-2">
                           <button
                             type="button"
+                            onClick={() => handleLoadTracking(order.id)}
+                            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#FAF6F8] border border-[#E7E2DA] text-xs font-medium text-[#76556F]"
+                          >
+                            <Truck className="w-3.5 h-3.5" aria-hidden="true" />
+                            Tracking
+                          </button>
+                          <button
+                            type="button"
                             onClick={(e) => handleOpenReceipt(order.id, e.currentTarget)}
                             className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#F0ECE1] text-xs font-medium text-[#20242C]"
                           >
@@ -221,6 +230,18 @@ export default function OrdersPage() {
                           </button>
                         </div>
                       </div>
+
+                      {trackingInfo[order.id] && (
+                        <div className="p-3 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] text-xs flex flex-wrap justify-between gap-2">
+                          <span>
+                            <strong>Carrier:</strong> {trackingInfo[order.id].carrier} •{" "}
+                            <strong>ETA:</strong> {trackingInfo[order.id].estimatedDays}
+                          </span>
+                          <span className="font-mono text-[#76556F]">
+                            {trackingInfo[order.id].trackingNumber || "Awaiting press dispatch"}
+                          </span>
+                        </div>
+                      )}
 
                       <div className="grid grid-cols-5 gap-2 pt-2">
                         {ORDER_STAGES.map((stage, i) => {

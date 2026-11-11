@@ -493,6 +493,191 @@ export async function buildCollabService(): Promise<FastifyInstance> {
     return reply.status(200).send(createSuccessResponse({ accepted: true, member }));
   });
 
+  // Resend Pending Invitation (PWA-49)
+  app.post(
+    "/api/v1/collab/spaces/:spaceId/invitations/:invitationId/resend",
+    async (req: FastifyRequest<{ Params: { spaceId: string; invitationId: string } }>, reply) => {
+      const actorId = await requireAuthUser(req);
+      const actor = await getOrSeedActorMember(req.params.spaceId, actorId);
+      if (!actor || (actor.role !== "owner" && actor.role !== "admin" && !actor.permissions?.can_invite)) {
+        throw new ForbiddenError("Invite management permission required");
+      }
+      const list = collabRepo.listInvitations ? await collabRepo.listInvitations(req.params.spaceId) : [];
+      const target = list.find((i) => i.id === req.params.invitationId);
+      if (!target) {
+        return reply.status(404).send(createErrorResponse("INVITATION_NOT_FOUND", "Invitation not found"));
+      }
+      await publishDomainEvent("collab.invitation.resent", "collab.invitation.resent", target.id, {
+        invitationId: target.id,
+        spaceId: req.params.spaceId,
+        inviteeEmail: target.inviteeEmail,
+      });
+      return reply.status(200).send(createSuccessResponse({ resent: true, invitationId: target.id }));
+    }
+  );
+
+  // Custom Space Roles (PWA-51)
+  const memRoles = new Map<string, Array<Record<string, any>>>();
+  app.get(
+    "/api/v1/collab/spaces/:spaceId/roles",
+    async (req: FastifyRequest<{ Params: { spaceId: string } }>, reply) => {
+      const actorId = await requireAuthUser(req);
+      const actor = await getOrSeedActorMember(req.params.spaceId, actorId);
+      if (!actor) throw new ForbiddenError("Space membership required");
+      if (dbUrl) {
+        const res = await db.query(
+          `SELECT id, space_id as "spaceId", name, description, permissions, created_at::text as "createdAt"
+           FROM space_roles WHERE space_id = $1 ORDER BY created_at DESC`,
+          [req.params.spaceId]
+        );
+        return reply.status(200).send(createSuccessResponse(res.rows));
+      }
+      return reply.status(200).send(createSuccessResponse(memRoles.get(req.params.spaceId) || []));
+    }
+  );
+
+  app.post(
+    "/api/v1/collab/spaces/:spaceId/roles",
+    async (
+      req: FastifyRequest<{ Params: { spaceId: string }; Body: { name: string; description?: string; permissions?: Record<string, boolean> } }>,
+      reply
+    ) => {
+      const actorId = await requireAuthUser(req);
+      const actor = await getOrSeedActorMember(req.params.spaceId, actorId);
+      if (!actor || (actor.role !== "owner" && actor.role !== "admin")) {
+        throw new ForbiddenError("Only space owners or admins can create custom roles");
+      }
+      const name = req.body?.name?.trim();
+      if (!name) {
+        return reply.status(400).send(createErrorResponse("VALIDATION_ERROR", "Role name is required"));
+      }
+      const roleRecord = {
+        id: crypto.randomUUID(),
+        spaceId: req.params.spaceId,
+        name,
+        description: req.body?.description?.trim() || "",
+        permissions: req.body?.permissions || { can_create_memories: true, can_edit_books: false, can_invite: false },
+        createdAt: new Date().toISOString(),
+      };
+      if (dbUrl) {
+        await db.query(
+          `INSERT INTO space_roles (id, space_id, name, description, permissions) VALUES ($1, $2, $3, $4, $5)`,
+          [roleRecord.id, roleRecord.spaceId, roleRecord.name, roleRecord.description, JSON.stringify(roleRecord.permissions)]
+        );
+      } else {
+        const existing = memRoles.get(req.params.spaceId) || [];
+        existing.unshift(roleRecord);
+        memRoles.set(req.params.spaceId, existing);
+      }
+      return reply.status(201).send(createSuccessResponse(roleRecord));
+    }
+  );
+
+  // Passphrase-Protected Public Share Links (PWA-52)
+  const memShareLinks = new Map<string, Record<string, any>>();
+  app.get(
+    "/api/v1/collab/spaces/:spaceId/share-links",
+    async (req: FastifyRequest<{ Params: { spaceId: string } }>, reply) => {
+      const actorId = await requireAuthUser(req);
+      const actor = await getOrSeedActorMember(req.params.spaceId, actorId);
+      if (!actor) throw new ForbiddenError("Space membership required");
+      if (dbUrl) {
+        const res = await db.query(
+          `SELECT id, space_id as "spaceId", token, (passphrase_hash IS NOT NULL) as "hasPassphrase",
+                  allow_downloads as "allowDownloads", expires_at::text as "expiresAt",
+                  access_count as "accessCount", created_at::text as "createdAt"
+           FROM space_share_links WHERE space_id = $1 AND revoked_at IS NULL ORDER BY created_at DESC`,
+          [req.params.spaceId]
+        );
+        return reply.status(200).send(createSuccessResponse(res.rows));
+      }
+      return reply.status(200).send(
+        createSuccessResponse(Array.from(memShareLinks.values()).filter((l) => l.spaceId === req.params.spaceId && !l.revokedAt))
+      );
+    }
+  );
+
+  app.post(
+    "/api/v1/collab/spaces/:spaceId/share-links",
+    async (
+      req: FastifyRequest<{ Params: { spaceId: string }; Body: { passphrase?: string; allowDownloads?: boolean; expiresInDays?: number } }>,
+      reply
+    ) => {
+      const actorId = await requireAuthUser(req);
+      const actor = await getOrSeedActorMember(req.params.spaceId, actorId);
+      if (!actor || (actor.role !== "owner" && actor.role !== "admin")) {
+        throw new ForbiddenError("Only space owners or admins can generate share links");
+      }
+      const token = crypto.randomBytes(16).toString("hex");
+      const passphraseHash = req.body?.passphrase?.trim()
+        ? crypto.createHash("sha256").update(req.body.passphrase.trim()).digest("hex")
+        : null;
+      const days = Math.min(Math.max(Number(req.body?.expiresInDays || 30), 1), 365);
+      const expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
+      const record = {
+        id: crypto.randomUUID(),
+        spaceId: req.params.spaceId,
+        createdBy: actorId,
+        token,
+        hasPassphrase: Boolean(passphraseHash),
+        allowDownloads: Boolean(req.body?.allowDownloads),
+        expiresAt,
+        accessCount: 0,
+        createdAt: new Date().toISOString(),
+      };
+      if (dbUrl) {
+        await db.query(
+          `INSERT INTO space_share_links (id, space_id, created_by, token, passphrase_hash, allow_downloads, expires_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [record.id, record.spaceId, actorId, token, passphraseHash, record.allowDownloads, expiresAt]
+        );
+      } else {
+        memShareLinks.set(token, { ...record, passphraseHash });
+      }
+      return reply.status(201).send(createSuccessResponse(record));
+    }
+  );
+
+  app.post(
+    "/api/v1/collab/share-links/:token/verify",
+    async (req: FastifyRequest<{ Params: { token: string }; Body?: { passphrase?: string } }>, reply) => {
+      const { token } = req.params;
+      const providedHash = req.body?.passphrase?.trim()
+        ? crypto.createHash("sha256").update(req.body.passphrase.trim()).digest("hex")
+        : null;
+      if (dbUrl) {
+        const res = await db.query(
+          `SELECT id, space_id as "spaceId", passphrase_hash as "passphraseHash", allow_downloads as "allowDownloads",
+                  expires_at::text as "expiresAt", revoked_at as "revokedAt"
+           FROM space_share_links WHERE token = $1 LIMIT 1`,
+          [token]
+        );
+        const link = res.rows[0];
+        if (!link || link.revokedAt || (link.expiresAt && new Date(link.expiresAt).getTime() <= Date.now())) {
+          return reply.status(404).send(createErrorResponse("SHARE_LINK_INVALID", "Share link is invalid or expired"));
+        }
+        if (link.passphraseHash && link.passphraseHash !== providedHash) {
+          return reply.status(403).send(createErrorResponse("PASSPHRASE_REQUIRED", "Valid passphrase required"));
+        }
+        await db.query(`UPDATE space_share_links SET access_count = access_count + 1 WHERE id = $1`, [link.id]);
+        return reply.status(200).send(
+          createSuccessResponse({ valid: true, spaceId: link.spaceId, allowDownloads: link.allowDownloads, expiresAt: link.expiresAt })
+        );
+      }
+      const link = memShareLinks.get(token);
+      if (!link || link.revokedAt) {
+        return reply.status(404).send(createErrorResponse("SHARE_LINK_INVALID", "Share link not found"));
+      }
+      if (link.passphraseHash && link.passphraseHash !== providedHash) {
+        return reply.status(403).send(createErrorResponse("PASSPHRASE_REQUIRED", "Valid passphrase required"));
+      }
+      link.accessCount = (link.accessCount || 0) + 1;
+      return reply.status(200).send(
+        createSuccessResponse({ valid: true, spaceId: link.spaceId, allowDownloads: link.allowDownloads, expiresAt: link.expiresAt })
+      );
+    }
+  );
+
   return app;
 }
 

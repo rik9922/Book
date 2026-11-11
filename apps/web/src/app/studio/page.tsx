@@ -2,17 +2,25 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { BookOpen, CheckCircle2, Lock, Package, Plus, Save, Sparkles } from "lucide-react";
+import { ArrowDown, ArrowUp, BookOpen, CheckCircle2, Copy, Eye, Layers, Lock, Package, Plus, Save, Sparkles } from "lucide-react";
 import { BOOK_LEATHER_SWATCHES } from "@memory-capsule/contracts/book-3d";
 import { AppShell } from "@/components/AppShell";
 import { ClientStudioMount } from "@/components/3d/ClientStudioMount";
 import {
   apiRequest,
   BookDTO,
+  cloneNextBookEdition,
+  curateBookMemories,
+  getBookChapters,
+  getBookEditions,
+  getBookProof,
   getStoredSession,
+  MemoryDTO,
   MemorySpaceDTO,
   PreflightReportDTO,
   PrintOrderDTO,
+  reorderBookSpreads,
+  saveBookChapters,
 } from "@/lib/api";
 
 const COVER_SWATCHES = BOOK_LEATHER_SWATCHES.map((s) => ({
@@ -46,6 +54,12 @@ export default function BookStudioPage() {
   const [spreadTitle, setSpreadTitle] = useState("");
   const [spreadCaption, setSpreadCaption] = useState("");
   const [preflight, setPreflight] = useState<PreflightReportDTO | null>(null);
+  const [spaceMemories, setSpaceMemories] = useState<MemoryDTO[]>([]);
+  const [selectedMemoryIds, setSelectedMemoryIds] = useState<string[]>([]);
+  const [chapters, setChapters] = useState<Array<{ id?: string; title: string; subtitle?: string }>>([]);
+  const [newChapterTitle, setNewChapterTitle] = useState("");
+  const [editions, setEditions] = useState<Array<{ editionNumber: number; status: string; editionHash: string | null; spreadCount: number; updatedAt: string }>>([]);
+  const [proofView, setProofView] = useState<{ pageCount: number; bleedMm: number; safeMarginMm: number } | null>(null);
 
   // Checkout shipping
   const [recipientName, setRecipientName] = useState("");
@@ -64,6 +78,8 @@ export default function BookStudioPage() {
       const textEl = firstSpread?.rightPage?.elements?.find((el: { type?: string }) => el.type === "text" || el.type === "caption");
       setSpreadTitle(headingEl?.content || book.title || "Chapter I — Beginnings");
       setSpreadCaption(textEl?.content || "Preserved from our family vault.");
+      getBookChapters(book.id).then(setChapters).catch(() => setChapters([]));
+      getBookEditions(book.id).then(setEditions).catch(() => setEditions([]));
     }
   }, []);
 
@@ -71,13 +87,14 @@ export default function BookStudioPage() {
     async (targetSpaceId: string) => {
       if (!targetSpaceId) return;
       try {
-        const [booksRes, ordersRes] = await Promise.allSettled([
+        const [booksRes, ordersRes, memRes] = await Promise.allSettled([
           apiRequest<{ books?: BookDTO[]; items?: BookDTO[] } | BookDTO[]>(
             `/spaces/${targetSpaceId}/books`
           ),
           apiRequest<{ orders?: PrintOrderDTO[]; items?: PrintOrderDTO[] } | PrintOrderDTO[]>(
             `/orders/spaces/${targetSpaceId}`
           ),
+          apiRequest<{ items?: MemoryDTO[] } | MemoryDTO[]>(`/spaces/${targetSpaceId}/memories?limit=50`),
         ]);
 
         if (booksRes.status === "fulfilled") {
@@ -89,6 +106,10 @@ export default function BookStudioPage() {
         if (ordersRes.status === "fulfilled") {
           const val = ordersRes.value;
           setOrders(Array.isArray(val) ? val : val.orders || val.items || []);
+        }
+        if (memRes.status === "fulfilled") {
+          const val = memRes.value;
+          setSpaceMemories(Array.isArray(val) ? val : val.items || []);
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to load book studio.");
@@ -324,6 +345,80 @@ export default function BookStudioPage() {
       setNotice(`Print order #${order.id.slice(0, 8)} queued (${order.status}).`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Print order checkout failed.");
+    }
+  };
+
+  const handleCurateIntoBook = async () => {
+    if (!selectedBook || selectedMemoryIds.length === 0) return;
+    setError(null);
+    setNotice(null);
+    try {
+      const chosen = spaceMemories.filter((m) => selectedMemoryIds.includes(m.id));
+      const updated = await curateBookMemories(
+        selectedBook.id,
+        chosen.map((m) => ({ id: m.id, title: m.title, content: m.content, capturedAt: m.capturedAt }))
+      );
+      setBooks((prev) => prev.map((b) => (b.id === updated.id ? updated : b)));
+      syncSelectedBook(updated);
+      setSelectedMemoryIds([]);
+      setNotice(`Compiled ${chosen.length} curated memories into chronological book spreads.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to curate memories.");
+    }
+  };
+
+  const handleAddChapter = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedBook || !newChapterTitle.trim()) return;
+    const next = [...chapters, { title: newChapterTitle.trim() }];
+    try {
+      await saveBookChapters(selectedBook.id, next);
+      setChapters(next);
+      setNewChapterTitle("");
+      setNotice("Saved chapter structure.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save chapters.");
+    }
+  };
+
+  const handleMoveSpread = async (idx: number, dir: -1 | 1) => {
+    if (!selectedBook) return;
+    const spreads = [...(selectedBook.spreads || [])];
+    const target = idx + dir;
+    if (target < 0 || target >= spreads.length) return;
+    const [item] = spreads.splice(idx, 1);
+    spreads.splice(target, 0, item);
+    try {
+      const updated = await reorderBookSpreads(selectedBook.id, spreads.map((s) => s.id));
+      setBooks((prev) => prev.map((b) => (b.id === updated.id ? updated : b)));
+      syncSelectedBook(updated);
+      setNotice("Reordered book spreads.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to reorder spreads.");
+    }
+  };
+
+  const handleLoadProof = async () => {
+    if (!selectedBook) return;
+    try {
+      const p = await getBookProof(selectedBook.id);
+      setProofView({ pageCount: p.pageCount, bleedMm: p.bleedMm, safeMarginMm: p.safeMarginMm });
+      setPreflight(p.preflight);
+      setNotice(`2D Full Book Proof ready (${p.pageCount} pages, ${p.bleedMm}mm bleed).`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to load 2D proof.");
+    }
+  };
+
+  const handleCloneEdition = async () => {
+    if (!selectedBook) return;
+    try {
+      const cloned = await cloneNextBookEdition(selectedBook.id);
+      setBooks((prev) => [cloned, ...prev]);
+      syncSelectedBook(cloned);
+      setNotice(`Created "${cloned.title}" as editable next edition.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to clone edition.");
     }
   };
 
@@ -746,6 +841,139 @@ export default function BookStudioPage() {
               )}
             </aside>
           </div>
+
+          {/* Curation Wizard, Chapters, Spread Reorder, 2D Proofing & Edition History (PWA-59..70) */}
+          {selectedBook && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <section className="bg-[#FFFFFF] rounded-2xl border border-[#E7E2DA] p-6 space-y-4">
+                <h2 className="font-serif text-lg font-bold text-[#20242C] flex items-center gap-2">
+                  <Layers className="w-4 h-4 text-[#76556F]" aria-hidden="true" />
+                  Memory Curation &amp; Chapter Organizer
+                </h2>
+                <div className="space-y-2 max-h-40 overflow-y-auto">
+                  {spaceMemories.length === 0 ? (
+                    <p className="text-xs text-[#5C5955]">No space memories yet. Add memories in /archive.</p>
+                  ) : (
+                    spaceMemories.map((m) => (
+                      <label key={m.id} className="flex items-center gap-2 p-2 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] text-xs">
+                        <input
+                          type="checkbox"
+                          checked={selectedMemoryIds.includes(m.id)}
+                          onChange={(e) =>
+                            setSelectedMemoryIds((prev) =>
+                              e.target.checked ? [...prev, m.id] : prev.filter((id) => id !== m.id)
+                            )
+                          }
+                        />
+                        <span className="font-semibold text-[#20242C] truncate">{m.title}</span>
+                      </label>
+                    ))
+                  )}
+                </div>
+                <button
+                  type="button"
+                  disabled={selectedBook.isFrozenForPrint || selectedMemoryIds.length === 0}
+                  onClick={handleCurateIntoBook}
+                  className="px-4 py-2 rounded-xl bg-[#76556F] text-white text-xs font-semibold disabled:opacity-40"
+                >
+                  Auto-Compile Selected ({selectedMemoryIds.length}) into Chronological Spreads
+                </button>
+
+                <form onSubmit={handleAddChapter} className="pt-3 border-t border-[#F0ECE1] flex gap-2">
+                  <input
+                    type="text"
+                    value={newChapterTitle}
+                    onChange={(e) => setNewChapterTitle(e.target.value)}
+                    placeholder="Add chapter divider title..."
+                    className="flex-1 px-3 py-2 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] text-xs"
+                  />
+                  <button type="submit" disabled={selectedBook.isFrozenForPrint} className="px-4 py-2 rounded-xl bg-[#20242C] text-white text-xs font-semibold disabled:opacity-40">
+                    Add Chapter
+                  </button>
+                </form>
+                {chapters.length > 0 && (
+                  <ul className="space-y-1 text-xs">
+                    {chapters.map((c, i) => (
+                      <li key={`${c.title}-${i}`} className="p-2 rounded-lg bg-[#F7F4EE]">
+                        Chapter {i + 1}: <strong>{c.title}</strong>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+
+              <section className="bg-[#FFFFFF] rounded-2xl border border-[#E7E2DA] p-6 space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h2 className="font-serif text-lg font-bold text-[#20242C]">
+                    Page Manager, 2D Proof &amp; Editions
+                  </h2>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={handleLoadProof}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[#F0ECE1] text-xs font-semibold text-[#20242C]"
+                    >
+                      <Eye className="w-3.5 h-3.5" aria-hidden="true" />
+                      2D Proof
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleCloneEdition}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[#20242C] text-white text-xs font-semibold"
+                    >
+                      <Copy className="w-3.5 h-3.5" aria-hidden="true" />
+                      Clone Edition {selectedBook.version + 1}
+                    </button>
+                  </div>
+                </div>
+
+                {proofView && (
+                  <div className="p-3 rounded-xl bg-[#EEF3EE] border border-[#C6D4C5] text-xs text-[#3C503B]">
+                    2D Proofing Active: {proofView.pageCount} pages • {proofView.bleedMm}mm trim bleed • {proofView.safeMarginMm}mm safe gutter
+                  </div>
+                )}
+
+                <div className="space-y-2 max-h-40 overflow-y-auto">
+                  {(selectedBook.spreads || []).map((s, idx) => (
+                    <div key={s.id} className="p-2.5 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] flex items-center justify-between text-xs">
+                      <span>Spread #{idx + 1} (Pages {idx * 2 + 1}–{idx * 2 + 2})</span>
+                      <div className="flex gap-1">
+                        <button
+                          type="button"
+                          disabled={selectedBook.isFrozenForPrint || idx === 0}
+                          onClick={() => handleMoveSpread(idx, -1)}
+                          aria-label={`Move spread ${idx + 1} up`}
+                          className="p-1.5 rounded-lg bg-white border border-[#E7E2DA] disabled:opacity-40"
+                        >
+                          <ArrowUp className="w-3 h-3" />
+                        </button>
+                        <button
+                          type="button"
+                          disabled={selectedBook.isFrozenForPrint || idx === (selectedBook.spreads?.length || 1) - 1}
+                          onClick={() => handleMoveSpread(idx, 1)}
+                          aria-label={`Move spread ${idx + 1} down`}
+                          className="p-1.5 rounded-lg bg-white border border-[#E7E2DA] disabled:opacity-40"
+                        >
+                          <ArrowDown className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {editions.length > 0 && (
+                  <div className="pt-2 border-t border-[#F0ECE1] text-xs space-y-1">
+                    <p className="font-semibold text-[#20242C]">Edition Ledger</p>
+                    {editions.map((ed) => (
+                      <p key={ed.editionNumber} className="text-[#5C5955]">
+                        Edition {ed.editionNumber} • {ed.status} {ed.editionHash ? `• SHA-256 ${ed.editionHash.slice(0, 12)}...` : ""}
+                      </p>
+                    ))}
+                  </div>
+                )}
+              </section>
+            </div>
+          )}
         </div>
       )}
     </AppShell>

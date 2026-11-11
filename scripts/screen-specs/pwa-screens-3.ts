@@ -425,7 +425,7 @@ export const pwaScreens3: ScreenSpec[] = [
       e2e: ["selects 10 memories, verifies estimated page count is 8, continues"]
     },
     uiComponents: ["CurationGrid", "SelectionBadge", "PageEstimator", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "PWA-61",
@@ -509,7 +509,7 @@ export const pwaScreens3: ScreenSpec[] = [
       e2e: ["creates 'The Early Years' chapter, reorders to first position, continues"]
     },
     uiComponents: ["ChapterList", "ChapterCard", "DragHandle", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "PWA-62",
@@ -859,7 +859,7 @@ export const pwaScreens3: ScreenSpec[] = [
       e2e: ["drags spread 3 to position 1, verifies renumbered pages"]
     },
     uiComponents: ["PageManagerGrid", "SpreadThumbnail", "DragHandle", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "PWA-66",
@@ -1278,7 +1278,7 @@ export const pwaScreens3: ScreenSpec[] = [
       e2e: ["views Edition 1, copies hash, clicks 'Branch as New Edition'"]
     },
     uiComponents: ["EditionTimeline", "EditionCard", "ChecksumBadge", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
 
   // ==========================================
@@ -1364,7 +1364,7 @@ export const pwaScreens3: ScreenSpec[] = [
       e2e: ["selects 170gsm Lustre, sets quantity 2, verifies updated total, clicks Continue"]
     },
     uiComponents: ["StockSelector", "BindingPicker", "QuantityStepper", "PriceSummary", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "PWA-72",
@@ -1456,7 +1456,7 @@ export const pwaScreens3: ScreenSpec[] = [
       e2e: ["fills address form, selects Standard shipping, continues to checkout"]
     },
     uiComponents: ["ShippingForm", "CourierSpeedSelector", "OrderSummarySidebar", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "PWA-73",
@@ -1538,7 +1538,7 @@ export const pwaScreens3: ScreenSpec[] = [
       e2e: ["submits test order, observes confirmation redirect with order ID"]
     },
     uiComponents: ["CheckoutReview", "InvoiceTable", "PaymentCard", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "PWA-74",
@@ -1619,7 +1619,7 @@ export const pwaScreens3: ScreenSpec[] = [
       e2e: ["verifies order confirmation details match placed items"]
     },
     uiComponents: ["ReceiptCard", "ConfirmationHeader", "PrintButton", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "PWA-75",
@@ -1700,7 +1700,7 @@ export const pwaScreens3: ScreenSpec[] = [
       e2e: ["navigates to tracking, verifies current production step"]
     },
     uiComponents: ["OrderStepper", "StageCard", "CourierLink", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "PWA-76",
@@ -1782,7 +1782,7 @@ export const pwaScreens3: ScreenSpec[] = [
       e2e: ["selects 3 copies for reorder, proceeds to checkout"]
     },
     uiComponents: ["ReorderCard", "QuantityStepper", "ChecksumBadge", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
 
   // ==========================================
@@ -2043,7 +2043,7 @@ export const pwaScreens3: ScreenSpec[] = [
       e2e: ["changes signed link duration to 15m, clicks Save, confirms confirmation toast"]
     },
     uiComponents: ["PrivacyCard", "DurationDropdown", "AuditLogTable", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "PWA-80",
@@ -2301,7 +2301,7 @@ export const pwaScreens3: ScreenSpec[] = [
       e2e: ["presses '?', views shortcuts dialog, closes modal, submits support ticket"]
     },
     uiComponents: ["ShortcutsCheatSheet", "DocSearch", "TicketForm", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   }
 ];
 
