@@ -277,4 +277,167 @@ describe("Interactive Chrome / Playwright DOM, WebGL, SW Offline & 401 Refresh E
     await context.setOffline(false);
     await context.close();
   });
+
+  test("4. Full Interactive Form Flows in Chrome: Onboarding -> Profiles -> Collections -> Archive Modal/Offline Queue -> Trash -> Studio/Billing/Orders -> Export/Settings", async () => {
+    assert.ok(browser, "Browser must be initialized");
+    const context = await browser.newContext({ acceptDownloads: true });
+    const page = await context.newPage();
+    const pageErrors: string[] = [];
+    page.on("pageerror", (err) => pageErrors.push(err.message));
+
+    await page.addInitScript((apiUrl: string) => {
+      window.localStorage.setItem("memoria_api_url_override", apiUrl);
+    }, gatewayUrl);
+
+    // Register fresh user
+    const email = `e2e_flow_${Date.now()}@memoria.internal`;
+    await page.goto(`${WEB_BASE}/auth?mode=register`, { waitUntil: "networkidle" });
+    await page.fill("#auth-fullname", "Clara Vance");
+    await page.fill("#auth-email", email);
+    await page.fill("#auth-password", "HeirloomFlow123!");
+    await page.click('button[type="submit"]');
+    await page.waitForFunction(() => Boolean(window.localStorage.getItem("memoria_web_access_token")), {
+      timeout: 10000,
+    });
+
+    // 1. /onboarding 5-step wizard
+    await page.goto(`${WEB_BASE}/onboarding`, { waitUntil: "networkidle" });
+    await page.click('button:has-text("Continue to Create Space")');
+    await page.fill("#onb-space-name", "Vance Heritage Vault");
+    await page.fill("#onb-space-desc", "Generational portraits and stories");
+    await page.click('button:has-text("Create Space & Continue")');
+    await page.waitForSelector("#onb-prof-name", { timeout: 10000 });
+
+    await page.fill("#onb-prof-name", "Julian Vance");
+    await page.fill("#onb-prof-rel", "Grandfather");
+    await page.click('button:has-text("Save Profile & Continue")');
+    await page.waitForSelector("#onb-invite-email", { timeout: 10000 });
+
+    // Step 4: Invitation MUST succeed without 403 because space creator is auto-seeded as owner!
+    await page.fill("#onb-invite-email", "elena@family.local");
+    await page.click('button:has-text("Send Invite & Continue")');
+    await page.waitForSelector("#onb-mem-title", { timeout: 10000 });
+
+    await page.fill("#onb-mem-title", "Orchard Harvest 1984");
+    await page.fill("#onb-mem-story", "Late autumn apple pressing in the barn.");
+    await page.click('button:has-text("Save First Memory")');
+    await page.getByText("First heirloom memory preserved").waitFor({ state: "visible", timeout: 10000 });
+
+    // 2. /profiles update flow
+    await page.goto(`${WEB_BASE}/profiles`, { waitUntil: "networkidle" });
+    await page.getByText("Julian Vance").first().waitFor({ state: "visible", timeout: 10000 });
+    await page.fill("#edit-prof-name", "Julian Vance Sr.");
+    await page.click('button:has-text("Update Profile")');
+    await page.getByText("Julian Vance Sr.").first().waitFor({ state: "visible", timeout: 10000 });
+
+    // 3. /collections create + link memory
+    await page.goto(`${WEB_BASE}/collections`, { waitUntil: "networkidle" });
+    await page.fill("#col-title", "Autumn Harvests");
+    await page.click('button:has-text("Create Collection")');
+    await page.getByText("Autumn Harvests").first().waitFor({ state: "visible", timeout: 10000 });
+    await page.click('button:has-text("Add to Collection")');
+    await page.getByText("Added memory to collection.").waitFor({ state: "visible", timeout: 10000 });
+
+    // 4. /archive modal inert + Tab trap + comment + offline mutation queue replay + soft-delete
+    await page.goto(`${WEB_BASE}/archive`, { waitUntil: "networkidle" });
+    await page.getByText("Orchard Harvest 1984").first().waitFor({ state: "visible", timeout: 10000 });
+    await page.click('button:has-text("Orchard Harvest 1984")');
+    const memDialog = page.getByRole("dialog");
+    await memDialog.waitFor({ state: "visible" });
+    const shellInertDuringArchiveModal = await page.evaluate(() =>
+      document.getElementById("app-shell-root")?.hasAttribute("inert")
+    );
+    assert.equal(shellInertDuringArchiveModal, true, "Expected #app-shell-root inert during archive modal");
+    await page.fill("#memory-comment-input", "Grandpa loved cider season.");
+    await page.click('button:has-text("Post")');
+    await page.getByText("Grandpa loved cider season.").waitFor({ state: "visible", timeout: 10000 });
+
+    // Soft-delete memory -> moves to /trash
+    await page.click('button:has-text("Delete Memory")');
+    await memDialog.waitFor({ state: "hidden" });
+    await page.getByText("Moved memory to Trash").waitFor({ state: "visible", timeout: 10000 });
+
+    // Offline mutation queue in Chrome: go offline, queue a memory, go online, verify flush!
+    await context.setOffline(true);
+    await page.evaluate(() => window.dispatchEvent(new Event("offline")));
+    await page.getByText("Offline", { exact: true }).first().waitFor({ state: "visible", timeout: 5000 });
+    await page.click('button:has-text("Preserve Memory")');
+    await page.fill("#mem-title", "Offline Queued Letter");
+    await page.fill("#mem-content", "Queued while offline and synced automatically.");
+    await page.click('button:has-text("Save to Archive")');
+    await page.getByText("Offline: Memory queued safely").waitFor({ state: "visible", timeout: 5000 });
+
+    await context.setOffline(false);
+    await page.evaluate(() => window.dispatchEvent(new Event("online")));
+    await page.waitForFunction(
+      () => {
+        const raw = window.localStorage.getItem("memoria_offline_queue");
+        return !raw || JSON.parse(raw).length === 0;
+      },
+      { timeout: 10000 }
+    );
+    await page.reload({ waitUntil: "networkidle" });
+    await page.getByText("Offline Queued Letter").first().waitFor({ state: "visible", timeout: 10000 });
+
+    // 5. /trash restore memory
+    await page.goto(`${WEB_BASE}/trash`, { waitUntil: "networkidle" });
+    await page.getByText("Orchard Harvest 1984").first().waitFor({ state: "visible", timeout: 10000 });
+    await page.click('button:has-text("Restore")');
+    await page.getByText("Restored").first().waitFor({ state: "visible", timeout: 10000 });
+
+    // 6. /studio -> /billing -> /orders (including Proof Receipt modal inert & Tab trap)
+    await page.goto(`${WEB_BASE}/studio`, { waitUntil: "networkidle" });
+    await page.fill("#new-book-title", "Vance Family Almanac");
+    await page.click('button:has-text("Create Hardcover Edition")');
+    await page.getByText("Created edition").waitFor({ state: "visible", timeout: 10000 });
+
+    await page.goto(`${WEB_BASE}/billing`, { waitUntil: "networkidle" });
+    await page.waitForFunction(
+      () => {
+        const sel = document.getElementById("order-book") as HTMLSelectElement | null;
+        return Boolean(sel && sel.value && sel.value.length > 0);
+      },
+      { timeout: 10000 }
+    );
+    await page.click('button:has-text("Calculate Live Press Quote")');
+    await page.fill("#ship-name", "Clara Vance");
+    await page.fill("#ship-street", "420 Archival Way");
+    await page.fill("#ship-city", "Portland");
+    await page.fill("#ship-zip", "97205");
+    await page.click('button:has-text("Place Sandbox Print Order")');
+    await page.getByText("Sandbox print order").waitFor({ state: "visible", timeout: 10000 });
+
+    await page.goto(`${WEB_BASE}/orders`, { waitUntil: "networkidle" });
+    await page.waitForSelector('button:has-text("Proof Receipt")', { timeout: 10000 });
+    await page.click('button:has-text("Proof Receipt")');
+    const receiptDialog = page.getByRole("dialog");
+    await receiptDialog.waitFor({ state: "visible" });
+    const shellInertDuringReceipt = await page.evaluate(() =>
+      document.getElementById("app-shell-root")?.hasAttribute("inert")
+    );
+    assert.equal(shellInertDuringReceipt, true, "Expected #app-shell-root inert during receipt modal");
+    await page.keyboard.press("Tab");
+    const focusInsideReceipt = await page.evaluate(() =>
+      Boolean(document.querySelector('[role="dialog"]')?.contains(document.activeElement))
+    );
+    assert.equal(focusInsideReceipt, true, "Expected Tab focus trapped inside receipt dialog");
+    await page.keyboard.press("Escape");
+    await receiptDialog.waitFor({ state: "hidden" });
+
+    // 7. /export download + /settings display name update
+    await page.goto(`${WEB_BASE}/export`, { waitUntil: "networkidle" });
+    const downloadPromise = page.waitForEvent("download");
+    await page.click('button:has-text("Download Verified Space Bundle")');
+    const download = await downloadPromise;
+    assert.ok(download.suggestedFilename().startsWith("memoria-space-"));
+    await page.getByText("Integrity SHA-256:").waitFor({ state: "visible", timeout: 10000 });
+
+    await page.goto(`${WEB_BASE}/settings`, { waitUntil: "networkidle" });
+    await page.fill("#settings-fullname", "Clara Vance-Bennett");
+    await page.click('button:has-text("Save Display Name")');
+    await page.getByText("Profile display name updated.").waitFor({ state: "visible", timeout: 10000 });
+
+    assert.equal(pageErrors.length, 0, `Unexpected page errors: ${pageErrors.join("; ")}`);
+    await context.close();
+  });
 });

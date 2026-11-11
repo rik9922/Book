@@ -8,6 +8,7 @@ import {
   apiRequest,
   createProfile,
   createSpace,
+  fetchSpaces,
   getStoredSession,
   MemorySpaceDTO,
   SpaceProfileDTO,
@@ -46,8 +47,21 @@ export default function OnboardingPage() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
+  const [existingSpaces, setExistingSpaces] = useState<MemorySpaceDTO[]>([]);
+
   useEffect(() => {
-    setSignedIn(Boolean(getStoredSession().accessToken));
+    const isAuth = Boolean(getStoredSession().accessToken);
+    setSignedIn(isAuth);
+    if (isAuth) {
+      fetchSpaces()
+        .then((list) => {
+          setExistingSpaces(list);
+          if (list.length > 0) {
+            setCreatedSpace((prev) => prev || list[0]);
+          }
+        })
+        .catch(() => undefined);
+    }
   }, []);
 
   const handleCreateSpace = async (e: React.FormEvent) => {
@@ -205,6 +219,42 @@ export default function OnboardingPage() {
         {notice && (
           <div role="status" className="p-4 rounded-xl bg-[#EEF3EE] border border-[#C6D4C5] text-xs text-[#3C503B]">
             {notice}
+          </div>
+        )}
+
+        {step >= 3 && !createdSpace && (
+          <div className="p-4 rounded-xl bg-[#FDF5E6] border border-[#F2D8A7] text-xs text-[#85530E] flex flex-wrap items-center justify-between gap-3">
+            <span>Create or select a Memory Space in Step 2 before adding profiles, invites, or memories.</span>
+            <button
+              type="button"
+              onClick={() => setStep(2)}
+              className="px-3 py-1.5 rounded-lg bg-[#20242C] text-white text-xs font-semibold"
+            >
+              Go to Step 2
+            </button>
+          </div>
+        )}
+
+        {step >= 3 && createdSpace && existingSpaces.length > 0 && (
+          <div className="p-3.5 rounded-xl bg-[#FFFFFF] border border-[#E7E2DA] text-xs flex flex-wrap items-center justify-between gap-3">
+            <span>
+              Active Onboarding Space: <strong className="text-[#20242C]">{createdSpace.name}</strong>
+            </span>
+            <select
+              aria-label="Switch onboarding space"
+              value={createdSpace.id}
+              onChange={(e) => {
+                const match = existingSpaces.find((s) => s.id === e.target.value);
+                if (match) setCreatedSpace(match);
+              }}
+              className="px-3 py-1.5 rounded-lg bg-[#F7F4EE] border border-[#E7E2DA] text-xs"
+            >
+              {existingSpaces.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
           </div>
         )}
 

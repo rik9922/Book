@@ -43,13 +43,23 @@ export default function NotificationsPage() {
   }, [loadNotifications]);
 
   const handleMarkRead = async (id: string) => {
-    await markNotificationRead(id);
-    setItems((prev) => prev.map((n) => (n.id === id ? { ...n, isRead: true } : n)));
+    setError(null);
+    try {
+      await markNotificationRead(id);
+      setItems((prev) => prev.map((n) => (n.id === id ? { ...n, isRead: true } : n)));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to mark notification read.");
+    }
   };
 
   const handleMarkAll = async () => {
-    await markAllNotificationsRead();
-    setItems((prev) => prev.map((n) => ({ ...n, isRead: true })));
+    setError(null);
+    try {
+      await markAllNotificationsRead();
+      setItems((prev) => prev.map((n) => ({ ...n, isRead: true })));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to mark all notifications read.");
+    }
   };
 
   const visible = filter === "unread" ? items.filter((i) => !i.isRead) : items;

@@ -354,13 +354,16 @@ describe("Expanded Screen Inventory Backend Routes Suite", () => {
     assert.equal(receiptRes.statusCode, 200);
     assert.ok(JSON.parse(receiptRes.body).data.receiptNumber.startsWith("MEM-"));
 
-    // Collab list & revoke invitations
-    await collabApp.inject({
+    // Collab list & revoke invitations WITHOUT manual member seeding (auto-seeded owner + BOLA block on outsider)
+    const outsiderToken = signToken(crypto.randomUUID(), "outsider@memoria.internal");
+    const hijackAttempt = await collabApp.inject({
       method: "POST",
       url: `/api/v1/collab/spaces/${spaceId}/members`,
-      headers,
+      headers: { authorization: `Bearer ${outsiderToken}` },
       payload: { userId: ownerId, role: "owner" },
     });
+    assert.equal(hijackAttempt.statusCode, 403, "Outsider must be blocked from hijacking space membership");
+
     const invCreate = await collabApp.inject({
       method: "POST",
       url: `/api/v1/collab/spaces/${spaceId}/invitations`,

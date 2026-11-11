@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import {
   Calendar,
@@ -110,7 +111,9 @@ export default function ArchivePage() {
     listMemoryComments(activeMemory.id)
       .then((list) => setComments(list))
       .catch(() => setComments([]));
+    const shellRoot = document.getElementById("app-shell-root");
     const surface = archiveSurfaceRef.current;
+    shellRoot?.setAttribute("inert", "");
     surface?.setAttribute("inert", "");
     closeButtonRef.current?.focus();
 
@@ -140,6 +143,7 @@ export default function ArchivePage() {
     window.addEventListener("keydown", onKeyDown);
     return () => {
       window.removeEventListener("keydown", onKeyDown);
+      shellRoot?.removeAttribute("inert");
       surface?.removeAttribute("inert");
     };
   }, [activeMemory]);
@@ -649,136 +653,139 @@ export default function ArchivePage() {
       </div>
 
       {/* Accessible Memory Detail Modal */}
-      {activeMemory && (
-        <div
-          className="fixed inset-0 z-50 bg-[#20242C]/50 backdrop-blur-xs flex items-center justify-center p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="modal-memory-title"
-          onClick={() => {
-            setActiveMemory(null);
-            lastTriggerRef.current?.focus();
-          }}
-        >
+      {activeMemory &&
+        typeof document !== "undefined" &&
+        createPortal(
           <div
-            ref={modalDialogRef}
-            onClick={(e) => e.stopPropagation()}
-            className="bg-[#FFFFFF] rounded-2xl border border-[#E7E2DA] max-w-xl w-full p-6 shadow-2xl space-y-4"
+            className="fixed inset-0 z-50 bg-[#20242C]/50 backdrop-blur-xs flex items-center justify-center p-4"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="modal-memory-title"
+            onClick={() => {
+              setActiveMemory(null);
+              lastTriggerRef.current?.focus();
+            }}
           >
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <span className="text-[11px] uppercase tracking-wider text-[#76556F] font-semibold">
-                  {activeMemory.format} • {new Date(activeMemory.capturedAt).toLocaleString()}
-                </span>
-                <h2 id="modal-memory-title" className="font-serif text-2xl font-bold text-[#20242C] mt-1">
-                  {activeMemory.title}
-                </h2>
-              </div>
-              <button
-                ref={closeButtonRef}
-                type="button"
-                onClick={() => {
-                  setActiveMemory(null);
-                  lastTriggerRef.current?.focus();
-                }}
-                aria-label="Close memory details"
-                className="p-2 rounded-xl bg-[#F7F4EE] text-[#20242C] hover:bg-[#E7E2DA]"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {activeMemory.location && (
-              <p className="text-xs text-[#5C5955]">Location: {activeMemory.location}</p>
-            )}
-
-            <p className="text-sm text-[#28272A] leading-relaxed whitespace-pre-wrap">
-              {activeMemory.content || "No written narrative attached."}
-            </p>
-
-            {activeMemory.tags.length > 0 && (
-              <div className="flex flex-wrap gap-1.5">
-                {activeMemory.tags.map((t) => (
-                  <span key={t} className="px-2.5 py-1 rounded-full bg-[#F0ECE1] text-xs text-[#28272A]">
-                    #{t}
+            <div
+              ref={modalDialogRef}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-[#FFFFFF] rounded-2xl border border-[#E7E2DA] max-w-xl w-full p-6 shadow-2xl space-y-4"
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <span className="text-[11px] uppercase tracking-wider text-[#76556F] font-semibold">
+                    {activeMemory.format} • {new Date(activeMemory.capturedAt).toLocaleString()}
                   </span>
-                ))}
-              </div>
-            )}
-
-            <div className="pt-4 border-t border-[#F0ECE1] space-y-2.5">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-[#76556F]">
-                Family Reflections &amp; Annotations ({comments.length})
-              </h3>
-              {comments.length > 0 && (
-                <ul className="space-y-1.5 max-h-32 overflow-y-auto">
-                  {comments.map((c) => (
-                    <li
-                      key={c.id}
-                      className="p-2.5 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] flex items-start justify-between gap-2 text-xs"
-                    >
-                      <div>
-                        <span className="font-semibold text-[#20242C]">{c.authorName}: </span>
-                        <span className="text-[#5C5955]">{c.body}</span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteComment(c.id)}
-                        aria-label="Delete comment"
-                        className="text-[11px] text-[#B6423E] hover:underline shrink-0"
-                      >
-                        Remove
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              <form onSubmit={handleAddComment} className="flex gap-2">
-                <label htmlFor="memory-comment-input" className="sr-only">
-                  Add family annotation
-                </label>
-                <input
-                  id="memory-comment-input"
-                  type="text"
-                  value={commentBody}
-                  onChange={(e) => setCommentBody(e.target.value)}
-                  placeholder="Add a family reflection..."
-                  className="flex-1 px-3 py-1.5 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] text-xs"
-                />
+                  <h2 id="modal-memory-title" className="font-serif text-2xl font-bold text-[#20242C] mt-1">
+                    {activeMemory.title}
+                  </h2>
+                </div>
                 <button
-                  type="submit"
-                  className="px-3 py-1.5 rounded-xl bg-[#76556F] text-white text-xs font-medium"
+                  ref={closeButtonRef}
+                  type="button"
+                  onClick={() => {
+                    setActiveMemory(null);
+                    lastTriggerRef.current?.focus();
+                  }}
+                  aria-label="Close memory details"
+                  className="p-2 rounded-xl bg-[#F7F4EE] text-[#20242C] hover:bg-[#E7E2DA]"
                 >
-                  Post
+                  <X className="w-4 h-4" />
                 </button>
-              </form>
-            </div>
+              </div>
 
-            <div className="flex items-center justify-between pt-4 border-t border-[#E7E2DA]">
-              <button
-                type="button"
-                onClick={() => handleToggleFavorite(activeMemory)}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#F0ECE1] text-xs font-medium text-[#20242C]"
-              >
-                <Heart
-                  className="w-3.5 h-3.5 text-[#76556F]"
-                  fill={activeMemory.isFavorite ? "currentColor" : "none"}
-                />
-                {activeMemory.isFavorite ? "Favorited" : "Mark Favorite"}
-              </button>
+              {activeMemory.location && (
+                <p className="text-xs text-[#5C5955]">Location: {activeMemory.location}</p>
+              )}
 
-              <button
-                type="button"
-                onClick={() => handleDeleteMemory(activeMemory)}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#FDF2F2] text-xs font-medium text-[#B6423E] hover:bg-[#FADADA]"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                Delete Memory
-              </button>
+              <p className="text-sm text-[#28272A] leading-relaxed whitespace-pre-wrap">
+                {activeMemory.content || "No written narrative attached."}
+              </p>
+
+              {activeMemory.tags.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {activeMemory.tags.map((t) => (
+                    <span key={t} className="px-2.5 py-1 rounded-full bg-[#F0ECE1] text-xs text-[#28272A]">
+                      #{t}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              <div className="pt-4 border-t border-[#F0ECE1] space-y-2.5">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-[#76556F]">
+                  Family Reflections &amp; Annotations ({comments.length})
+                </h3>
+                {comments.length > 0 && (
+                  <ul className="space-y-1.5 max-h-32 overflow-y-auto">
+                    {comments.map((c) => (
+                      <li
+                        key={c.id}
+                        className="p-2.5 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] flex items-start justify-between gap-2 text-xs"
+                      >
+                        <div>
+                          <span className="font-semibold text-[#20242C]">{c.authorName}: </span>
+                          <span className="text-[#5C5955]">{c.body}</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteComment(c.id)}
+                          aria-label="Delete comment"
+                          className="text-[11px] text-[#B6423E] hover:underline shrink-0"
+                        >
+                          Remove
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <form onSubmit={handleAddComment} className="flex gap-2">
+                  <label htmlFor="memory-comment-input" className="sr-only">
+                    Add family annotation
+                  </label>
+                  <input
+                    id="memory-comment-input"
+                    type="text"
+                    value={commentBody}
+                    onChange={(e) => setCommentBody(e.target.value)}
+                    placeholder="Add a family reflection..."
+                    className="flex-1 px-3 py-1.5 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] text-xs"
+                  />
+                  <button
+                    type="submit"
+                    className="px-3 py-1.5 rounded-xl bg-[#76556F] text-white text-xs font-medium"
+                  >
+                    Post
+                  </button>
+                </form>
+              </div>
+
+              <div className="flex items-center justify-between pt-4 border-t border-[#E7E2DA]">
+                <button
+                  type="button"
+                  onClick={() => handleToggleFavorite(activeMemory)}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#F0ECE1] text-xs font-medium text-[#20242C]"
+                >
+                  <Heart
+                    className="w-3.5 h-3.5 text-[#76556F]"
+                    fill={activeMemory.isFavorite ? "currentColor" : "none"}
+                  />
+                  {activeMemory.isFavorite ? "Favorited" : "Mark Favorite"}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleDeleteMemory(activeMemory)}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#FDF2F2] text-xs font-medium text-[#B6423E] hover:bg-[#FADADA]"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  Delete Memory
+                </button>
+              </div>
             </div>
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body
+        )}
     </AppShell>
   );
 }

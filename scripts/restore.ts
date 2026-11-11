@@ -145,18 +145,28 @@ export async function restoreBackup(options: {
   if (manifest.mediaArchive) {
     const mediaPath = path.join(targetDir, manifest.mediaArchive.file);
     if (existsSync(mediaPath)) {
-      const storageTarget = options.targetStorageDir
-        ? path.resolve(options.targetStorageDir)
-        : STORAGE_LOCAL;
       console.log("\n--- STEP 3: Restoring Media Storage ---");
-      await fs.mkdir(path.dirname(storageTarget), { recursive: true });
-      process.stdout.write(`  ⏳ Unpacking ${manifest.mediaArchive.file} to ${path.dirname(storageTarget)}... `);
-      await execFileAsync("tar", [
-        "-xzf",
-        mediaPath,
-        "-C",
-        path.dirname(storageTarget),
-      ]);
+      if (options.targetStorageDir) {
+        const isolatedTarget = path.resolve(options.targetStorageDir);
+        await fs.mkdir(isolatedTarget, { recursive: true });
+        process.stdout.write(`  ⏳ Unpacking ${manifest.mediaArchive.file} into isolated directory ${isolatedTarget}... `);
+        await execFileAsync("tar", [
+          "-xzf",
+          mediaPath,
+          "-C",
+          isolatedTarget,
+          "--strip-components=1",
+        ]);
+      } else {
+        await fs.mkdir(path.dirname(STORAGE_LOCAL), { recursive: true });
+        process.stdout.write(`  ⏳ Unpacking ${manifest.mediaArchive.file} to ${path.dirname(STORAGE_LOCAL)}... `);
+        await execFileAsync("tar", [
+          "-xzf",
+          mediaPath,
+          "-C",
+          path.dirname(STORAGE_LOCAL),
+        ]);
+      }
       process.stdout.write("🟢 RESTORED\n");
     }
   }

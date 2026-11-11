@@ -91,7 +91,7 @@ export function AppShell({
   };
 
   return (
-    <div className="min-h-screen bg-[#F7F4EE] text-[#28272A] flex flex-col">
+    <div id="app-shell-root" className="min-h-screen bg-[#F7F4EE] text-[#28272A] flex flex-col">
       <header className="sticky top-0 z-40 bg-[#F7F4EE]/95 backdrop-blur-md border-b border-[#E7E2DA]">
         <div className="max-w-7xl mx-auto px-4 sm:px-8 h-16 flex items-center justify-between gap-4">
           <Link href="/" className="flex items-center gap-2.5 shrink-0">

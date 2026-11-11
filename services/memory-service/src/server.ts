@@ -420,6 +420,19 @@ export async function buildMemoryService(): Promise<FastifyInstance> {
     };
 
     await spaceRepo.createSpace(space);
+    if (collabRepo) {
+      await collabRepo.addMember({
+        id: crypto.randomUUID(),
+        spaceId,
+        userId,
+        role: "owner",
+        permissions: {
+          can_create_memories: true,
+          can_edit_books: true,
+          can_invite: true,
+        },
+      });
+    }
     await publishDomainEvent("memory.space.created", "space.created", spaceId, {
       spaceId,
       ownerId: userId,

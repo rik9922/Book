@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import Image from "next/image";
 import {
@@ -23,7 +24,15 @@ import {
   SlidersHorizontal,
   X,
 } from "lucide-react";
-import { getApiBaseUrl, apiRequest, getStoredSession, MemorySpaceDTO } from "@/lib/api";
+import {
+  getApiBaseUrl,
+  apiRequest,
+  getBookCatalog,
+  getStoredSession,
+  listMyOrders,
+  MemorySpaceDTO,
+  PrintCatalogDTO,
+} from "@/lib/api";
 
 interface SpaceRecord {
   id: string;
@@ -127,6 +136,7 @@ export default function AdminPortalPage() {
   );
   const [spaces, setSpaces] = useState<SpaceRecord[]>(SAMPLE_SPACES);
   const [orders, setOrders] = useState<OrderRecord[]>(INITIAL_ORDERS);
+  const [catalog, setCatalog] = useState<PrintCatalogDTO | null>(null);
   const [gatewayStatus, setGatewayStatus] = useState<"checking" | "online" | "offline">("checking");
   const [ocrEngineStatus, setOcrEngineStatus] = useState<string>("Checking...");
   const [inspectedSpace, setInspectedSpace] = useState<SpaceRecord | null>(null);
@@ -159,8 +169,29 @@ export default function AdminPortalPage() {
       setOcrEngineStatus("Offline");
     }
 
+    getBookCatalog()
+      .then((cat) => setCatalog(cat))
+      .catch(() => setCatalog(null));
+
     const session = getStoredSession();
     if (session.accessToken) {
+      listMyOrders()
+        .then((liveOrders) => {
+          if (liveOrders.length > 0) {
+            const mapped: OrderRecord[] = liveOrders.map((o) => ({
+              id: o.id.slice(0, 10).toUpperCase(),
+              bookTitle: `Edition ${o.bookId.slice(0, 8)}`,
+              spaceName: o.spaceId.slice(0, 8),
+              recipient: `${o.shippingAddress?.recipientName || "Archive Owner"} • ${o.shippingAddress?.city || "Local"}`,
+              format: o.printSpec?.binding === "french_morocco" ? "French-Morocco Leather" : "Bookcloth Linen Hardcover",
+              status: o.status === "shipped" || o.status === "delivered" ? "shipped" : o.status === "in_production" ? "printing" : o.status === "preflight_passed" ? "preflight_ok" : "queued",
+              amount: `$${(o.totalCents / 100).toFixed(2)}`,
+            }));
+            setOrders([...mapped, ...INITIAL_ORDERS]);
+          }
+        })
+        .catch(() => undefined);
+
       apiRequest<{ spaces?: MemorySpaceDTO[]; items?: MemorySpaceDTO[] } | MemorySpaceDTO[]>(
         "/spaces"
       )
@@ -649,18 +680,29 @@ export default function AdminPortalPage() {
                   Print Catalog &amp; Pass-Through Rates
                 </h2>
                 <ul className="space-y-2 text-xs text-[#5C5955]">
-                  <li className="p-3 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] flex justify-between">
-                    <span>8×8&quot; Square Linen Hardcover</span>
-                    <span className="font-mono font-semibold text-[#20242C]">$42.00</span>
-                  </li>
-                  <li className="p-3 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] flex justify-between">
-                    <span>8×10&quot; Standard Archive Hardcover</span>
-                    <span className="font-mono font-semibold text-[#20242C]">$48.00</span>
-                  </li>
-                  <li className="p-3 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] flex justify-between">
-                    <span>12×12&quot; Grand French-Morocco Leather</span>
-                    <span className="font-mono font-semibold text-[#20242C]">$88.00</span>
-                  </li>
+                  {catalog ? (
+                    catalog.formats.map((f) => (
+                      <li key={f.id} className="p-3 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] flex justify-between">
+                        <span>{f.label} ({f.dimensionsCm})</span>
+                        <span className="font-mono font-semibold text-[#20242C]">${(f.baseCents / 100).toFixed(2)}</span>
+                      </li>
+                    ))
+                  ) : (
+                    <>
+                      <li className="p-3 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] flex justify-between">
+                        <span>8×8&quot; Square Linen Hardcover</span>
+                        <span className="font-mono font-semibold text-[#20242C]">$42.00</span>
+                      </li>
+                      <li className="p-3 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] flex justify-between">
+                        <span>8×10&quot; Standard Archive Hardcover</span>
+                        <span className="font-mono font-semibold text-[#20242C]">$48.00</span>
+                      </li>
+                      <li className="p-3 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] flex justify-between">
+                        <span>12×12&quot; Grand French-Morocco Leather</span>
+                        <span className="font-mono font-semibold text-[#20242C]">$88.00</span>
+                      </li>
+                    </>
+                  )}
                 </ul>
               </div>
             </div>
@@ -670,79 +712,82 @@ export default function AdminPortalPage() {
       </div>
 
       {/* Accessible Space Inspection Modal */}
-      {inspectedSpace && (
-        <div
-          className="fixed inset-0 z-50 bg-[#20242C]/50 backdrop-blur-xs flex items-center justify-center p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="inspect-space-title"
-          onClick={() => {
-            setInspectedSpace(null);
-            lastInspectTriggerRef.current?.focus();
-          }}
-        >
+      {inspectedSpace &&
+        typeof document !== "undefined" &&
+        createPortal(
           <div
-            ref={inspectDialogRef}
-            onClick={(e) => e.stopPropagation()}
-            className="bg-[#FFFFFF] rounded-2xl border border-[#E7E2DA] max-w-md w-full p-6 space-y-4 shadow-2xl"
+            className="fixed inset-0 z-50 bg-[#20242C]/50 backdrop-blur-xs flex items-center justify-center p-4"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="inspect-space-title"
+            onClick={() => {
+              setInspectedSpace(null);
+              lastInspectTriggerRef.current?.focus();
+            }}
           >
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <span className="text-[11px] uppercase tracking-wider text-[#76556F] font-semibold">
-                  Vault Telemetry • {inspectedSpace.id}
-                </span>
-                <h2 id="inspect-space-title" className="font-serif text-xl font-bold text-[#20242C]">
-                  {inspectedSpace.name}
-                </h2>
+            <div
+              ref={inspectDialogRef}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-[#FFFFFF] rounded-2xl border border-[#E7E2DA] max-w-md w-full p-6 space-y-4 shadow-2xl"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <span className="text-[11px] uppercase tracking-wider text-[#76556F] font-semibold">
+                    Vault Telemetry • {inspectedSpace.id}
+                  </span>
+                  <h2 id="inspect-space-title" className="font-serif text-xl font-bold text-[#20242C]">
+                    {inspectedSpace.name}
+                  </h2>
+                </div>
+                <button
+                  ref={closeDrawerRef}
+                  type="button"
+                  onClick={() => {
+                    setInspectedSpace(null);
+                    lastInspectTriggerRef.current?.focus();
+                  }}
+                  aria-label="Close space inspector"
+                  className="p-2 rounded-xl bg-[#F7F4EE] text-[#20242C]"
+                >
+                  <X className="w-4 h-4" />
+                </button>
               </div>
-              <button
-                ref={closeDrawerRef}
-                type="button"
-                onClick={() => {
-                  setInspectedSpace(null);
-                  lastInspectTriggerRef.current?.focus();
-                }}
-                aria-label="Close space inspector"
-                className="p-2 rounded-xl bg-[#F7F4EE] text-[#20242C]"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
 
-            <div className="space-y-2 text-xs text-[#28272A]">
-              <p>
-                <strong>Owner:</strong> {inspectedSpace.ownerEmail}
-              </p>
-              <p>
-                <strong>Members:</strong> {inspectedSpace.memberCount}
-              </p>
-              <p>
-                <strong>Allocated Storage:</strong> {inspectedSpace.usedBytesFormatted} (
-                {inspectedSpace.usedPercentage}%)
-              </p>
-              <p>
-                <strong>Sync Health:</strong> {inspectedSpace.syncStatus}
-              </p>
-              <p>
-                <strong>Last Active:</strong> {inspectedSpace.lastActive}
-              </p>
-            </div>
+              <div className="space-y-2 text-xs text-[#28272A]">
+                <p>
+                  <strong>Owner:</strong> {inspectedSpace.ownerEmail}
+                </p>
+                <p>
+                  <strong>Members:</strong> {inspectedSpace.memberCount}
+                </p>
+                <p>
+                  <strong>Allocated Storage:</strong> {inspectedSpace.usedBytesFormatted} (
+                  {inspectedSpace.usedPercentage}%)
+                </p>
+                <p>
+                  <strong>Sync Health:</strong> {inspectedSpace.syncStatus}
+                </p>
+                <p>
+                  <strong>Last Active:</strong> {inspectedSpace.lastActive}
+                </p>
+              </div>
 
-            <div className="pt-3 border-t border-[#E7E2DA] flex justify-end">
-              <button
-                type="button"
-                onClick={() => {
-                  setInspectedSpace(null);
-                  lastInspectTriggerRef.current?.focus();
-                }}
-                className="px-4 py-2 rounded-xl bg-[#20242C] text-[#FFFFFF] text-xs font-medium"
-              >
-                Done
-              </button>
+              <div className="pt-3 border-t border-[#E7E2DA] flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setInspectedSpace(null);
+                    lastInspectTriggerRef.current?.focus();
+                  }}
+                  className="px-4 py-2 rounded-xl bg-[#20242C] text-[#FFFFFF] text-xs font-medium"
+                >
+                  Done
+                </button>
+              </div>
             </div>
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body
+        )}
     </div>
   );
 }

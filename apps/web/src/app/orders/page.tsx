@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import { FileText, Package, Printer, RefreshCw, X } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
@@ -53,7 +54,9 @@ export default function OrdersPage() {
 
   useEffect(() => {
     if (!receipt) return;
+    const shellRoot = document.getElementById("app-shell-root");
     const surface = surfaceRef.current;
+    shellRoot?.setAttribute("inert", "");
     surface?.setAttribute("inert", "");
     closeBtnRef.current?.focus();
 
@@ -66,7 +69,7 @@ export default function OrdersPage() {
       }
       if (e.key === "Tab" && dialogRef.current) {
         const focusables = dialogRef.current.querySelectorAll<HTMLElement>(
-          'button:not([disabled]), [href], input:not([disabled]), [tabindex]:not([tabindex="-1"])'
+          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
         );
         if (focusables.length === 0) return;
         const first = focusables[0];
@@ -83,6 +86,7 @@ export default function OrdersPage() {
     window.addEventListener("keydown", onKeyDown);
     return () => {
       window.removeEventListener("keydown", onKeyDown);
+      shellRoot?.removeAttribute("inert");
       surface?.removeAttribute("inert");
     };
   }, [receipt]);
@@ -244,71 +248,74 @@ export default function OrdersPage() {
         )}
       </div>
 
-      {receipt && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="receipt-dialog-title"
-          className="fixed inset-0 z-50 bg-[#20242C]/60 backdrop-blur-xs flex items-center justify-center p-4"
-          onClick={() => {
-            setReceipt(null);
-            openerRef.current?.focus();
-          }}
-        >
+      {receipt &&
+        typeof document !== "undefined" &&
+        createPortal(
           <div
-            ref={dialogRef}
-            onClick={(e) => e.stopPropagation()}
-            className="bg-[#FFFFFF] rounded-2xl border border-[#E7E2DA] max-w-md w-full p-6 space-y-4 shadow-2xl"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="receipt-dialog-title"
+            className="fixed inset-0 z-50 bg-[#20242C]/60 backdrop-blur-xs flex items-center justify-center p-4"
+            onClick={() => {
+              setReceipt(null);
+              openerRef.current?.focus();
+            }}
           >
-            <div className="flex items-start justify-between">
-              <div>
-                <span className="font-mono text-[11px] font-bold text-[#76556F]">
-                  {receipt.receiptNumber}
-                </span>
-                <h2 id="receipt-dialog-title" className="font-serif text-xl font-bold text-[#20242C]">
-                  Archival Press Proof Receipt
-                </h2>
+            <div
+              ref={dialogRef}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-[#FFFFFF] rounded-2xl border border-[#E7E2DA] max-w-md w-full p-6 space-y-4 shadow-2xl"
+            >
+              <div className="flex items-start justify-between">
+                <div>
+                  <span className="font-mono text-[11px] font-bold text-[#76556F]">
+                    {receipt.receiptNumber}
+                  </span>
+                  <h2 id="receipt-dialog-title" className="font-serif text-xl font-bold text-[#20242C]">
+                    Archival Press Proof Receipt
+                  </h2>
+                </div>
+                <button
+                  ref={closeBtnRef}
+                  type="button"
+                  aria-label="Close receipt"
+                  onClick={() => {
+                    setReceipt(null);
+                    openerRef.current?.focus();
+                  }}
+                  className="p-2 rounded-xl bg-[#F7F4EE] text-[#20242C]"
+                >
+                  <X className="w-4 h-4" />
+                </button>
               </div>
-              <button
-                ref={closeBtnRef}
-                type="button"
-                aria-label="Close receipt"
-                onClick={() => {
-                  setReceipt(null);
-                  openerRef.current?.focus();
-                }}
-                className="p-2 rounded-xl bg-[#F7F4EE] text-[#20242C]"
-              >
-                <X className="w-4 h-4" />
-              </button>
+              <div className="p-4 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] space-y-1.5 text-xs">
+                <p>
+                  <strong>Order ID:</strong> <span className="font-mono">{receipt.orderId}</span>
+                </p>
+                <p>
+                  <strong>Status:</strong> {receipt.status}
+                </p>
+                <p>
+                  <strong>Total:</strong> ${(receipt.totalCents / 100).toFixed(2)} {receipt.currency}
+                </p>
+                <p>
+                  <strong>Issued:</strong> {new Date(receipt.issuedAt).toLocaleString()}
+                </p>
+                <p className="text-[#5F735E] font-medium pt-1">{receipt.policyNote}</p>
+              </div>
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="px-4 py-2 rounded-xl bg-[#76556F] text-white text-xs font-semibold"
+                >
+                  Print Proof
+                </button>
+              </div>
             </div>
-            <div className="p-4 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] space-y-1.5 text-xs">
-              <p>
-                <strong>Order ID:</strong> <span className="font-mono">{receipt.orderId}</span>
-              </p>
-              <p>
-                <strong>Status:</strong> {receipt.status}
-              </p>
-              <p>
-                <strong>Total:</strong> ${(receipt.totalCents / 100).toFixed(2)} {receipt.currency}
-              </p>
-              <p>
-                <strong>Issued:</strong> {new Date(receipt.issuedAt).toLocaleString()}
-              </p>
-              <p className="text-[#5F735E] font-medium pt-1">{receipt.policyNote}</p>
-            </div>
-            <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => window.print()}
-                className="px-4 py-2 rounded-xl bg-[#76556F] text-white text-xs font-semibold"
-              >
-                Print Proof
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body
+        )}
     </AppShell>
   );
 }

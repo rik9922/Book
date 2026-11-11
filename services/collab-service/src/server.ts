@@ -21,7 +21,9 @@ import {
   DatabaseClient,
   CollaborationRepository,
   PostgresCollaborationRepository,
+  PostgresSpaceRepository,
   PostgresOutboxRepository,
+  SpaceRepository,
   OutboxRepository,
   SpaceMemberRecord,
   SpaceInvitationRecord,
@@ -116,6 +118,33 @@ export async function buildCollabService(): Promise<FastifyInstance> {
     : new InMemoryCollabTestRepo();
   const outboxRepo: OutboxRepository | null = dbUrl ? new PostgresOutboxRepository(db) : null;
 
+  const memoryDb: DatabaseClient | null = cfg.MEMORY_DATABASE_URL
+    ? createDatabaseClient(cfg.MEMORY_DATABASE_URL)
+    : null;
+  const spaceRepo: SpaceRepository | null = memoryDb ? new PostgresSpaceRepository(memoryDb) : null;
+
+  await eventBus.subscribe<{ spaceId?: string; ownerId?: string }>(
+    "memory.space.created",
+    async (evt) => {
+      if (!evt.data?.spaceId || !evt.data?.ownerId) return;
+      const existing = await collabRepo.getMember(evt.data.spaceId, evt.data.ownerId);
+      if (!existing) {
+        await collabRepo.addMember({
+          id: crypto.randomUUID(),
+          spaceId: evt.data.spaceId,
+          userId: evt.data.ownerId,
+          role: "owner",
+          permissions: {
+            can_create_memories: true,
+            can_edit_books: true,
+            can_invite: true,
+          },
+        });
+      }
+    },
+    { durableName: "collab_space_owner_seed" }
+  );
+
   let outboxTimer: NodeJS.Timeout | null = null;
   if (outboxRepo?.relayPending) {
     outboxTimer = setInterval(() => {
@@ -134,6 +163,9 @@ export async function buildCollabService(): Promise<FastifyInstance> {
   app.addHook("onClose", async () => {
     if (outboxTimer) clearInterval(outboxTimer);
     await eventBus.close().catch((err) => logger.warn({ err }, "[Collab] EventBus close warning"));
+    if (memoryDb) {
+      await memoryDb.close().catch((err) => logger.warn({ err }, "[Collab] Memory DB close warning"));
+    }
     await db.close().catch((err) => logger.warn({ err }, "[Collab] DB close warning"));
   });
 
@@ -187,6 +219,31 @@ export async function buildCollabService(): Promise<FastifyInstance> {
     );
   });
 
+  async function getOrSeedActorMember(
+    spaceId: string,
+    actorId: string
+  ): Promise<SpaceMemberRecord | null> {
+    const existing = await collabRepo.getMember(spaceId, actorId);
+    if (existing) return existing;
+    if (spaceRepo) {
+      const space = await spaceRepo.findSpaceById(spaceId);
+      if (space && space.ownerId === actorId) {
+        return collabRepo.addMember({
+          id: crypto.randomUUID(),
+          spaceId,
+          userId: actorId,
+          role: "owner",
+          permissions: {
+            can_create_memories: true,
+            can_edit_books: true,
+            can_invite: true,
+          },
+        });
+      }
+    }
+    return null;
+  }
+
   const UpsertMemberSchema = z.object({
     userId: z.string().uuid(),
     role: z.enum(["owner", "admin", "contributor", "viewer"]).default("contributor"),
@@ -204,9 +261,14 @@ export async function buildCollabService(): Promise<FastifyInstance> {
 
       const existingMembers = await collabRepo.getMembers(req.params.spaceId);
       if (existingMembers.length > 0) {
-        const actor = await collabRepo.getMember(req.params.spaceId, actorId);
+        const actor = await getOrSeedActorMember(req.params.spaceId, actorId);
         if (!actor || (actor.role !== "owner" && actor.role !== "admin")) {
           throw new ForbiddenError("Only space owners or admins can manage members");
+        }
+      } else if (spaceRepo) {
+        const space = await spaceRepo.findSpaceById(req.params.spaceId);
+        if (space && space.ownerId !== actorId) {
+          throw new ForbiddenError("Only the space owner can initialize space members");
         }
       }
 
@@ -239,7 +301,7 @@ export async function buildCollabService(): Promise<FastifyInstance> {
     "/api/v1/collab/spaces/:spaceId/members",
     async (req: FastifyRequest<{ Params: { spaceId: string } }>, reply: FastifyReply) => {
       const actorId = await requireAuthUser(req);
-      const actor = await collabRepo.getMember(req.params.spaceId, actorId);
+      const actor = await getOrSeedActorMember(req.params.spaceId, actorId);
       if (!actor) {
         throw new ForbiddenError("Space membership required to view members");
       }
@@ -252,7 +314,7 @@ export async function buildCollabService(): Promise<FastifyInstance> {
     "/api/v1/collab/spaces/:spaceId/members/:userId",
     async (req: FastifyRequest<{ Params: { spaceId: string; userId: string } }>, reply: FastifyReply) => {
       const actorId = await requireAuthUser(req);
-      const actor = await collabRepo.getMember(req.params.spaceId, actorId);
+      const actor = await getOrSeedActorMember(req.params.spaceId, actorId);
       if (!actor || (actor.role !== "owner" && actor.role !== "admin" && actorId !== req.params.userId)) {
         throw new ForbiddenError("Insufficient permissions to remove member");
       }
@@ -266,7 +328,7 @@ export async function buildCollabService(): Promise<FastifyInstance> {
     "/api/v1/collab/spaces/:spaceId/members/:userId",
     async (req: FastifyRequest<{ Params: { spaceId: string; userId: string } }>, reply: FastifyReply) => {
       const actorId = await requireAuthUser(req);
-      const actor = await collabRepo.getMember(req.params.spaceId, actorId);
+      const actor = await getOrSeedActorMember(req.params.spaceId, actorId);
       if (!actor || (actor.role !== "owner" && actor.role !== "admin")) {
         throw new ForbiddenError("Only space owners or admins can update member permissions");
       }
@@ -295,7 +357,7 @@ export async function buildCollabService(): Promise<FastifyInstance> {
     "/api/v1/collab/spaces/:spaceId/invitations",
     async (req: FastifyRequest<{ Params: { spaceId: string } }>, reply: FastifyReply) => {
       const actorId = await requireAuthUser(req);
-      const actor = await collabRepo.getMember(req.params.spaceId, actorId);
+      const actor = await getOrSeedActorMember(req.params.spaceId, actorId);
       if (!actor || (actor.role !== "owner" && actor.role !== "admin" && !actor.permissions?.can_invite)) {
         throw new ForbiddenError("Invite management permission required");
       }
@@ -323,7 +385,7 @@ export async function buildCollabService(): Promise<FastifyInstance> {
       reply: FastifyReply
     ) => {
       const actorId = await requireAuthUser(req);
-      const actor = await collabRepo.getMember(req.params.spaceId, actorId);
+      const actor = await getOrSeedActorMember(req.params.spaceId, actorId);
       if (!actor || (actor.role !== "owner" && actor.role !== "admin")) {
         throw new ForbiddenError("Only space owners or admins can revoke invitations");
       }
@@ -343,7 +405,7 @@ export async function buildCollabService(): Promise<FastifyInstance> {
     "/api/v1/collab/spaces/:spaceId/invitations",
     async (req: FastifyRequest<{ Params: { spaceId: string } }>, reply: FastifyReply) => {
       const inviterId = await requireAuthUser(req);
-      const inviter = await collabRepo.getMember(req.params.spaceId, inviterId);
+      const inviter = await getOrSeedActorMember(req.params.spaceId, inviterId);
       if (!inviter || (inviter.role !== "owner" && inviter.role !== "admin" && !inviter.permissions?.can_invite)) {
         throw new ForbiddenError("Invite permission required");
       }
