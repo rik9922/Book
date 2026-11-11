@@ -21,6 +21,7 @@ import {
   updatePrivacySettings,
   updateUserProfile,
 } from "@/lib/api";
+import { isAudioFeedbackEnabled, setAudioFeedbackEnabled } from "@/lib/archival-audio";
 
 const REDUCED_MOTION_KEY = "memoria_reduced_motion";
 
@@ -28,6 +29,7 @@ export default function SettingsPage() {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [fullNameInput, setFullNameInput] = useState("");
   const [reducedMotion, setReducedMotion] = useState(false);
+  const [audioEnabled, setAudioEnabled] = useState(true);
   const [language, setLanguage] = useState("en");
   const [signedLinkTtl, setSignedLinkTtl] = useState(3600);
   const [allowPublicGallery, setAllowPublicGallery] = useState(false);
@@ -49,6 +51,7 @@ export default function SettingsPage() {
       setFullNameInput(session.user?.fullName || "");
       if (typeof window !== "undefined") {
         setReducedMotion(localStorage.getItem(REDUCED_MOTION_KEY) === "true");
+        setAudioEnabled(isAudioFeedbackEnabled());
       }
 
       if (session.accessToken) {
@@ -101,6 +104,17 @@ export default function SettingsPage() {
       next
         ? "Reduced Motion enabled for 3D page transitions."
         : "Standard 3D page animations enabled."
+    );
+  };
+
+  const handleToggleAudio = () => {
+    const next = !audioEnabled;
+    setAudioEnabled(next);
+    setAudioFeedbackEnabled(next);
+    setStatusMessage(
+      next
+        ? "Archival paper acoustics enabled for 3D page turns."
+        : "Archival paper acoustics muted."
     );
   };
 
@@ -338,6 +352,28 @@ export default function SettingsPage() {
               }`}
             >
               {reducedMotion ? "Enabled" : "Disabled"}
+            </button>
+          </div>
+
+          <div className="flex items-center justify-between gap-4 pt-3 border-t border-[#E7E2DA]">
+            <div>
+              <p className="text-xs font-semibold text-[#20242C]">Archival Paper Acoustics</p>
+              <p className="text-xs text-[#5C5955]">
+                Tactile Web Audio synthetic page turns, leather hinge flexing, and hardcover closure.
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={audioEnabled}
+              onClick={handleToggleAudio}
+              className={`px-4 py-2 rounded-full text-xs font-medium transition-colors ${
+                audioEnabled
+                  ? "bg-[#76556F] text-[#FFFFFF]"
+                  : "bg-[#F0ECE1] text-[#28272A]"
+              }`}
+            >
+              {audioEnabled ? "Enabled" : "Muted"}
             </button>
           </div>
         </section>

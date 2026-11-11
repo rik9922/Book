@@ -21,6 +21,8 @@ import {
   Camera,
   FileText,
   Accessibility,
+  Volume2,
+  VolumeX,
 } from "lucide-react";
 import {
   ARCHIVAL_PAPER_MATERIAL_SPEC,
@@ -50,6 +52,11 @@ import {
 import { CanvasErrorBoundary } from "./CanvasErrorBoundary";
 import { AccessibleSpreadReader } from "./AccessibleSpreadReader";
 import { getApiBaseUrl, getStoredSession } from "@/lib/api";
+import {
+  archivalAudio,
+  isAudioFeedbackEnabled,
+  setAudioFeedbackEnabled,
+} from "@/lib/archival-audio";
 
 const GLB_MODEL_URL = `/models/memoria_heirloom_book.glb?v=${CANONICAL_BOOK_3D_MANIFEST.version}`;
 
@@ -596,6 +603,7 @@ function Heirloom3DBook({
   const leftPageGroupRef = useRef<THREE.Group>(null);
   const turningPageHingeRef = useRef<THREE.Object3D | null>(null);
   const turningPageMeshRef = useRef<THREE.Mesh | null>(null);
+  const pageShadowMeshRef = useRef<THREE.Mesh | null>(null);
   const openProgressRef = useRef<number>(isOpen ? 1 : 0);
   const turnProgressRef = useRef<number>(0);
   const lastTurnNonceRef = useRef<number>(pageTurnNonce);
@@ -673,11 +681,11 @@ function Heirloom3DBook({
       }),
       foil: new THREE.MeshPhysicalMaterial({
         ...foilParams,
-        metalness: 0.95,
-        roughness: 0.16,
-        clearcoat: 0.35,
-        clearcoatRoughness: 0.20,
-        reflectivity: 0.95,
+        metalness: 0.96,
+        roughness: 0.12,
+        clearcoat: 0.65,
+        clearcoatRoughness: 0.14,
+        reflectivity: 1.0,
         side: THREE.DoubleSide,
       }),
       paper: new THREE.MeshStandardMaterial({
@@ -826,7 +834,7 @@ function Heirloom3DBook({
       rootGroupRef.current.rotation.z = 0;
     }
 
-    // 1. Cover Hinge Kinematics
+    // 1. Cover Hinge Kinematics with authentic leather stiffness & micro-deflection
     const targetOpen = isOpen ? 1 : 0;
     if (reducedMotion) {
       openProgressRef.current = targetOpen;
@@ -840,7 +848,12 @@ function Heirloom3DBook({
 
     // Smoothly transition between closed (0 rad) and open (3.06 rad - flat resting archival spread)
     const openAngleTarget = Math.PI * 0.975;
-    const coverAngle = openProgressRef.current * openAngleTarget;
+    const rawP = openProgressRef.current;
+    const microSettling = !reducedMotion && rawP > 0.85 && rawP < 0.999
+      ? Math.sin((rawP - 0.85) * Math.PI * (1 / 0.15)) * 0.012 * (1 - rawP)
+      : 0;
+    const coverAngle = Math.min(openAngleTarget, Math.max(0, rawP + microSettling) * openAngleTarget);
+
     if (frontHingeRef.current) {
       frontHingeRef.current.rotation.z = coverAngle;
     }
@@ -880,7 +893,20 @@ function Heirloom3DBook({
       }
     }
 
-    // Apply subtle vertex curl modulation only when open/turning; skip GPU re-uploads when closed and flat
+    // Update dynamic page shadow casting on underlying right spread
+    if (pageShadowMeshRef.current) {
+      const activeTurn = turnProgressRef.current > 0 ? turnProgressRef.current : dragTurnOffset;
+      const shadowOpacity = activeTurn > 0.01 && activeTurn < 0.98
+        ? Math.sin(activeTurn * Math.PI) * 0.36
+        : 0;
+      const shadowMat = pageShadowMeshRef.current.material as THREE.MeshBasicMaterial;
+      if (shadowMat) {
+        shadowMat.opacity = shadowOpacity;
+        pageShadowMeshRef.current.visible = shadowOpacity > 0.01;
+      }
+    }
+
+    // Apply authentic conical curl modulation with paper stiffness only when open/turning; skip GPU re-uploads when closed and flat
     const pageMesh = turningPageMeshRef.current;
     const basePositions = basePagePositionsRef.current;
     if (pageMesh && basePositions && pageMesh.geometry.attributes.position) {
@@ -890,6 +916,7 @@ function Heirloom3DBook({
       const activeProgress =
         turnProgressRef.current > 0 ? turnProgressRef.current : isOpen ? 0.15 : 0;
       const bookWidth = CANONICAL_BOOK_3D_MANIFEST.dimensions.bookWidth;
+      const bookHeight = CANONICAL_BOOK_3D_MANIFEST.dimensions.bookHeight;
 
       if (!isBookOpeningOrOpen) {
         if (!isPageFlatRef.current) {
@@ -904,10 +931,14 @@ function Heirloom3DBook({
         for (let i = 0; i < arr.length; i += 3) {
           const bx = basePositions[i];
           const by = basePositions[i + 1];
+          const bz = basePositions[i + 2];
           const normX = Math.max(0, Math.min(1, bx / bookWidth));
+          const normZ = Math.max(0, Math.min(1, (bz / bookHeight) + 0.5));
+          const conicalFactor = 0.85 + 0.35 * normZ;
+          const stiffnessFactor = Math.pow(normX, 1.45);
           const curlLift = computePageCurlDisplacement(
-            normX,
-            BOOK_ANIMATION_CONTRACT.pageCurlAmplitude,
+            stiffnessFactor,
+            BOOK_ANIMATION_CONTRACT.pageCurlAmplitude * conicalFactor,
             activeProgress
           );
           arr[i + 1] = by + curlLift;
@@ -1026,12 +1057,23 @@ function Heirloom3DBook({
           )}
         </group>
 
-        {/* Right Open Spread Content on TextBlock Surface */}
+        {/* Right Open Spread Content on TextBlock Surface with Dynamic Cast Shadow */}
         {openSpreadVisible && rightSpreadTexture && (
-          <mesh position={[0.098, textBlockTopY, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-            <planeGeometry args={[0.188, 0.246]} />
-            <meshStandardMaterial map={rightSpreadTexture} roughness={0.92} metalness={0.0} />
-          </mesh>
+          <group>
+            <mesh position={[0.098, textBlockTopY, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+              <planeGeometry args={[0.188, 0.246]} />
+              <meshStandardMaterial map={rightSpreadTexture} roughness={0.92} metalness={0.0} />
+            </mesh>
+            <mesh
+              ref={pageShadowMeshRef}
+              position={[0.098, textBlockTopY + 0.0003, 0]}
+              rotation={[-Math.PI / 2, 0, 0]}
+              visible={false}
+            >
+              <planeGeometry args={[0.188, 0.246]} />
+              <meshBasicMaterial color="#141210" transparent opacity={0} depthWrite={false} />
+            </mesh>
+          </group>
         )}
       </group>
     </Float>
@@ -1371,7 +1413,27 @@ export default function ExperienceCanvas({
     return () => mediaQuery.removeEventListener("change", handler);
   }, []);
 
+  const [audioFeedback, setAudioFeedback] = useState(true);
+  const canvasDragStartX = useRef<number | null>(null);
+  const canvasDragStartY = useRef<number | null>(null);
+  const canvasDraggingActive = useRef<boolean>(false);
+
+  useEffect(() => {
+    setAudioFeedback(isAudioFeedbackEnabled());
+    const handler = (e: Event) => {
+      const custom = e as CustomEvent<{ enabled: boolean }>;
+      if (custom.detail) setAudioFeedback(custom.detail.enabled);
+    };
+    window.addEventListener("memoria:audio-change", handler);
+    return () => window.removeEventListener("memoria:audio-change", handler);
+  }, []);
+
   const handleToggleOpen = useCallback(() => {
+    if (isOpen) {
+      archivalAudio.playCoverClose();
+    } else {
+      archivalAudio.playCoverOpen();
+    }
     if (onToggleOpen) {
       onToggleOpen();
     } else {
@@ -1382,11 +1444,12 @@ export default function ExperienceCanvas({
         return next;
       });
     }
-  }, [onToggleOpen]);
+  }, [onToggleOpen, isOpen]);
 
   const handleTurnPage = useCallback(
     (direction: 1 | -1) => {
       if (!isOpen) {
+        archivalAudio.playCoverOpen();
         if (onToggleOpen) {
           onToggleOpen();
         } else {
@@ -1398,6 +1461,7 @@ export default function ExperienceCanvas({
       const next = Math.max(0, Math.min(totalSpreads - 1, spreadIndex + direction));
       setPageTurnDirection(direction);
       if (next !== spreadIndex) {
+        archivalAudio.playPageTurn(direction);
         setSpreadIndex(next);
         setPageTurnNonce((n) => n + 1);
         onSpreadIndexChange?.(next);
@@ -1456,7 +1520,45 @@ export default function ExperienceCanvas({
       </div>
 
       {/* Viewport Area */}
-      <div className="relative flex-1 min-h-[520px] sm:min-h-[580px] lg:min-h-[640px] w-full bg-gradient-to-b from-[#F7F4EE] to-[#EDE7DC]">
+      <div
+        onPointerDown={(e) => {
+          if (!isOpen) return;
+          if ((e.target as HTMLElement)?.closest("button, select, input, aside, [role='button']")) return;
+          canvasDragStartX.current = e.clientX;
+          canvasDragStartY.current = e.clientY;
+          canvasDraggingActive.current = true;
+        }}
+        onPointerMove={(e) => {
+          if (!canvasDraggingActive.current || canvasDragStartX.current === null) return;
+          const dx = canvasDragStartX.current - e.clientX;
+          const dy = Math.abs((canvasDragStartY.current ?? e.clientY) - e.clientY);
+          if (Math.abs(dx) > 12 && Math.abs(dx) > dy) {
+            if (dx > 0) {
+              setPageTurnDirection(1);
+              setDragTurnOffset(Math.max(0, Math.min(1, dx / 220)));
+            } else {
+              setPageTurnDirection(-1);
+              setDragTurnOffset(Math.max(0, Math.min(1, -dx / 220)));
+            }
+          }
+        }}
+        onPointerUp={() => {
+          if (canvasDraggingActive.current && dragTurnOffset > 0.38) {
+            handleTurnPage(pageTurnDirection);
+          }
+          canvasDraggingActive.current = false;
+          canvasDragStartX.current = null;
+          canvasDragStartY.current = null;
+          setDragTurnOffset(0);
+        }}
+        onPointerCancel={() => {
+          canvasDraggingActive.current = false;
+          canvasDragStartX.current = null;
+          canvasDragStartY.current = null;
+          setDragTurnOffset(0);
+        }}
+        className="relative flex-1 min-h-[520px] sm:min-h-[580px] lg:min-h-[640px] w-full bg-gradient-to-b from-[#F7F4EE] to-[#EDE7DC]"
+      >
         {is2DMode ? (
           <AccessibleSpreadReader
             title={title}
@@ -1524,6 +1626,24 @@ export default function ExperienceCanvas({
                   >
                     <RotateCcw className="w-3.5 h-3.5 text-[#76556F]" />
                     Reset
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = !audioFeedback;
+                      setAudioFeedback(next);
+                      setAudioFeedbackEnabled(next);
+                    }}
+                    aria-label={audioFeedback ? "Mute Archival Paper Audio" : "Enable Archival Paper Audio"}
+                    title={audioFeedback ? "Mute archival sounds" : "Enable archival sounds"}
+                    className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg bg-white/95 hover:bg-[#F0ECE1] border border-[#E7E2DA] text-[#20242C] shadow-xs cursor-pointer"
+                  >
+                    {audioFeedback ? (
+                      <Volume2 className="w-4 h-4 text-[#76556F]" />
+                    ) : (
+                      <VolumeX className="w-4 h-4 text-[#8D857A]" />
+                    )}
                   </button>
 
                   <button
@@ -1862,3 +1982,5 @@ export default function ExperienceCanvas({
     </div>
   );
 }
+
+export { BookCanvas3D } from "./BookCanvas3D";

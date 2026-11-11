@@ -137,4 +137,40 @@ describe("Memoria 3D Realism & Web App Connectivity Verification Suite", () => {
       "api.ts clearStoredSession must evict cookies with max-age=0"
     );
   });
+
+  test("7. Tactile Web Audio Synthetic Acoustics & Interactive Drag Page Turn", () => {
+    const audioPath = path.join(repoRoot, "apps/web/src/lib/archival-audio.ts");
+    assert.ok(fs.existsSync(audioPath), "archival-audio.ts must exist");
+    const audioContent = fs.readFileSync(audioPath, "utf-8");
+    assert.ok(
+      audioContent.includes("playPageTurn"),
+      "archival-audio.ts must provide synthetic page turn acoustic whoosh"
+    );
+    assert.ok(
+      audioContent.includes("playCoverOpen") && audioContent.includes("playCoverClose"),
+      "archival-audio.ts must provide Moroccan leather hinge flex and hardcover closure thud"
+    );
+
+    const canvasPath = path.join(repoRoot, "apps/web/src/components/3d/ExperienceCanvas.tsx");
+    const canvasContent = fs.readFileSync(canvasPath, "utf-8");
+    assert.ok(
+      canvasContent.includes("canvasDraggingActive"),
+      "ExperienceCanvas must track pointer drag gestures across canvas viewport"
+    );
+    assert.ok(
+      canvasContent.includes("pageShadowMeshRef"),
+      "ExperienceCanvas must render dynamic page turn shadow casting on underlying spreads"
+    );
+    assert.ok(
+      canvasContent.includes("archivalAudio.playPageTurn"),
+      "ExperienceCanvas must play synthetic audio on page turns"
+    );
+
+    const settingsPath = path.join(repoRoot, "apps/web/src/app/settings/page.tsx");
+    const settingsContent = fs.readFileSync(settingsPath, "utf-8");
+    assert.ok(
+      settingsContent.includes("Archival Paper Acoustics"),
+      "Settings must provide user toggle for Archival Paper Acoustics"
+    );
+  });
 });
