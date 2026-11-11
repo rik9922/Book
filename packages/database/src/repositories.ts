@@ -1725,3 +1725,109 @@ export class PostgresMemoryCommentRepository implements MemoryCommentRepository 
     return (res.rowCount || 0) > 0;
   }
 }
+
+// ----------------------------------------------------------------------------
+// 11. Memory Reactions Repository
+// ----------------------------------------------------------------------------
+export type MemoryReactionKind = "heart" | "warmth" | "tearsOfJoy" | "gratitude";
+
+export interface MemoryReactionState {
+  memoryId: string;
+  counts: Record<string, number>;
+  selectedKinds: MemoryReactionKind[];
+}
+
+export interface MemoryReactionRepository {
+  getReactionState(memoryId: string, userId: string): Promise<MemoryReactionState>;
+  toggleReaction(
+    memoryId: string,
+    spaceId: string,
+    userId: string,
+    kind: MemoryReactionKind
+  ): Promise<{ state: MemoryReactionState; active: boolean }>;
+  setReaction(
+    memoryId: string,
+    spaceId: string,
+    userId: string,
+    kind: MemoryReactionKind,
+    active: boolean
+  ): Promise<MemoryReactionState>;
+}
+
+export class PostgresMemoryReactionRepository implements MemoryReactionRepository {
+  constructor(private db: DatabaseClient) {}
+
+  async getReactionState(memoryId: string, userId: string): Promise<MemoryReactionState> {
+    const res = await this.db.query<{
+      kind: MemoryReactionKind;
+      count: number;
+      selected: boolean;
+    }>(
+      `SELECT kind, COUNT(*)::int as count, BOOL_OR(user_id = $2) as selected
+       FROM memory_reactions
+       WHERE memory_id = $1
+       GROUP BY kind`,
+      [memoryId, userId]
+    );
+    const counts: Record<string, number> = {};
+    const selectedKinds: MemoryReactionKind[] = [];
+    for (const row of res.rows) {
+      counts[row.kind] = Number(row.count) || 0;
+      if (row.selected) {
+        selectedKinds.push(row.kind);
+      }
+    }
+    return { memoryId, counts, selectedKinds };
+  }
+
+  async toggleReaction(
+    memoryId: string,
+    spaceId: string,
+    userId: string,
+    kind: MemoryReactionKind
+  ): Promise<{ state: MemoryReactionState; active: boolean }> {
+    const active = await this.db.transaction(async (client) => {
+      const del = await client.query(
+        `DELETE FROM memory_reactions
+         WHERE memory_id = $1 AND user_id = $2 AND kind = $3`,
+        [memoryId, userId, kind]
+      );
+      if ((del.rowCount || 0) > 0) {
+        return false;
+      }
+      await client.query(
+        `INSERT INTO memory_reactions (id, memory_id, space_id, user_id, kind, created_at)
+         VALUES ($1, $2, $3, $4, $5, NOW())
+         ON CONFLICT (memory_id, user_id, kind) DO NOTHING`,
+        [crypto.randomUUID(), memoryId, spaceId, userId, kind]
+      );
+      return true;
+    });
+    const state = await this.getReactionState(memoryId, userId);
+    return { state, active };
+  }
+
+  async setReaction(
+    memoryId: string,
+    spaceId: string,
+    userId: string,
+    kind: MemoryReactionKind,
+    active: boolean
+  ): Promise<MemoryReactionState> {
+    if (active) {
+      await this.db.query(
+        `INSERT INTO memory_reactions (id, memory_id, space_id, user_id, kind, created_at)
+         VALUES ($1, $2, $3, $4, $5, NOW())
+         ON CONFLICT (memory_id, user_id, kind) DO NOTHING`,
+        [crypto.randomUUID(), memoryId, spaceId, userId, kind]
+      );
+    } else {
+      await this.db.query(
+        `DELETE FROM memory_reactions
+         WHERE memory_id = $1 AND user_id = $2 AND kind = $3`,
+        [memoryId, userId, kind]
+      );
+    }
+    return this.getReactionState(memoryId, userId);
+  }
+}

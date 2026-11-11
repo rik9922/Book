@@ -67,8 +67,8 @@ export default function ProfileDetailPage() {
     try {
       const updated = await updateProfile(spaceId, profile.id, {
         name: name.trim(),
-        relationship: relationship.trim(),
-        birthDate: birthDate || undefined,
+        relationship: relationship.trim() || null,
+        birthDate: birthDate || null,
       });
       setProfile(updated);
       setNotice("Profile details updated.");

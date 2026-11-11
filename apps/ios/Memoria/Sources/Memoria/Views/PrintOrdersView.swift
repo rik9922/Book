@@ -1,11 +1,22 @@
 import SwiftUI
 
+private enum PrintOrdersSheet: Identifiable {
+    case checkout
+    case timeline(PrintOrderDTO)
+
+    var id: String {
+        switch self {
+        case .checkout: return "checkout"
+        case .timeline(let order): return "timeline-\(order.id)"
+        }
+    }
+}
+
 public struct PrintOrdersView: View {
     @State private var catalog: PrintCatalogDTO?
     @State private var orders: [PrintOrderDTO] = []
     @State private var errorMessage: String?
-    @State private var showCheckoutSheet = false
-    @State private var selectedOrder: PrintOrderDTO?
+    @State private var activeSheet: PrintOrdersSheet?
 
     public init() {}
 
@@ -21,7 +32,7 @@ public struct PrintOrdersView: View {
 
             Section {
                 Button {
-                    showCheckoutSheet = true
+                    activeSheet = .checkout
                 } label: {
                     Label("Order Physical Hardcover Copy", systemImage: "bag.badge.plus")
                         .font(.subheadline.weight(.semibold))
@@ -62,7 +73,7 @@ public struct PrintOrdersView: View {
                 } else {
                     ForEach(orders) { order in
                         Button {
-                            selectedOrder = order
+                            activeSheet = .timeline(order)
                         } label: {
                             VStack(alignment: .leading, spacing: 6) {
                                 HStack {
@@ -89,8 +100,8 @@ public struct PrintOrdersView: View {
                                 }
                             }
                             .padding(.vertical, 4)
+                            .contentShape(Rectangle())
                         }
-                        .buttonStyle(.plain)
                     }
                 }
             }
@@ -101,24 +112,32 @@ public struct PrintOrdersView: View {
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button {
-                    showCheckoutSheet = true
+                    activeSheet = .checkout
                 } label: {
                     Label("New Order", systemImage: "plus.circle")
                         .foregroundStyle(MemoriaTheme.plum)
                 }
             }
         }
-        .sheet(isPresented: $showCheckoutSheet) {
-            PrintOrderCheckoutSheet { newOrder in
-                orders.insert(newOrder, at: 0)
-            }
-        }
-        .sheet(item: $selectedOrder) { order in
-            OrderDetailTimelineSheet(order: order) { reordered in
-                orders.insert(reordered, at: 0)
+        .sheet(item: $activeSheet) { sheet in
+            switch sheet {
+            case .checkout:
+                PrintOrderCheckoutSheet { newOrder in
+                    orders.insert(newOrder, at: 0)
+                }
+            case .timeline(let order):
+                OrderDetailTimelineSheet(order: order) { reordered in
+                    orders.insert(reordered, at: 0)
+                }
             }
         }
         .task {
+            await load()
+        }
+        .onAppear {
+            Task { await load() }
+        }
+        .refreshable {
             await load()
         }
     }

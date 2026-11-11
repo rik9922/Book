@@ -156,6 +156,9 @@ public struct FamilyCirclesView: View {
             .task {
                 await loadData()
             }
+            .onAppear {
+                Task { await loadData() }
+            }
         }
     }
 

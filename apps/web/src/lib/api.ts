@@ -130,6 +130,16 @@ export interface MemoryCommentDTO {
   createdAt: string;
 }
 
+export type MemoryReactionKind = "heart" | "warmth" | "tearsOfJoy" | "gratitude";
+
+export interface MemoryReactionStateDTO {
+  memoryId: string;
+  counts: Record<string, number>;
+  selectedKinds: MemoryReactionKind[];
+  toggledKind?: MemoryReactionKind;
+  active?: boolean;
+}
+
 export interface PreflightReportDTO {
   bookId: string;
   version: number;
@@ -517,7 +527,12 @@ export async function createProfile(
 export async function updateProfile(
   spaceId: string,
   profileId: string,
-  payload: Partial<{ name: string; type: SpaceProfileDTO["type"]; relationship?: string; birthDate?: string }>
+  payload: Partial<{
+    name: string;
+    type: SpaceProfileDTO["type"];
+    relationship: string | null;
+    birthDate: string | null;
+  }>
 ): Promise<SpaceProfileDTO> {
   return apiRequest<SpaceProfileDTO>(`/spaces/${spaceId}/profiles/${profileId}`, {
     method: "PATCH",
@@ -620,6 +635,31 @@ export async function addMemoryComment(
 export async function deleteMemoryComment(memoryId: string, commentId: string): Promise<{ deleted: boolean }> {
   return apiRequest<{ deleted: boolean }>(`/memories/${memoryId}/comments/${commentId}`, {
     method: "DELETE",
+  });
+}
+
+export async function getMemoryReactions(memoryId: string): Promise<MemoryReactionStateDTO> {
+  return apiRequest<MemoryReactionStateDTO>(`/memories/${memoryId}/reactions`);
+}
+
+export async function toggleMemoryReaction(
+  memoryId: string,
+  kind: MemoryReactionKind
+): Promise<MemoryReactionStateDTO> {
+  return apiRequest<MemoryReactionStateDTO>(`/memories/${memoryId}/reactions`, {
+    method: "POST",
+    body: JSON.stringify({ kind }),
+  });
+}
+
+export async function setMemoryReaction(
+  memoryId: string,
+  kind: MemoryReactionKind,
+  active: boolean
+): Promise<MemoryReactionStateDTO> {
+  return apiRequest<MemoryReactionStateDTO>(`/memories/${memoryId}/reactions`, {
+    method: "PUT",
+    body: JSON.stringify({ kind, active }),
   });
 }
 

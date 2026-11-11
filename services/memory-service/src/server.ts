@@ -29,12 +29,16 @@ import {
   PostgresOutboxRepository,
   PostgresCollectionRepository,
   PostgresMemoryCommentRepository,
+  PostgresMemoryReactionRepository,
   SpaceRepository,
   MemoryRepository,
   CollaborationRepository,
   OutboxRepository,
   CollectionRepository,
   MemoryCommentRepository,
+  MemoryReactionRepository,
+  MemoryReactionKind,
+  MemoryReactionState,
   CollectionRecord,
   MemoryCommentRecord,
 } from "@memory-capsule/database";
@@ -230,6 +234,69 @@ class InMemoryCommentTestRepo implements MemoryCommentRepository {
   }
 }
 
+class InMemoryReactionTestRepo implements MemoryReactionRepository {
+  // memoryId -> kind -> Set<userId>
+  private store = new Map<string, Map<MemoryReactionKind, Set<string>>>();
+
+  async getReactionState(memoryId: string, userId: string): Promise<MemoryReactionState> {
+    const byKind = this.store.get(memoryId);
+    const counts: Record<string, number> = {};
+    const selectedKinds: MemoryReactionKind[] = [];
+    if (byKind) {
+      for (const [kind, users] of byKind.entries()) {
+        if (users.size > 0) {
+          counts[kind] = users.size;
+          if (users.has(userId)) {
+            selectedKinds.push(kind);
+          }
+        }
+      }
+    }
+    return { memoryId, counts, selectedKinds };
+  }
+
+  async toggleReaction(
+    memoryId: string,
+    _spaceId: string,
+    userId: string,
+    kind: MemoryReactionKind
+  ): Promise<{ state: MemoryReactionState; active: boolean }> {
+    const byKind = this.store.get(memoryId) || new Map<MemoryReactionKind, Set<string>>();
+    const users = byKind.get(kind) || new Set<string>();
+    let active = false;
+    if (users.has(userId)) {
+      users.delete(userId);
+      active = false;
+    } else {
+      users.add(userId);
+      active = true;
+    }
+    byKind.set(kind, users);
+    this.store.set(memoryId, byKind);
+    const state = await this.getReactionState(memoryId, userId);
+    return { state, active };
+  }
+
+  async setReaction(
+    memoryId: string,
+    _spaceId: string,
+    userId: string,
+    kind: MemoryReactionKind,
+    active: boolean
+  ): Promise<MemoryReactionState> {
+    const byKind = this.store.get(memoryId) || new Map<MemoryReactionKind, Set<string>>();
+    const users = byKind.get(kind) || new Set<string>();
+    if (active) {
+      users.add(userId);
+    } else {
+      users.delete(userId);
+    }
+    byKind.set(kind, users);
+    this.store.set(memoryId, byKind);
+    return this.getReactionState(memoryId, userId);
+  }
+}
+
 export async function buildMemoryService(): Promise<FastifyInstance> {
   const cfg = validateServiceConfig(BaseServiceConfigSchema);
   const app = Fastify({ logger: false });
@@ -267,6 +334,10 @@ export async function buildMemoryService(): Promise<FastifyInstance> {
   const commentRepo: MemoryCommentRepository = dbUrl
     ? new PostgresMemoryCommentRepository(db)
     : new InMemoryCommentTestRepo();
+
+  const reactionRepo: MemoryReactionRepository = dbUrl
+    ? new PostgresMemoryReactionRepository(db)
+    : new InMemoryReactionTestRepo();
 
   const collabDb: DatabaseClient | null = cfg.COLLAB_DATABASE_URL
     ? createDatabaseClient(cfg.COLLAB_DATABASE_URL)
@@ -1126,6 +1197,88 @@ export async function buildMemoryService(): Promise<FastifyInstance> {
       await assertSpaceAccess(mem.spaceId, userId, false);
       const deleted = await commentRepo.deleteComment(req.params.commentId, userId);
       return reply.status(200).send(createSuccessResponse({ deleted }));
+    }
+  );
+
+  // Server-Backed Emotional Reactions (IOS-42 & Web Parity)
+  const ReactionKindSchema = z.enum(["heart", "warmth", "tearsOfJoy", "gratitude"]);
+  const ToggleReactionSchema = z.object({
+    kind: ReactionKindSchema,
+  });
+  const SetReactionSchema = z.object({
+    kind: ReactionKindSchema,
+    active: z.boolean().default(true),
+  });
+
+  app.get(
+    "/api/v1/memories/:memoryId/reactions",
+    async (req: FastifyRequest<{ Params: { memoryId: string } }>, reply) => {
+      const userId = await requireAuthUser(req);
+      const mem = await memoryRepo.findMemoryById(req.params.memoryId);
+      if (!mem) {
+        return reply.status(404).send(createErrorResponse("MEMORY_NOT_FOUND", "Memory not found"));
+      }
+      await assertSpaceAccess(mem.spaceId, userId, false);
+      const state = await reactionRepo.getReactionState(mem.id, userId);
+      return reply.status(200).send(createSuccessResponse(state));
+    }
+  );
+
+  app.post(
+    "/api/v1/memories/:memoryId/reactions",
+    async (req: FastifyRequest<{ Params: { memoryId: string } }>, reply) => {
+      const userId = await requireAuthUser(req);
+      const mem = await memoryRepo.findMemoryById(req.params.memoryId);
+      if (!mem) {
+        return reply.status(404).send(createErrorResponse("MEMORY_NOT_FOUND", "Memory not found"));
+      }
+      await assertSpaceAccess(mem.spaceId, userId, false);
+      const parsed = ToggleReactionSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return reply.status(400).send(createErrorResponse("VALIDATION_ERROR", "Invalid reaction kind"));
+      }
+      const { state, active } = await reactionRepo.toggleReaction(mem.id, mem.spaceId, userId, parsed.data.kind);
+      if (active) {
+        await publishDomainEvent("memory.reaction.added", "memory.reaction_added", mem.id, {
+          memoryId: mem.id,
+          spaceId: mem.spaceId,
+          userId,
+          kind: parsed.data.kind,
+        });
+      }
+      return reply.status(200).send(createSuccessResponse({ ...state, toggledKind: parsed.data.kind, active }));
+    }
+  );
+
+  app.put(
+    "/api/v1/memories/:memoryId/reactions",
+    async (req: FastifyRequest<{ Params: { memoryId: string } }>, reply) => {
+      const userId = await requireAuthUser(req);
+      const mem = await memoryRepo.findMemoryById(req.params.memoryId);
+      if (!mem) {
+        return reply.status(404).send(createErrorResponse("MEMORY_NOT_FOUND", "Memory not found"));
+      }
+      await assertSpaceAccess(mem.spaceId, userId, false);
+      const parsed = SetReactionSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return reply.status(400).send(createErrorResponse("VALIDATION_ERROR", "Invalid reaction payload"));
+      }
+      const state = await reactionRepo.setReaction(
+        mem.id,
+        mem.spaceId,
+        userId,
+        parsed.data.kind,
+        parsed.data.active
+      );
+      if (parsed.data.active) {
+        await publishDomainEvent("memory.reaction.added", "memory.reaction_added", mem.id, {
+          memoryId: mem.id,
+          spaceId: mem.spaceId,
+          userId,
+          kind: parsed.data.kind,
+        });
+      }
+      return reply.status(200).send(createSuccessResponse(state));
     }
   );
 

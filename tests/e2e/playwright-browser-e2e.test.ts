@@ -813,4 +813,65 @@ describe("Interactive Chrome / Playwright DOM, WebGL, SW Offline & 401 Refresh E
     assert.equal(pageErrors.length, 0, `Unexpected page errors: ${pageErrors.join("; ")}`);
     await context.close();
   });
+
+  test("8. Archive Memory Reactions, Story Edit & Full Detail Page Persistence in Chrome", async () => {
+    assert.ok(browser, "Browser must be initialized");
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    const pageErrors: string[] = [];
+    page.on("pageerror", (err) => pageErrors.push(err.message));
+
+    await page.addInitScript((apiUrl: string) => {
+      window.localStorage.setItem("memoria_api_url_override", apiUrl);
+    }, gatewayUrl);
+
+    const uniqueEmail = `react_web_${Date.now()}@memoria.internal`;
+    await page.goto(`${WEB_BASE}/auth?mode=register`, { waitUntil: "networkidle" });
+    await page.fill("#auth-fullname", "Web Reactions Curator");
+    await page.fill("#auth-email", uniqueEmail);
+    await page.fill("#auth-password", "HeirloomPass123!");
+    await page.click('button[type="submit"]');
+    await page.waitForFunction(() => Boolean(window.localStorage.getItem("memoria_web_access_token")), {
+      timeout: 10000,
+    });
+
+    await page.goto(`${WEB_BASE}/spaces`, { waitUntil: "networkidle" });
+    await page.fill("#space-name-input", "Reactions Web Vault");
+    await page.click('button:has-text("Create Memory Space")');
+    await page.waitForSelector('text="Reactions Web Vault"', { timeout: 10000 });
+
+    await page.goto(`${WEB_BASE}/archive`, { waitUntil: "networkidle" });
+    await page.click('button:has-text("Preserve Memory")');
+    await page.fill("#mem-title", "Morning Tea on the Veranda");
+    await page.fill("#mem-content", "Warm sunlight over porcelain cups.");
+    await page.click('button:has-text("Save to Archive")');
+    await page.getByText("Morning Tea on the Veranda").first().waitFor({ state: "visible", timeout: 10000 });
+
+    // Open modal -> react with Heart -> edit story -> close -> reload -> verify persistence
+    await page.getByRole("button", { name: /Morning Tea on the Veranda/i }).first().click();
+    const heartBtn = page.getByRole("button", { name: /Heart/i }).first();
+    await heartBtn.waitFor({ state: "visible", timeout: 10000 });
+    await heartBtn.click();
+    await page.waitForFunction(
+      () => {
+        const btns = Array.from(document.querySelectorAll('button[aria-pressed="true"]'));
+        return btns.some((b) => b.textContent?.includes("Heart") && b.textContent?.includes("1"));
+      },
+      { timeout: 10000 }
+    );
+
+    await page.click('button:has-text("Edit Story")');
+    await page.fill("#edit-story-location", "Kyoto Garden");
+    await page.click('button:has-text("Save Story")');
+    await page.getByText("Location: Kyoto Garden").first().waitFor({ state: "visible", timeout: 10000 });
+
+    await page.click('a:has-text("Open Full Page")');
+    await page.waitForURL(/\/archive\/memories\//, { timeout: 10000 });
+    await page.getByText("Location: Kyoto Garden").first().waitFor({ state: "visible", timeout: 10000 });
+    const fullPageHeart = page.locator('button[aria-pressed="true"]').filter({ hasText: "Heart" }).first();
+    await fullPageHeart.waitFor({ state: "visible", timeout: 10000 });
+
+    assert.equal(pageErrors.length, 0, `Unexpected page errors: ${pageErrors.join("; ")}`);
+    await context.close();
+  });
 });

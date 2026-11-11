@@ -1109,4 +1109,148 @@ describe("Expanded Screen Inventory Backend Routes Suite", () => {
       await Promise.all([gatewayApp.close(), identityApp.close(), memoryApp.close(), bookApp.close()]);
     }
   });
+
+  test("11. Server-Backed Memory Reactions (GET/POST/PUT) with Space Access Isolation & Gateway Proxy", async () => {
+    const [identityApp, memoryApp, collabApp] = await Promise.all([
+      buildIdentityService(),
+      buildMemoryService(),
+      buildCollabService(),
+    ]);
+    const [idUrl, memUrl, collabUrl] = await Promise.all([
+      identityApp.listen({ port: 0, host: "127.0.0.1" }),
+      memoryApp.listen({ port: 0, host: "127.0.0.1" }),
+      collabApp.listen({ port: 0, host: "127.0.0.1" }),
+    ]);
+    const gatewayApp = buildGateway({
+      enableGrpcRouting: false,
+      identityServiceUrl: idUrl,
+      memoryServiceUrl: memUrl,
+      collabServiceUrl: collabUrl,
+    });
+    const gwUrl = await gatewayApp.listen({ port: 0, host: "127.0.0.1" });
+
+    try {
+      const regRes = await fetch(`${gwUrl}/api/v1/auth/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: `react_owner_${Date.now()}@memoria.internal`,
+          password: "StrongPassword123!",
+          fullName: "Reaction Steward",
+        }),
+      });
+      const regJson: any = await regRes.json();
+      assert.equal(regRes.status, 201);
+      const ownerToken = regJson.data.accessToken as string;
+
+      const outsiderRes = await fetch(`${gwUrl}/api/v1/auth/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: `react_outsider_${Date.now()}@memoria.internal`,
+          password: "StrongPassword123!",
+          fullName: "Outsider User",
+        }),
+      });
+      const outsiderToken = (await outsiderRes.json()).data.accessToken as string;
+
+      const spRes = await fetch(`${gwUrl}/api/v1/spaces`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${ownerToken}` },
+        body: JSON.stringify({ name: "Reactions Vault", type: "family" }),
+      });
+      const spaceId = (await spRes.json()).data.id as string;
+
+      const memRes = await fetch(`${gwUrl}/api/v1/spaces/${spaceId}/memories`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${ownerToken}` },
+        body: JSON.stringify({
+          title: "Grandmother Piano Recital",
+          content: "Chopin nocturne in the parlor.",
+          format: "story",
+        }),
+      });
+      const memoryId = (await memRes.json()).data.id as string;
+
+      // Unauthenticated 401
+      const unauthGet = await fetch(`${gwUrl}/api/v1/memories/${memoryId}/reactions`);
+      assert.equal(unauthGet.status, 401);
+
+      // Non-member BOLA 403
+      const outsiderGet = await fetch(`${gwUrl}/api/v1/memories/${memoryId}/reactions`, {
+        headers: { Authorization: `Bearer ${outsiderToken}` },
+      });
+      assert.equal(outsiderGet.status, 403);
+
+      // Initial GET returns empty counts & selectedKinds
+      const initGet = await fetch(`${gwUrl}/api/v1/memories/${memoryId}/reactions`, {
+        headers: { Authorization: `Bearer ${ownerToken}` },
+      });
+      assert.equal(initGet.status, 200);
+      const initData = (await initGet.json()).data;
+      assert.deepEqual(initData.counts, {});
+      assert.deepEqual(initData.selectedKinds, []);
+
+      // POST toggles heart on -> count 1
+      const postOn = await fetch(`${gwUrl}/api/v1/memories/${memoryId}/reactions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${ownerToken}` },
+        body: JSON.stringify({ kind: "heart" }),
+      });
+      assert.equal(postOn.status, 200);
+      const postOnData = (await postOn.json()).data;
+      assert.equal(postOnData.counts.heart, 1);
+      assert.deepEqual(postOnData.selectedKinds, ["heart"]);
+      assert.equal(postOnData.active, true);
+
+      // PUT idempotently sets warmth active twice -> count stays 1
+      const putWarmth1 = await fetch(`${gwUrl}/api/v1/memories/${memoryId}/reactions`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${ownerToken}` },
+        body: JSON.stringify({ kind: "warmth", active: true }),
+      });
+      assert.equal(putWarmth1.status, 200);
+      const putWarmth2 = await fetch(`${gwUrl}/api/v1/memories/${memoryId}/reactions`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${ownerToken}` },
+        body: JSON.stringify({ kind: "warmth", active: true }),
+      });
+      const putWarmth2Data = (await putWarmth2.json()).data;
+      assert.equal(putWarmth2Data.counts.warmth, 1);
+      assert.equal(putWarmth2Data.counts.heart, 1);
+      assert.ok(putWarmth2Data.selectedKinds.includes("heart"));
+      assert.ok(putWarmth2Data.selectedKinds.includes("warmth"));
+
+      // POST toggles heart off, PUT removes warmth -> counts drop to 0
+      await fetch(`${gwUrl}/api/v1/memories/${memoryId}/reactions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${ownerToken}` },
+        body: JSON.stringify({ kind: "heart" }),
+      });
+      const putWarmthOff = await fetch(`${gwUrl}/api/v1/memories/${memoryId}/reactions`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${ownerToken}` },
+        body: JSON.stringify({ kind: "warmth", active: false }),
+      });
+      const afterOffData = (await putWarmthOff.json()).data;
+      assert.equal(afterOffData.counts.heart || 0, 0);
+      assert.equal(afterOffData.counts.warmth || 0, 0);
+      assert.deepEqual(afterOffData.selectedKinds, []);
+
+      // Invalid kind returns 400
+      const invalidKindRes = await fetch(`${gwUrl}/api/v1/memories/${memoryId}/reactions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${ownerToken}` },
+        body: JSON.stringify({ kind: "invalid_emoji" }),
+      });
+      assert.equal(invalidKindRes.status, 400);
+
+      await fetch(`${gwUrl}/api/v1/spaces/${spaceId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${ownerToken}` },
+      });
+    } finally {
+      await Promise.all([gatewayApp.close(), identityApp.close(), memoryApp.close(), collabApp.close()]);
+    }
+  });
 });

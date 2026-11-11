@@ -12,6 +12,7 @@ public struct BookStudioView: View {
     @State private var configuration: Book3DConfiguration
     @State private var fallbackMessage: String?
     @State private var saveConfirmation: String?
+    @State private var saveError: String?
 
     private let volume: BookVolumeRecord
 
@@ -101,6 +102,15 @@ public struct BookStudioView: View {
                                 .padding(.vertical, 6)
                                 .background(MemoriaTheme.successBg)
                                 .foregroundStyle(MemoriaTheme.success)
+                                .clipShape(Capsule())
+                        }
+                        if let saveError {
+                            Text(saveError)
+                                .font(.caption2.weight(.medium))
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(MemoriaTheme.error.opacity(0.15))
+                                .foregroundStyle(MemoriaTheme.error)
                                 .clipShape(Capsule())
                         }
                     }
@@ -207,12 +217,18 @@ public struct BookStudioView: View {
         if UUID(uuidString: volume.id) != nil {
             let configCopy = configuration
             Task {
-                _ = try? await MemoriaAPIClient.shared.updateBook(
-                    bookId: volume.id,
-                    coverTitle: configCopy.coverTitle,
-                    coverColor: configCopy.leather.hexString,
-                    foilStamping: configCopy.foil.rawValue
-                )
+                do {
+                    _ = try await MemoriaAPIClient.shared.updateBook(
+                        bookId: volume.id,
+                        coverTitle: configCopy.coverTitle,
+                        coverColor: configCopy.leather.hexString,
+                        foilStamping: configCopy.foil.rawValue
+                    )
+                    saveError = nil
+                } catch {
+                    saveError = error.localizedDescription
+                    saveConfirmation = nil
+                }
             }
         }
     }

@@ -625,6 +625,33 @@ struct Book3DEngineTests {
         try await client.applyMediaNonDestructiveEdit(mediaId: "med-1", rotateDegrees: 90, warmth: 0.6, cropPreset: "square_1_1")
         #expect(recorder.lastRequest()?.method == "POST")
         #expect(recorder.lastRequest()?.url == "http://127.0.0.1:4000/api/v1/media/med-1/derivatives")
+
+        let reactionPayload = """
+        {"success":true,"data":{"memoryId":"mem-1","counts":{"heart":2,"warmth":1},"selectedKinds":["heart"]}}
+        """
+        recorder.setNextJSON(Data(reactionPayload.utf8))
+        let fetchedReactions = try await client.fetchReactions(memoryId: "mem-1")
+        #expect(fetchedReactions.count(for: .heart) == 2)
+        #expect(fetchedReactions.isSelected(.heart))
+        #expect(recorder.lastRequest()?.method == "GET")
+        #expect(recorder.lastRequest()?.url == "http://127.0.0.1:4000/api/v1/memories/mem-1/reactions")
+
+        recorder.setNextJSON(Data(reactionPayload.utf8))
+        let setReact = try await client.setReaction(memoryId: "mem-1", kind: .heart, active: true)
+        #expect(setReact.count(for: .heart) == 2)
+        #expect(recorder.lastRequest()?.method == "PUT")
+        #expect(recorder.lastRequest()?.url == "http://127.0.0.1:4000/api/v1/memories/mem-1/reactions")
+        #expect((recorder.lastRequest()?.body["kind"] as? String) == "heart")
+        #expect((recorder.lastRequest()?.body["active"] as? Bool) == true)
+
+        let prefsPayload = """
+        {"success":true,"data":{"reducedMotion":true,"language":"en","biometricLock":false}}
+        """
+        recorder.setNextJSON(Data(prefsPayload.utf8))
+        let prefs = try await client.fetchPreferences()
+        #expect(prefs.reducedMotion == true)
+        #expect(recorder.lastRequest()?.method == "GET")
+        #expect(recorder.lastRequest()?.url == "http://127.0.0.1:4000/api/v1/auth/me/preferences")
     }
 
     #if os(iOS) && canImport(RealityKit)

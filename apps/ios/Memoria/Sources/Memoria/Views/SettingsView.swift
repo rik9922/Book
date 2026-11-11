@@ -9,8 +9,9 @@ public struct SettingsView: View {
     @State private var cacheCleared = false
     @State private var showOnboarding = false
     @State private var showSupportHelp = false
-    @State private var biometricLock = false
-    @State private var reducedMotion = false
+    @State private var biometricLock = UserDefaults.standard.bool(forKey: "memoria_biometric_lock")
+    @State private var reducedMotion = UserDefaults.standard.bool(forKey: "memoria_reduced_motion")
+    @State private var isHydratingPreferences = true
     @State private var storageBreakdown: StorageBreakdownDTO?
     @State private var preferenceStatus: String?
 
@@ -48,12 +49,16 @@ public struct SettingsView: View {
                 Section("Privacy & Security (IOS-54)") {
                     Toggle("Require Face ID / Biometric Lock", isOn: $biometricLock)
                         .tint(MemoriaTheme.plum)
-                        .onChange(of: biometricLock) { _, _ in
+                        .onChange(of: biometricLock) { _, nextVal in
+                            UserDefaults.standard.set(nextVal, forKey: "memoria_biometric_lock")
+                            guard !isHydratingPreferences else { return }
                             Task { await savePreferences() }
                         }
                     Toggle("Reduce 3D Book Animations", isOn: $reducedMotion)
                         .tint(MemoriaTheme.sageFunc)
-                        .onChange(of: reducedMotion) { _, _ in
+                        .onChange(of: reducedMotion) { _, nextVal in
+                            UserDefaults.standard.set(nextVal, forKey: "memoria_reduced_motion")
+                            guard !isHydratingPreferences else { return }
                             Task { await savePreferences() }
                         }
                     if let preferenceStatus {
@@ -153,6 +158,7 @@ public struct SettingsView: View {
             }
             .task {
                 checkPermissions()
+                await loadPreferences()
                 await loadStorageBreakdown()
             }
         }
@@ -200,7 +206,25 @@ public struct SettingsView: View {
         }
     }
 
+    private func loadPreferences() async {
+        isHydratingPreferences = true
+        defer { isHydratingPreferences = false }
+        guard await MemoriaAPIClient.shared.getAuthToken() != nil else { return }
+        if let prefs = try? await MemoriaAPIClient.shared.fetchPreferences() {
+            if let bio = prefs.biometricLock {
+                biometricLock = bio
+                UserDefaults.standard.set(bio, forKey: "memoria_biometric_lock")
+            }
+            if let rm = prefs.reducedMotion {
+                reducedMotion = rm
+                UserDefaults.standard.set(rm, forKey: "memoria_reduced_motion")
+            }
+        }
+    }
+
     private func savePreferences() async {
+        UserDefaults.standard.set(biometricLock, forKey: "memoria_biometric_lock")
+        UserDefaults.standard.set(reducedMotion, forKey: "memoria_reduced_motion")
         do {
             _ = try await MemoriaAPIClient.shared.updatePreferences(
                 biometricLock: biometricLock,
@@ -213,8 +237,14 @@ public struct SettingsView: View {
     }
 
     private func loadStorageBreakdown() async {
-        storageBreakdown = try? await MemoriaAPIClient.shared.fetchStorageBreakdown(
-            spaceId: "e8cf4fc3-137e-4397-883d-21cd6a7cb61f"
-        )
+        guard await MemoriaAPIClient.shared.getAuthToken() != nil else { return }
+        var targetSpaceId = UserDefaults.standard.string(forKey: "memoria_active_space_id")
+        if let spaces = try? await MemoriaAPIClient.shared.fetchSpaces(), !spaces.isEmpty {
+            if targetSpaceId == nil || !spaces.contains(where: { $0.id == targetSpaceId }) {
+                targetSpaceId = spaces[0].id
+            }
+        }
+        guard let spaceId = targetSpaceId else { return }
+        storageBreakdown = try? await MemoriaAPIClient.shared.fetchStorageBreakdown(spaceId: spaceId)
     }
 }

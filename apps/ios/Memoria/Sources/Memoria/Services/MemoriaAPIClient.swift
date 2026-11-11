@@ -605,13 +605,27 @@ public actor MemoriaAPIClient {
         return syntheticToken
     }
 
+    private func extractErrorMessage(from data: Data, fallback: String) -> String {
+        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let err = json["error"] as? [String: Any],
+           let msg = err["message"] as? String,
+           !msg.isEmpty {
+            return msg
+        }
+        return fallback
+    }
+
     public func login(email: String, password: String) async throws -> AuthSessionDTO {
         var request = createRequest(path: "auth/login", method: "POST")
         request.httpBody = try JSONSerialization.data(withJSONObject: ["email": email, "password": password])
 
         let (data, response) = try await urlSession.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode) else {
-            throw NSError(domain: "MemoriaAPIClient", code: (response as? HTTPURLResponse)?.statusCode ?? 401, userInfo: [NSLocalizedDescriptionKey: "Invalid email or password"])
+            throw NSError(
+                domain: "MemoriaAPIClient",
+                code: (response as? HTTPURLResponse)?.statusCode ?? 401,
+                userInfo: [NSLocalizedDescriptionKey: extractErrorMessage(from: data, fallback: "Invalid email or password")]
+            )
         }
 
         struct Envelope: Decodable {
@@ -633,7 +647,11 @@ public actor MemoriaAPIClient {
 
         let (data, response) = try await urlSession.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode) else {
-            throw NSError(domain: "MemoriaAPIClient", code: (response as? HTTPURLResponse)?.statusCode ?? 400, userInfo: [NSLocalizedDescriptionKey: "Registration failed"])
+            throw NSError(
+                domain: "MemoriaAPIClient",
+                code: (response as? HTTPURLResponse)?.statusCode ?? 400,
+                userInfo: [NSLocalizedDescriptionKey: extractErrorMessage(from: data, fallback: "Registration failed")]
+            )
         }
 
         struct Envelope: Decodable {
@@ -1064,6 +1082,90 @@ public actor MemoriaAPIClient {
         return try JSONDecoder().decode(Envelope.self, from: data).data
     }
 
+    public func fetchReactions(memoryId: String) async throws -> MemoryReactionState {
+        let (data, httpResponse) = try await performAuthenticatedData(path: "memories/\(memoryId)/reactions", method: "GET")
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw NSError(
+                domain: "MemoriaAPIClient",
+                code: httpResponse.statusCode,
+                userInfo: [NSLocalizedDescriptionKey: extractErrorMessage(from: data, fallback: "Failed to load reactions")]
+            )
+        }
+        struct Envelope: Decodable { let success: Bool; let data: MemoryReactionState }
+        return try JSONDecoder().decode(Envelope.self, from: data).data
+    }
+
+    public func toggleReaction(memoryId: String, kind: MemoryReactionKind) async throws -> MemoryReactionState {
+        let body = try JSONSerialization.data(withJSONObject: ["kind": kind.rawValue])
+        let (data, httpResponse) = try await performAuthenticatedData(
+            path: "memories/\(memoryId)/reactions",
+            method: "POST",
+            body: body
+        )
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw NSError(
+                domain: "MemoriaAPIClient",
+                code: httpResponse.statusCode,
+                userInfo: [NSLocalizedDescriptionKey: extractErrorMessage(from: data, fallback: "Failed to toggle reaction")]
+            )
+        }
+        struct Envelope: Decodable { let success: Bool; let data: MemoryReactionState }
+        return try JSONDecoder().decode(Envelope.self, from: data).data
+    }
+
+    public func setReaction(memoryId: String, kind: MemoryReactionKind, active: Bool) async throws -> MemoryReactionState {
+        let body = try JSONSerialization.data(withJSONObject: [
+            "kind": kind.rawValue,
+            "active": active,
+        ])
+        let (data, httpResponse) = try await performAuthenticatedData(
+            path: "memories/\(memoryId)/reactions",
+            method: "PUT",
+            body: body
+        )
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw NSError(
+                domain: "MemoriaAPIClient",
+                code: httpResponse.statusCode,
+                userInfo: [NSLocalizedDescriptionKey: extractErrorMessage(from: data, fallback: "Failed to update reaction")]
+            )
+        }
+        struct Envelope: Decodable { let success: Bool; let data: MemoryReactionState }
+        return try JSONDecoder().decode(Envelope.self, from: data).data
+    }
+
+    public func toggleFavoriteMemory(memoryId: String, isFavorite: Bool) async throws -> Memory {
+        let body = try JSONSerialization.data(withJSONObject: ["isFavorite": isFavorite])
+        let (data, httpResponse) = try await performAuthenticatedData(
+            path: "memories/\(memoryId)",
+            method: "PATCH",
+            body: body
+        )
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw NSError(
+                domain: "MemoriaAPIClient",
+                code: httpResponse.statusCode,
+                userInfo: [NSLocalizedDescriptionKey: extractErrorMessage(from: data, fallback: "Failed to update favorite status")]
+            )
+        }
+        struct Envelope: Decodable { let success: Bool; let data: Memory }
+        return try JSONDecoder().decode(Envelope.self, from: data).data
+    }
+
+    public func deleteMemory(memoryId: String) async throws {
+        let (data, httpResponse) = try await performAuthenticatedData(
+            path: "memories/\(memoryId)",
+            method: "DELETE"
+        )
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw NSError(
+                domain: "MemoriaAPIClient",
+                code: httpResponse.statusCode,
+                userInfo: [NSLocalizedDescriptionKey: extractErrorMessage(from: data, fallback: "Failed to move memory to trash")]
+            )
+        }
+    }
+
     public func fetchTrashMemories(spaceId: String) async throws -> [Memory] {
         let (data, httpResponse) = try await performAuthenticatedData(path: "spaces/\(spaceId)/memories/trash", method: "GET")
         guard (200...299).contains(httpResponse.statusCode) else {
@@ -1205,6 +1307,15 @@ public actor MemoriaAPIClient {
         guard (200...299).contains(httpResponse.statusCode) else {
             throw NSError(domain: "MemoriaAPIClient", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Failed to save non-destructive image adjustments"])
         }
+    }
+
+    public func fetchPreferences() async throws -> UserPreferencesDTO {
+        let (data, httpResponse) = try await performAuthenticatedData(path: "auth/me/preferences", method: "GET")
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw NSError(domain: "MemoriaAPIClient", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Failed to load preferences"])
+        }
+        struct Envelope: Decodable { let success: Bool; let data: UserPreferencesDTO }
+        return try JSONDecoder().decode(Envelope.self, from: data).data
     }
 
     public func updatePreferences(biometricLock: Bool, reducedMotion: Bool, language: String = "en") async throws -> UserPreferencesDTO {

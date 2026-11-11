@@ -121,7 +121,7 @@ export default function ProfilesPage() {
     try {
       const updated = await updateProfile(spaceId, selectedProfile.id, {
         name: editName.trim(),
-        relationship: editRel.trim(),
+        relationship: editRel.trim() || null,
       });
       setProfiles((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
       setSelectedProfile(updated);

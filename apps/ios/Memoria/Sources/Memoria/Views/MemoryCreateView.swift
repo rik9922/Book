@@ -105,6 +105,27 @@ public struct MemoryCreateView: View {
             .split(separator: ",")
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
+        let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanContent = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanLocation = location.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let hasAuth = await MemoriaAPIClient.shared.getAuthToken() != nil
+        guard hasAuth else {
+            let localMemory = Memory(
+                spaceId: spaceId,
+                authorId: "local-author",
+                title: cleanTitle,
+                content: cleanContent.isEmpty ? nil : cleanContent,
+                format: selectedItem != nil ? .image : .story,
+                location: cleanLocation.isEmpty ? nil : cleanLocation,
+                tags: tags
+            )
+            try? LocalStorageService.shared.upsertLocalMemory(localMemory)
+            onCreated?(localMemory)
+            isSaving = false
+            dismiss()
+            return
+        }
 
         do {
             var uploadedMediaIds: [String] = []
@@ -123,10 +144,10 @@ public struct MemoryCreateView: View {
             let resolvedFormat = uploadedMediaIds.isEmpty ? "story" : "image"
             let memory = try await MemoriaAPIClient.shared.createMemory(
                 spaceId: spaceId,
-                title: title,
-                content: content.isEmpty ? nil : content,
+                title: cleanTitle,
+                content: cleanContent.isEmpty ? nil : cleanContent,
                 format: resolvedFormat,
-                location: location.isEmpty ? nil : location,
+                location: cleanLocation.isEmpty ? nil : cleanLocation,
                 tags: tags,
                 mediaIds: uploadedMediaIds
             )

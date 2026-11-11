@@ -50,7 +50,7 @@ public struct BookCreatorWizardView: View {
         self.initialSelectedMemories = initialSelectedMemories
         self.initialTitle = initialTitle
         self.onBookCreated = onBookCreated
-        self._selectedSpaceId = State(initialValue: initialSpaceId ?? "e8cf4fc3-137e-4397-883d-21cd6a7cb61f")
+        self._selectedSpaceId = State(initialValue: initialSpaceId ?? UserDefaults.standard.string(forKey: "memoria_active_space_id") ?? "e8cf4fc3-137e-4397-883d-21cd6a7cb61f")
         self._selectedMemories = State(initialValue: initialSelectedMemories)
         self._title = State(initialValue: initialTitle ?? "")
     }

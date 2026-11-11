@@ -93,6 +93,11 @@ export default function BillingPage() {
       .catch((err) => setError(err instanceof Error ? err.message : "Failed to load spaces."));
   }, [loadBooksForSpace]);
 
+  // Clear stale cached server quote whenever print specifications change
+  useEffect(() => {
+    setQuote(null);
+  }, [format, binding, paperWeight, quantity, country, shippingSpeed]);
+
   const computeLocalQuote = (): OrderQuoteDTO => {
     const f = catalog.formats.find((x) => x.id === format) || catalog.formats[1];
     const b = catalog.bindings.find((x) => x.id === binding) || catalog.bindings[0];

@@ -4,8 +4,11 @@ import UIKit
 #endif
 
 public struct MemoryDetailView: View {
+    @Environment(\.dismiss) private var dismiss
+
     @State private var memory: Memory
     public var onUpdated: ((Memory) -> Void)?
+    public var onDeleted: ((String) -> Void)?
 
     @State private var comments: [MemoryCommentDTO] = []
     @State private var reactionState = MemoryReactionState()
@@ -15,11 +18,17 @@ public struct MemoryDetailView: View {
     @State private var isShowingPlayer = false
     @State private var isShowingReflectionsSheet = false
     @State private var isAuthenticated = false
+    @State private var showDeleteConfirmation = false
     @State private var commentError: String?
 
-    public init(memory: Memory, onUpdated: ((Memory) -> Void)? = nil) {
+    public init(
+        memory: Memory,
+        onUpdated: ((Memory) -> Void)? = nil,
+        onDeleted: ((String) -> Void)? = nil
+    ) {
         self._memory = State(initialValue: memory)
         self.onUpdated = onUpdated
+        self.onDeleted = onDeleted
     }
 
     public var body: some View {
@@ -239,6 +248,35 @@ public struct MemoryDetailView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
+        .toolbar {
+            ToolbarItemGroup(placement: .primaryAction) {
+                Button {
+                    Task { await toggleFavorite() }
+                } label: {
+                    Image(systemName: memory.isFavorite ? "star.fill" : "star")
+                        .foregroundStyle(MemoriaTheme.plum)
+                }
+                .accessibilityLabel(memory.isFavorite ? "Unfavorite Memory" : "Favorite Memory")
+
+                Button(role: .destructive) {
+                    showDeleteConfirmation = true
+                } label: {
+                    Image(systemName: "trash")
+                        .foregroundStyle(MemoriaTheme.error)
+                }
+                .accessibilityLabel("Move Memory to Trash")
+            }
+        }
+        .confirmationDialog(
+            "Move this memory to Trash? You can recover it within 30 days.",
+            isPresented: $showDeleteConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Move to Trash", role: .destructive) {
+                Task { await moveToTrash() }
+            }
+            Button("Cancel", role: .cancel) {}
+        }
         .task {
             await loadCommentsAndReactions()
         }
@@ -279,7 +317,12 @@ public struct MemoryDetailView: View {
             return
         }
         do {
-            comments = try await MemoriaAPIClient.shared.fetchComments(memoryId: memory.id)
+            async let fetchedComments = MemoriaAPIClient.shared.fetchComments(memoryId: memory.id)
+            async let fetchedReactions = MemoriaAPIClient.shared.fetchReactions(memoryId: memory.id)
+            comments = try await fetchedComments
+            let serverReactions = try await fetchedReactions
+            reactionState = serverReactions
+            try? LocalStorageService.shared.saveReactionsLocally(serverReactions, forMemoryId: memory.id)
             commentError = nil
         } catch {
             commentError = error.localizedDescription
@@ -291,7 +334,75 @@ public struct MemoryDetailView: View {
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
         #endif
         reactionState.toggle(kind)
+        let desiredActive = reactionState.isSelected(kind)
         try? LocalStorageService.shared.saveReactionsLocally(reactionState, forMemoryId: memory.id)
+        let memoryId = memory.id
+        Task {
+            guard await MemoriaAPIClient.shared.getAuthToken() != nil else { return }
+            do {
+                let serverState = try await MemoriaAPIClient.shared.setReaction(
+                    memoryId: memoryId,
+                    kind: kind,
+                    active: desiredActive
+                )
+                reactionState = serverState
+                try? LocalStorageService.shared.saveReactionsLocally(serverState, forMemoryId: memoryId)
+                commentError = nil
+            } catch {
+                commentError = error.localizedDescription
+            }
+        }
+    }
+
+    private func toggleFavorite() async {
+        let nextFav = !memory.isFavorite
+        let hasAuth = await MemoriaAPIClient.shared.getAuthToken() != nil
+        guard hasAuth else {
+            let localUpdated = Memory(
+                id: memory.id,
+                spaceId: memory.spaceId,
+                authorId: memory.authorId,
+                title: memory.title,
+                content: memory.content,
+                format: memory.format,
+                capturedAt: memory.capturedAt,
+                location: memory.location,
+                latitude: memory.latitude,
+                longitude: memory.longitude,
+                isFavorite: nextFav,
+                associatedProfileIds: memory.associatedProfileIds,
+                mediaIds: memory.mediaIds,
+                tags: memory.tags,
+                createdAt: memory.createdAt,
+                updatedAt: ISO8601DateFormatter().string(from: Date())
+            )
+            memory = localUpdated
+            try? LocalStorageService.shared.upsertLocalMemory(localUpdated)
+            onUpdated?(localUpdated)
+            return
+        }
+        do {
+            let updated = try await MemoriaAPIClient.shared.toggleFavoriteMemory(memoryId: memory.id, isFavorite: nextFav)
+            memory = updated
+            onUpdated?(updated)
+            commentError = nil
+        } catch {
+            commentError = error.localizedDescription
+        }
+    }
+
+    private func moveToTrash() async {
+        let hasAuth = await MemoriaAPIClient.shared.getAuthToken() != nil
+        if hasAuth {
+            do {
+                try await MemoriaAPIClient.shared.deleteMemory(memoryId: memory.id)
+            } catch {
+                commentError = error.localizedDescription
+                return
+            }
+        }
+        onDeleted?(memory.id)
+        dismiss()
     }
 
     private func attachLocalSpecimenAsset() {

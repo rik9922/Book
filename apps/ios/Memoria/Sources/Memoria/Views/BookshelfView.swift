@@ -78,6 +78,7 @@ public struct BookshelfView: View {
             }
             .onAppear {
                 reloadPersistedConfigurations()
+                Task { await refreshLiveBooks() }
             }
             .task {
                 await refreshLiveBooks()

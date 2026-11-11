@@ -23,7 +23,8 @@ public struct HomeFeedView: View {
     public var spaceId: String { activeSpaceId }
 
     public init(spaceId: String = "e8cf4fc3-137e-4397-883d-21cd6a7cb61f") {
-        self._activeSpaceId = State(initialValue: spaceId)
+        let saved = UserDefaults.standard.string(forKey: "memoria_active_space_id")
+        self._activeSpaceId = State(initialValue: saved ?? spaceId)
     }
 
     private var displayedMemories: [Memory] {
@@ -41,6 +42,24 @@ public struct HomeFeedView: View {
 
                 VStack(spacing: 0) {
                     archiveControlStrip
+
+                    if let errorMessage {
+                        HStack(spacing: 8) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundStyle(MemoriaTheme.error)
+                            Text(errorMessage)
+                                .font(.caption)
+                                .foregroundStyle(MemoriaTheme.error)
+                            Spacer()
+                            Button("Dismiss") {
+                                self.errorMessage = nil
+                            }
+                            .font(.caption2.weight(.semibold))
+                        }
+                        .padding(.horizontal)
+                        .padding(.vertical, 8)
+                        .background(MemoriaTheme.error.opacity(0.08))
+                    }
 
                     if isLoading && memories.isEmpty {
                         Spacer()
@@ -93,11 +112,17 @@ public struct HomeFeedView: View {
                             LazyVGrid(columns: gridColumns, spacing: 14) {
                                 ForEach(displayedMemories) { memory in
                                     NavigationLink {
-                                        MemoryDetailView(memory: memory) { updated in
-                                            if let idx = memories.firstIndex(where: { $0.id == updated.id }) {
-                                                memories[idx] = updated
+                                        MemoryDetailView(
+                                            memory: memory,
+                                            onUpdated: { updated in
+                                                if let idx = memories.firstIndex(where: { $0.id == updated.id }) {
+                                                    memories[idx] = updated
+                                                }
+                                            },
+                                            onDeleted: { deletedId in
+                                                memories.removeAll { $0.id == deletedId }
                                             }
-                                        }
+                                        )
                                     } label: {
                                         MemoryCardView(memory: memory, compact: columnDensity > 1)
                                     }
@@ -105,6 +130,9 @@ public struct HomeFeedView: View {
                                 }
                             }
                             .padding()
+                        }
+                        .refreshable {
+                            await loadMemories()
                         }
                         .gesture(
                             MagnifyGesture()
@@ -295,19 +323,42 @@ public struct HomeFeedView: View {
 
     private func loadMemories() async {
         isLoading = true
-        let local = LocalStorageService.shared.loadLocalMemories(forSpaceId: spaceId)
+        defer { isLoading = false }
+        errorMessage = nil
+
+        let hasAuth = await MemoriaAPIClient.shared.getAuthToken() != nil
+        if hasAuth {
+            do {
+                let userSpaces = try await MemoriaAPIClient.shared.fetchSpaces()
+                if userSpaces.isEmpty {
+                    self.memories = []
+                    return
+                }
+                if !userSpaces.contains(where: { $0.id == activeSpaceId }) {
+                    activeSpaceId = userSpaces[0].id
+                }
+                UserDefaults.standard.set(activeSpaceId, forKey: "memoria_active_space_id")
+            } catch {
+                // Fall through to cached or explicit fetch error below
+            }
+        }
+
+        let local = LocalStorageService.shared.loadLocalMemories(forSpaceId: activeSpaceId)
         if !local.isEmpty {
             self.memories = local
         }
 
+        guard hasAuth else {
+            return
+        }
+
         do {
-            let fetched = try await MemoriaAPIClient.shared.fetchMemories(spaceId: spaceId)
+            let fetched = try await MemoriaAPIClient.shared.fetchMemories(spaceId: activeSpaceId)
             self.memories = fetched
-            try? LocalStorageService.shared.saveMemoriesLocally(fetched, forSpaceId: spaceId)
+            try? LocalStorageService.shared.saveMemoriesLocally(fetched, forSpaceId: activeSpaceId)
         } catch {
             self.errorMessage = error.localizedDescription
         }
-        isLoading = false
     }
 }
 

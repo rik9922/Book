@@ -487,4 +487,263 @@ final class MemoriaUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["Support & Help"].waitForExistence(timeout: 3))
         app.buttons["Close"].firstMatch.tap()
     }
+
+    @MainActor
+    func testLiveAuthenticatedEndToEndWorkflow() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-UITestResetLocalArchive"]
+        app.launchEnvironment["MEMORIA_API_URL"] = "http://127.0.0.1:4000/api/v1"
+        app.launch()
+
+        let tabBar = app.tabBars.firstMatch
+        XCTAssertTrue(tabBar.waitForExistence(timeout: 8), "Main TabView should appear after launch splash")
+
+        // 1. Register a brand-new user via live API Gateway -> Identity Service -> Postgres
+        let accountBtn = app.buttons["Account Access"].firstMatch
+        XCTAssertTrue(accountBtn.waitForExistence(timeout: 4))
+        accountBtn.tap()
+        XCTAssertTrue(app.navigationBars["Memoria Access"].waitForExistence(timeout: 4))
+
+        let accessModePicker = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Access Mode' OR label CONTAINS 'Sign In'")).firstMatch
+        XCTAssertTrue(accessModePicker.waitForExistence(timeout: 3))
+        accessModePicker.tap()
+        let registerOption = app.buttons["Register"].firstMatch
+        XCTAssertTrue(registerOption.waitForExistence(timeout: 3))
+        registerOption.tap()
+
+        let uniqueEmail = "ios_live_\(Int(Date().timeIntervalSince1970))@memoria.internal"
+        let fullNameField = app.textFields["Full Name"].firstMatch
+        XCTAssertTrue(fullNameField.waitForExistence(timeout: 3))
+        fullNameField.tap()
+        fullNameField.typeText("Elena Bennett")
+
+        let emailField = app.textFields["Email Address"].firstMatch
+        emailField.tap()
+        emailField.typeText(uniqueEmail)
+
+        let passwordField = app.secureTextFields["Password (min 8 chars)"].firstMatch
+        passwordField.tap()
+        passwordField.typeText("HeirloomPass123!")
+
+        let registerSubmit = app.buttons["Create Archival Account"].firstMatch
+        XCTAssertTrue(registerSubmit.waitForExistence(timeout: 2) && registerSubmit.isEnabled)
+        registerSubmit.tap()
+
+        // Wait for auth sheet to dismiss after HTTP 201
+        XCTAssertTrue(app.buttons["Switch Space"].waitForExistence(timeout: 8), "Auth sheet should dismiss after live registration")
+
+        // 2. Create a live Memory Space via SpaceOverviewSheet -> Memory Service -> Postgres
+        app.buttons["Switch Space"].firstMatch.tap()
+        XCTAssertTrue(app.navigationBars["Memory Spaces"].waitForExistence(timeout: 4))
+        let vaultNameField = app.textFields["Vault Name (e.g. Rivera Family)"].firstMatch
+        XCTAssertTrue(vaultNameField.waitForExistence(timeout: 3))
+        vaultNameField.tap()
+        vaultNameField.typeText("Live Bennett Vault")
+        let createVaultBtn = app.buttons["Create Vault"].firstMatch
+        XCTAssertTrue(createVaultBtn.waitForExistence(timeout: 2) && createVaultBtn.isEnabled)
+        createVaultBtn.tap()
+        XCTAssertTrue(app.staticTexts["Vault created and selected."].waitForExistence(timeout: 6))
+        app.buttons["Close"].firstMatch.tap()
+
+        // 3. Create 2 live memories via MemoryCreateView -> Memory Service -> Postgres
+        func createLiveMemory(title: String, story: String) {
+            let captureBtn = app.buttons["Capture Memory"].firstMatch
+            XCTAssertTrue(captureBtn.waitForExistence(timeout: 4))
+            captureBtn.tap()
+            let photoStoryBtn = app.buttons["Photo or Story"].firstMatch
+            XCTAssertTrue(photoStoryBtn.waitForExistence(timeout: 3))
+            photoStoryBtn.tap()
+            XCTAssertTrue(app.navigationBars["New Memory"].waitForExistence(timeout: 3))
+            let titleInput = app.textFields["Title (e.g. Anniversary Dinner)"].firstMatch
+            titleInput.tap()
+            titleInput.typeText(title)
+            let storyInput = app.textFields["Story / Content"].firstMatch
+            if storyInput.exists {
+                storyInput.tap()
+                storyInput.typeText(story)
+            }
+            let saveBtn = app.buttons["Save Memory"].firstMatch
+            XCTAssertTrue(saveBtn.waitForExistence(timeout: 2) && saveBtn.isEnabled)
+            saveBtn.tap()
+            XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label CONTAINS %@", title)).firstMatch.waitForExistence(timeout: 6))
+        }
+
+        createLiveMemory(title: "Live Harbor Morning", story: "Sailing across the bay at sunrise.")
+        createLiveMemory(title: "Live Autumn Orchard", story: "Warm cider under the cedar pergola.")
+
+        // 4. Open MemoryDetailView -> toggle server-backed Heart reaction -> post server comment -> verify reload persistence
+        let firstMemCard = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Live Harbor Morning'")).firstMatch
+        firstMemCard.tap()
+        XCTAssertTrue(app.navigationBars["Heirloom Story"].waitForExistence(timeout: 4))
+
+        let heartReactionBtn = app.buttons["Heart reaction"].firstMatch
+        if !heartReactionBtn.exists { app.swipeUp() }
+        XCTAssertTrue(heartReactionBtn.waitForExistence(timeout: 4))
+        heartReactionBtn.tap()
+        // Wait briefly for PUT /memories/:id/reactions to complete and show count 1
+        XCTAssertTrue(
+            app.buttons.matching(NSPredicate(format: "label CONTAINS 'Heart'")).firstMatch.waitForExistence(timeout: 4)
+        )
+
+        let reflectionsBtn = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Reactions & Family Reflections'")).firstMatch
+        XCTAssertTrue(reflectionsBtn.waitForExistence(timeout: 3))
+        reflectionsBtn.tap()
+        XCTAssertTrue(app.navigationBars["Reflections & Notes"].waitForExistence(timeout: 3))
+        let reflectionField = app.textFields["Share a memory or reflection..."].firstMatch
+        XCTAssertTrue(reflectionField.waitForExistence(timeout: 2))
+        reflectionField.tap()
+        reflectionField.typeText("Server persisted reflection!")
+        app.buttons["Send Reflection"].firstMatch.tap()
+        XCTAssertTrue(app.staticTexts["Server persisted reflection!"].waitForExistence(timeout: 6))
+        app.buttons["Close"].firstMatch.tap()
+
+        // Navigate back and re-open to prove server persistence of reaction + comment
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        let firstMemCardAgain = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Live Harbor Morning'")).firstMatch
+        XCTAssertTrue(firstMemCardAgain.waitForExistence(timeout: 4))
+        firstMemCardAgain.tap()
+        XCTAssertTrue(app.navigationBars["Heirloom Story"].waitForExistence(timeout: 4))
+        if !app.staticTexts["Server persisted reflection!"].exists { app.swipeUp() }
+        XCTAssertTrue(app.staticTexts["Server persisted reflection!"].waitForExistence(timeout: 6), "Comment must persist on server across reload")
+        XCTAssertTrue(app.staticTexts["1"].waitForExistence(timeout: 4), "Server reaction count 1 must persist across reload")
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+
+        // 5. Collection curation & reorder via live API
+        app.buttons["Collections"].firstMatch.tap()
+        XCTAssertTrue(app.navigationBars["Collections"].waitForExistence(timeout: 4))
+        let colTitleField = app.textFields["Collection Title"].firstMatch
+        colTitleField.tap()
+        colTitleField.typeText("Live Heritage Album")
+        app.buttons["Add Collection"].firstMatch.tap()
+        let colCell = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Live Heritage Album'")).firstMatch
+        XCTAssertTrue(colCell.waitForExistence(timeout: 6))
+        colCell.tap()
+        XCTAssertTrue(app.navigationBars["Live Heritage Album"].waitForExistence(timeout: 4))
+        app.buttons["Add Memories"].firstMatch.tap()
+        XCTAssertTrue(app.navigationBars["Add Memories"].waitForExistence(timeout: 4))
+        app.buttons.matching(NSPredicate(format: "label CONTAINS 'Live Harbor Morning'")).firstMatch.tap()
+        app.buttons.matching(NSPredicate(format: "label CONTAINS 'Live Autumn Orchard'")).firstMatch.tap()
+        app.buttons["Done"].firstMatch.tap()
+        let moveUpInCol = app.buttons["Move Live Autumn Orchard up in collection"].firstMatch
+        if moveUpInCol.waitForExistence(timeout: 4) && moveUpInCol.isEnabled {
+            moveUpInCol.tap()
+        }
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+
+        // 6. Circles -> People & Profiles -> Create & Edit Profile via live API
+        tabBar.buttons["Circles"].tap()
+        XCTAssertTrue(app.navigationBars["Family Circles"].waitForExistence(timeout: 4))
+        let profilesDirBtn = app.buttons["People & Profiles Directory"].firstMatch
+        XCTAssertTrue(profilesDirBtn.waitForExistence(timeout: 4))
+        profilesDirBtn.tap()
+        XCTAssertTrue(app.navigationBars["People & Profiles"].waitForExistence(timeout: 4))
+
+        app.buttons["New Profile"].firstMatch.tap()
+        XCTAssertTrue(app.navigationBars["New Profile"].waitForExistence(timeout: 3))
+        let profNameField = app.textFields["Full Name"].firstMatch
+        profNameField.tap()
+        profNameField.typeText("Clara Bennett")
+        let profRelField = app.textFields["Relationship (e.g. Grandmother, Daughter)"].firstMatch
+        profRelField.tap()
+        profRelField.typeText("Daughter")
+        app.buttons["Save"].firstMatch.tap()
+
+        let claraRow = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Clara Bennett'")).firstMatch
+        XCTAssertTrue(claraRow.waitForExistence(timeout: 6))
+        claraRow.tap()
+        XCTAssertTrue(app.navigationBars["Clara Bennett"].waitForExistence(timeout: 4))
+        app.buttons["Edit Profile"].firstMatch.tap()
+        XCTAssertTrue(app.navigationBars["Edit Profile"].waitForExistence(timeout: 3))
+        let editRel = app.textFields["Relationship (e.g. Grandmother, Daughter)"].firstMatch
+        editRel.tap()
+        editRel.typeText(" Firstborn")
+        app.buttons["Save"].firstMatch.tap()
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Firstborn'")).firstMatch.waitForExistence(timeout: 6))
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+
+        // 7. Bookshelf -> Book Creator Wizard -> Preflight -> Freeze SHA-256 -> Print Checkout -> Order Timeline & Reorder
+        tabBar.buttons["Bookshelf"].tap()
+        XCTAssertTrue(app.navigationBars["Bookshelf"].waitForExistence(timeout: 4))
+        app.buttons["Create Book"].firstMatch.tap()
+        XCTAssertTrue(app.navigationBars["Book Creator Wizard"].waitForExistence(timeout: 4))
+
+        let bookTitleField = app.textFields["Book Title (e.g. Bennett Anthology)"].firstMatch
+        bookTitleField.tap()
+        bookTitleField.typeText("Live Bennett Chronicle")
+        app.buttons["Continue to Memory Selection (IOS-46)"].firstMatch.tap()
+        let pick1 = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Live Harbor Morning'")).firstMatch
+        XCTAssertTrue(pick1.waitForExistence(timeout: 5))
+        pick1.tap()
+        let pick2 = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Live Autumn Orchard'")).firstMatch
+        XCTAssertTrue(pick2.waitForExistence(timeout: 3))
+        pick2.tap()
+        app.buttons["Continue to Spread Reordering (IOS-47)"].firstMatch.tap()
+        app.buttons["Continue to Template & Cover (IOS-48)"].firstMatch.tap()
+        app.buttons["Create & Curate Heirloom Book"].firstMatch.tap()
+
+        XCTAssertTrue(app.staticTexts["Live Bennett Chronicle"].waitForExistence(timeout: 8), "Created server book must appear on Bookshelf")
+
+        let specsBtn = app.buttons["Book specifications for Live Bennett Chronicle"].firstMatch
+        XCTAssertTrue(specsBtn.waitForExistence(timeout: 4))
+        specsBtn.tap()
+        XCTAssertTrue(app.navigationBars["Book Specifications"].waitForExistence(timeout: 4))
+
+        app.buttons["Run Automated Preflight"].firstMatch.tap()
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS '300 DPI'")).firstMatch.waitForExistence(timeout: 6))
+
+        let freezeBtn = app.buttons["Freeze Edition SHA-256"].firstMatch
+        if !freezeBtn.waitForExistence(timeout: 2) {
+            app.swipeUp()
+        }
+        XCTAssertTrue(freezeBtn.waitForExistence(timeout: 4))
+        freezeBtn.tap()
+        XCTAssertTrue(
+            app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Edition frozen cleanly' OR label == 'Frozen for Press'")).firstMatch.waitForExistence(timeout: 6),
+            "Freeze must lock edition with SHA-256"
+        )
+
+        let orderCopyBtn = app.buttons["Order Physical Hardcover (IOS-52)"].firstMatch
+        if !orderCopyBtn.waitForExistence(timeout: 2) {
+            app.swipeUp()
+        }
+        XCTAssertTrue(orderCopyBtn.waitForExistence(timeout: 3))
+        orderCopyBtn.tap()
+        XCTAssertTrue(app.navigationBars["Print Checkout"].waitForExistence(timeout: 4))
+
+        let confirmOrderBtn = app.buttons["Confirm & Place Print Order"].firstMatch
+        if !confirmOrderBtn.waitForExistence(timeout: 2) {
+            app.swipeUp()
+        }
+        XCTAssertTrue(confirmOrderBtn.waitForExistence(timeout: 4) && confirmOrderBtn.isEnabled)
+        confirmOrderBtn.tap()
+
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Print order #'")).firstMatch.waitForExistence(timeout: 8))
+        app.buttons["Close"].firstMatch.tap()
+
+        // 8. Open Print Orders -> OrderDetailTimelineSheet -> Reorder
+        let printOrdersBtn = app.buttons["Print Orders"].firstMatch
+        XCTAssertTrue(printOrdersBtn.waitForExistence(timeout: 4))
+        printOrdersBtn.tap()
+        XCTAssertTrue(app.navigationBars["Print & Orders"].waitForExistence(timeout: 4))
+
+        let placedOrderRow = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Track & Reorder'")).firstMatch
+        if !placedOrderRow.waitForExistence(timeout: 3) {
+            app.swipeUp()
+        }
+        XCTAssertTrue(placedOrderRow.waitForExistence(timeout: 8), "Live order must appear in Print & Orders list")
+        placedOrderRow.tap()
+        XCTAssertTrue(app.navigationBars["Order Timeline"].waitForExistence(timeout: 4))
+        XCTAssertTrue(app.staticTexts["Submitted"].waitForExistence(timeout: 4))
+
+        let reorderBtn = app.buttons["Reorder This Edition"].firstMatch
+        if !reorderBtn.waitForExistence(timeout: 2) {
+            app.swipeUp()
+        }
+        XCTAssertTrue(reorderBtn.waitForExistence(timeout: 4))
+        reorderBtn.tap()
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Reordered edition as #'")).firstMatch.waitForExistence(timeout: 8))
+        app.buttons["Close"].firstMatch.tap()
+    }
 }

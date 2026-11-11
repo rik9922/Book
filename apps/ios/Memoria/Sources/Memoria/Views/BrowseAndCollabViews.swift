@@ -93,6 +93,7 @@ public struct SpaceOverviewSheet: View {
                         ForEach(spaces) { space in
                             Button {
                                 activeSpaceId = space.id
+                                UserDefaults.standard.set(space.id, forKey: "memoria_active_space_id")
                                 dismiss()
                             } label: {
                                 HStack {
@@ -160,6 +161,7 @@ public struct SpaceOverviewSheet: View {
             )
             spaces.append(created)
             activeSpaceId = created.id
+            UserDefaults.standard.set(created.id, forKey: "memoria_active_space_id")
             newSpaceName = ""
             newSpaceDesc = ""
             statusMessage = "Vault created and selected."

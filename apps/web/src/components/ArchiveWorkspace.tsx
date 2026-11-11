@@ -33,17 +33,28 @@ import {
   getMediaAsset,
   getMediaOcr,
   getMemoryHistory,
+  getMemoryReactions,
   getSpaceCalendar,
   getStoredSession,
   listActiveUploadSessions,
   listMemoryComments,
   MemoryCommentDTO,
   MemoryDTO,
+  MemoryReactionKind,
+  MemoryReactionStateDTO,
   MemorySpaceDTO,
   retryUploadSession,
   saveMediaNonDestructiveEdits,
+  toggleMemoryReaction,
   uploadFileToMediaService,
 } from "@/lib/api";
+
+const REACTION_OPTIONS: Array<{ kind: MemoryReactionKind; label: string; emoji: string }> = [
+  { kind: "heart", label: "Heart", emoji: "♥" },
+  { kind: "warmth", label: "Warmth", emoji: "☀" },
+  { kind: "tearsOfJoy", label: "Tears of Joy", emoji: "✨" },
+  { kind: "gratitude", label: "Gratitude", emoji: "🙏" },
+];
 
 type ViewMode = "grid" | "timeline" | "calendar" | "favorites";
 
@@ -100,6 +111,11 @@ export function ArchiveWorkspace({ initialMode = "grid" }: { initialMode?: ViewM
   } | null>(null);
   const [activeOcr, setActiveOcr] = useState<Array<{ id: string; extractedText: string; confidence?: number }>>([]);
   const [commentBody, setCommentBody] = useState("");
+  const [reactionState, setReactionState] = useState<MemoryReactionStateDTO | null>(null);
+  const [editingStory, setEditingStory] = useState(false);
+  const [editStoryTitle, setEditStoryTitle] = useState("");
+  const [editStoryContent, setEditStoryContent] = useState("");
+  const [editStoryLocation, setEditStoryLocation] = useState("");
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const lastTriggerRef = useRef<HTMLButtonElement | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -168,6 +184,8 @@ export function ArchiveWorkspace({ initialMode = "grid" }: { initialMode?: ViewM
     if (!activeMemory) {
       setComments([]);
       setRevisions([]);
+      setReactionState(null);
+      setEditingStory(false);
       setActiveMedia(null);
       setActiveOcr([]);
       setModalTab("details");
@@ -177,9 +195,16 @@ export function ArchiveWorkspace({ initialMode = "grid" }: { initialMode?: ViewM
       setCropPreset("original");
       return;
     }
+    setEditStoryTitle(activeMemory.title);
+    setEditStoryContent(activeMemory.content || "");
+    setEditStoryLocation(activeMemory.location || "");
+    setEditingStory(false);
     listMemoryComments(activeMemory.id)
       .then((list) => setComments(list))
       .catch(() => setComments([]));
+    getMemoryReactions(activeMemory.id)
+      .then((state) => setReactionState(state))
+      .catch(() => setReactionState({ memoryId: activeMemory.id, counts: {}, selectedKinds: [] }));
     getMemoryHistory(activeMemory.id)
       .then((hist) => setRevisions(hist))
       .catch(() => setRevisions([]));
@@ -388,6 +413,39 @@ export function ArchiveWorkspace({ initialMode = "grid" }: { initialMode?: ViewM
       setComments((prev) => prev.filter((c) => c.id !== commentId));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to delete annotation.");
+    }
+  };
+
+  const handleToggleReaction = async (kind: MemoryReactionKind) => {
+    if (!activeMemory) return;
+    try {
+      const next = await toggleMemoryReaction(activeMemory.id, kind);
+      setReactionState(next);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to save emotional reaction.");
+    }
+  };
+
+  const handleSaveStoryEdits = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeMemory || !editStoryTitle.trim()) return;
+    setError(null);
+    try {
+      const updated = await apiRequest<MemoryDTO>(`/memories/${activeMemory.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          title: editStoryTitle.trim(),
+          content: editStoryContent.trim() || null,
+          location: editStoryLocation.trim() || null,
+        }),
+      });
+      setMemories((prev) => prev.map((m) => (m.id === updated.id ? updated : m)));
+      setActiveMemory(updated);
+      setEditingStory(false);
+      setNotice("Saved story updates.");
+      getMemoryHistory(updated.id).then(setRevisions).catch(() => setRevisions([]));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to update memory story.");
     }
   };
 
@@ -1020,23 +1078,123 @@ export function ArchiveWorkspace({ initialMode = "grid" }: { initialMode?: ViewM
 
               {modalTab === "details" && (
                 <>
-                  {activeMemory.location && (
-                    <p className="text-xs text-[#5C5955]">Location: {activeMemory.location}</p>
+                  {editingStory ? (
+                    <form onSubmit={handleSaveStoryEdits} className="space-y-3 p-4 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA]">
+                      <div>
+                        <label htmlFor="edit-story-title" className="block text-[11px] font-semibold text-[#20242C] mb-1">
+                          Title
+                        </label>
+                        <input
+                          id="edit-story-title"
+                          type="text"
+                          required
+                          value={editStoryTitle}
+                          onChange={(e) => setEditStoryTitle(e.target.value)}
+                          className="w-full px-3 py-1.5 rounded-lg bg-white border border-[#E7E2DA] text-xs"
+                        />
+                      </div>
+                      <div>
+                        <label htmlFor="edit-story-location" className="block text-[11px] font-semibold text-[#20242C] mb-1">
+                          Location
+                        </label>
+                        <input
+                          id="edit-story-location"
+                          type="text"
+                          value={editStoryLocation}
+                          onChange={(e) => setEditStoryLocation(e.target.value)}
+                          className="w-full px-3 py-1.5 rounded-lg bg-white border border-[#E7E2DA] text-xs"
+                        />
+                      </div>
+                      <div>
+                        <label htmlFor="edit-story-content" className="block text-[11px] font-semibold text-[#20242C] mb-1">
+                          Narrative
+                        </label>
+                        <textarea
+                          id="edit-story-content"
+                          rows={3}
+                          value={editStoryContent}
+                          onChange={(e) => setEditStoryContent(e.target.value)}
+                          className="w-full px-3 py-1.5 rounded-lg bg-white border border-[#E7E2DA] text-xs"
+                        />
+                      </div>
+                      <div className="flex gap-2 justify-end">
+                        <button
+                          type="button"
+                          onClick={() => setEditingStory(false)}
+                          className="px-3 py-1.5 rounded-lg bg-[#F0ECE1] text-xs font-medium text-[#20242C]"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="submit"
+                          className="px-3 py-1.5 rounded-lg bg-[#76556F] text-white text-xs font-semibold"
+                        >
+                          Save Story
+                        </button>
+                      </div>
+                    </form>
+                  ) : (
+                    <>
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="space-y-2 flex-1">
+                          {activeMemory.location && (
+                            <p className="text-xs text-[#5C5955]">Location: {activeMemory.location}</p>
+                          )}
+                          <p className="text-sm text-[#28272A] leading-relaxed whitespace-pre-wrap">
+                            {activeMemory.content || "No written narrative attached."}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setEditingStory(true)}
+                          className="px-2.5 py-1 rounded-lg bg-[#F0ECE1] text-[11px] font-semibold text-[#20242C] shrink-0"
+                        >
+                          Edit Story
+                        </button>
+                      </div>
+
+                      {activeMemory.tags.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5">
+                          {activeMemory.tags.map((t) => (
+                            <span key={t} className="px-2.5 py-1 rounded-full bg-[#F0ECE1] text-xs text-[#28272A]">
+                              #{t}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </>
                   )}
 
-                  <p className="text-sm text-[#28272A] leading-relaxed whitespace-pre-wrap">
-                    {activeMemory.content || "No written narrative attached."}
-                  </p>
-
-                  {activeMemory.tags.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5">
-                      {activeMemory.tags.map((t) => (
-                        <span key={t} className="px-2.5 py-1 rounded-full bg-[#F0ECE1] text-xs text-[#28272A]">
-                          #{t}
-                        </span>
-                      ))}
+                  <div className="pt-3 border-t border-[#F0ECE1] space-y-2">
+                    <h3 className="text-xs font-semibold uppercase tracking-wider text-[#76556F]">
+                      Emotional Reactions
+                    </h3>
+                    <div className="flex flex-wrap gap-2">
+                      {REACTION_OPTIONS.map((opt) => {
+                        const selected = Boolean(reactionState?.selectedKinds?.includes(opt.kind));
+                        const count = reactionState?.counts?.[opt.kind] || 0;
+                        return (
+                          <button
+                            key={opt.kind}
+                            type="button"
+                            aria-pressed={selected}
+                            onClick={() => handleToggleReaction(opt.kind)}
+                            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors ${
+                              selected
+                                ? "bg-[#76556F] text-white border-[#76556F]"
+                                : "bg-[#FAF6F8] text-[#76556F] border-[#E7E2DA] hover:border-[#76556F]"
+                            }`}
+                          >
+                            <span aria-hidden="true">{opt.emoji}</span>
+                            <span>{opt.label}</span>
+                            {count > 0 && (
+                              <span className="font-mono text-[11px]">{count}</span>
+                            )}
+                          </button>
+                        );
+                      })}
                     </div>
-                  )}
+                  </div>
 
                   <div className="pt-4 border-t border-[#F0ECE1] space-y-2.5">
                     <h3 className="text-xs font-semibold uppercase tracking-wider text-[#76556F]">
