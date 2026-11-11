@@ -10,6 +10,8 @@ import {
   markAllNotificationsRead,
   markNotificationRead,
   NotificationDTO,
+  openAuthModal,
+  subscribeAuthChange,
 } from "@/lib/api";
 
 export default function NotificationsPage() {
@@ -40,6 +42,10 @@ export default function NotificationsPage() {
 
   useEffect(() => {
     loadNotifications();
+    const unsubscribe = subscribeAuthChange(() => {
+      loadNotifications();
+    });
+    return unsubscribe;
   }, [loadNotifications]);
 
   const handleMarkRead = async (id: string) => {
@@ -72,12 +78,13 @@ export default function NotificationsPage() {
       {!signedIn && !loading ? (
         <div className="bg-[#FFFFFF] rounded-2xl border border-[#E7E2DA] p-8 text-center max-w-xl mx-auto space-y-4">
           <h2 className="font-serif text-2xl font-bold text-[#20242C]">Sign in to view notifications</h2>
-          <Link
-            href="/auth"
-            className="min-h-[44px] inline-flex items-center px-5 py-2.5 rounded-xl bg-[#76556F] text-white text-xs font-semibold"
+          <button
+            type="button"
+            onClick={() => openAuthModal("login")}
+            className="min-h-[44px] inline-flex items-center px-5 py-2.5 rounded-xl bg-[#76556F] hover:bg-[#63445C] text-white text-xs font-semibold cursor-pointer shadow-xs transition-colors"
           >
-            Sign In
-          </Link>
+            Sign In or Create Account
+          </button>
         </div>
       ) : (
         <div className="max-w-3xl space-y-5">
