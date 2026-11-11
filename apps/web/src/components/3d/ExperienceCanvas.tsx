@@ -1133,9 +1133,29 @@ export interface ExperienceCanvasProps {
   initialSubtitle?: string;
   initialLeatherId?: BookLeatherSwatchId;
   initialFoilId?: BookFoilSwatchId;
+  hideSidebar?: boolean;
+  hideHud?: boolean;
+  is2DMode?: boolean;
+  onToggle2DMode?: (is2D: boolean) => void;
+  selectedLeatherId?: BookLeatherSwatchId | string;
+  onSelectLeatherId?: (id: BookLeatherSwatchId) => void;
+  selectedFoilId?: BookFoilSwatchId | string;
+  onSelectFoilId?: (id: BookFoilSwatchId) => void;
+  title?: string;
+  onTitleChange?: (title: string) => void;
+  subtitle?: string;
+  onSubtitleChange?: (subtitle: string) => void;
+  isOpen?: boolean;
+  onToggleOpen?: () => void;
+  spreads?: readonly BookSpreadPreview[];
+  currentSpreadIndex?: number;
+  onSpreadIndexChange?: (index: number) => void;
+  cameraPreset?: BookCameraPresetId;
+  onCameraPresetChange?: (preset: BookCameraPresetId) => void;
+  className?: string;
 }
 
-function mapBookSpreadsToPreview(
+export function mapBookSpreadsToPreview(
   rawSpreads: Array<{
     id: string;
     spreadIndex: number;
@@ -1187,26 +1207,107 @@ export default function ExperienceCanvas({
   initialSubtitle = "1948 — 2026 • Memoria Volume I",
   initialLeatherId = "plum",
   initialFoilId = "gold",
+  hideSidebar = false,
+  hideHud = false,
+  is2DMode: controlled2DMode,
+  onToggle2DMode,
+  selectedLeatherId,
+  onSelectLeatherId,
+  selectedFoilId,
+  onSelectFoilId,
+  title: controlledTitle,
+  onTitleChange,
+  subtitle: controlledSubtitle,
+  onSubtitleChange,
+  isOpen: controlledIsOpen,
+  onToggleOpen,
+  spreads: controlledSpreads,
+  currentSpreadIndex: controlledSpreadIndex,
+  onSpreadIndexChange,
+  cameraPreset: controlledCameraPreset,
+  onCameraPresetChange,
+  className,
 }: ExperienceCanvasProps) {
   const [selectedLeather, setSelectedLeather] = useState(() =>
-    resolveLeatherSwatch(initialLeatherId)
+    resolveLeatherSwatch(selectedLeatherId || initialLeatherId)
   );
   const [selectedFoil, setSelectedFoil] = useState(() =>
-    resolveFoilSwatch(initialFoilId)
+    resolveFoilSwatch(selectedFoilId || initialFoilId)
   );
-  const [isOpen, setIsOpen] = useState(false);
-  const [title, setTitle] = useState(initialTitle);
-  const [subtitle, setSubtitle] = useState(initialSubtitle);
-  const [spreads, setSpreads] = useState<readonly BookSpreadPreview[]>(CANONICAL_SAMPLE_SPREADS);
-  const [spreadIndex, setSpreadIndex] = useState(0);
+  const [isOpen, setIsOpen] = useState(controlledIsOpen ?? false);
+  const [title, setTitle] = useState(controlledTitle ?? initialTitle);
+  const [subtitle, setSubtitle] = useState(controlledSubtitle ?? initialSubtitle);
+  const [spreads, setSpreads] = useState<readonly BookSpreadPreview[]>(
+    controlledSpreads ?? CANONICAL_SAMPLE_SPREADS
+  );
+  const [spreadIndex, setSpreadIndex] = useState(controlledSpreadIndex ?? 0);
   const [pageTurnNonce, setPageTurnNonce] = useState(0);
   const [pageTurnDirection, setPageTurnDirection] = useState<1 | -1>(1);
   const [dragTurnOffset, setDragTurnOffset] = useState(0);
-  const [cameraPresetId, setCameraPresetId] = useState<BookCameraPresetId>("hero");
+  const [cameraPresetId, setCameraPresetId] = useState<BookCameraPresetId>(
+    controlledCameraPreset ?? "hero"
+  );
   const [cameraResetNonce, setCameraResetNonce] = useState(0);
-  const [is2DMode, setIs2DMode] = useState(false);
+  const [internal2DMode, setInternal2DMode] = useState(false);
+  const is2DMode = controlled2DMode !== undefined ? controlled2DMode : internal2DMode;
+  const setIs2DMode = useCallback(
+    (action: boolean | ((prev: boolean) => boolean)) => {
+      const next = typeof action === "function" ? action(is2DMode) : action;
+      setInternal2DMode(next);
+      onToggle2DMode?.(next);
+    },
+    [is2DMode, onToggle2DMode]
+  );
   const [webglError, setWebglError] = useState<string | null>(null);
   const [reducedMotion, setReducedMotion] = useState(false);
+
+  useEffect(() => {
+    if (selectedLeatherId) {
+      setSelectedLeather(resolveLeatherSwatch(selectedLeatherId));
+    }
+  }, [selectedLeatherId]);
+
+  useEffect(() => {
+    if (selectedFoilId) {
+      setSelectedFoil(resolveFoilSwatch(selectedFoilId));
+    }
+  }, [selectedFoilId]);
+
+  useEffect(() => {
+    if (controlledTitle !== undefined) {
+      setTitle(controlledTitle);
+    }
+  }, [controlledTitle]);
+
+  useEffect(() => {
+    if (controlledSubtitle !== undefined) {
+      setSubtitle(controlledSubtitle);
+    }
+  }, [controlledSubtitle]);
+
+  useEffect(() => {
+    if (controlledIsOpen !== undefined) {
+      setIsOpen(controlledIsOpen);
+    }
+  }, [controlledIsOpen]);
+
+  useEffect(() => {
+    if (controlledSpreads !== undefined) {
+      setSpreads(controlledSpreads);
+    }
+  }, [controlledSpreads]);
+
+  useEffect(() => {
+    if (controlledSpreadIndex !== undefined) {
+      setSpreadIndex(controlledSpreadIndex);
+    }
+  }, [controlledSpreadIndex]);
+
+  useEffect(() => {
+    if (controlledCameraPreset !== undefined) {
+      setCameraPresetId(controlledCameraPreset);
+    }
+  }, [controlledCameraPreset]);
 
   const pageDragStartXRef = useRef<number | null>(null);
   const totalSpreads = spreads.length;
@@ -1271,18 +1372,26 @@ export default function ExperienceCanvas({
   }, []);
 
   const handleToggleOpen = useCallback(() => {
-    setIsOpen((prev) => {
-      const next = !prev;
-      setCameraPresetId(next ? "open_spread" : "hero");
-      setCameraResetNonce((n) => n + 1);
-      return next;
-    });
-  }, []);
+    if (onToggleOpen) {
+      onToggleOpen();
+    } else {
+      setIsOpen((prev) => {
+        const next = !prev;
+        setCameraPresetId(next ? "open_spread" : "hero");
+        setCameraResetNonce((n) => n + 1);
+        return next;
+      });
+    }
+  }, [onToggleOpen]);
 
   const handleTurnPage = useCallback(
     (direction: 1 | -1) => {
       if (!isOpen) {
-        setIsOpen(true);
+        if (onToggleOpen) {
+          onToggleOpen();
+        } else {
+          setIsOpen(true);
+        }
         setCameraPresetId("open_spread");
         setCameraResetNonce((n) => n + 1);
       }
@@ -1291,15 +1400,17 @@ export default function ExperienceCanvas({
       if (next !== spreadIndex) {
         setSpreadIndex(next);
         setPageTurnNonce((n) => n + 1);
+        onSpreadIndexChange?.(next);
       }
     },
-    [isOpen, spreadIndex, totalSpreads]
+    [isOpen, spreadIndex, totalSpreads, onToggleOpen, onSpreadIndexChange]
   );
 
   const handleSelectCameraPreset = useCallback((id: BookCameraPresetId) => {
     setCameraPresetId(id);
     setCameraResetNonce((n) => n + 1);
-  }, []);
+    onCameraPresetChange?.(id);
+  }, [onCameraPresetChange]);
 
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>) => {
@@ -1333,7 +1444,9 @@ export default function ExperienceCanvas({
       tabIndex={0}
       onKeyDown={handleKeyDown}
       aria-label="Interactive Memoria 3D Heirloom Book Studio"
-      className="relative w-full rounded-2xl overflow-hidden border border-[#E7E2DA] bg-[#F7F4EE] shadow-md flex flex-col lg:flex-row focus:outline-none focus:ring-2 focus:ring-[#76556F]"
+      className={`relative w-full rounded-2xl overflow-hidden border border-[#E7E2DA] bg-[#F7F4EE] shadow-md flex flex-col ${
+        hideSidebar ? "" : "lg:flex-row"
+      } focus:outline-none focus:ring-2 focus:ring-[#76556F] ${className || ""}`}
     >
       {/* Screen-reader live state announcer */}
       <div className="sr-only" aria-live="polite">
@@ -1343,7 +1456,7 @@ export default function ExperienceCanvas({
       </div>
 
       {/* Viewport Area */}
-      <div className="relative flex-1 min-h-[480px] md:min-h-[640px] w-full bg-gradient-to-b from-[#F7F4EE] to-[#EDE7DC]">
+      <div className="relative flex-1 min-h-[520px] sm:min-h-[580px] lg:min-h-[640px] w-full bg-gradient-to-b from-[#F7F4EE] to-[#EDE7DC]">
         {is2DMode ? (
           <AccessibleSpreadReader
             title={title}
@@ -1359,97 +1472,101 @@ export default function ExperienceCanvas({
         ) : (
           <>
             {/* Top Floating HUD */}
-            <div className="absolute top-4 left-4 right-4 z-10 flex flex-wrap items-center justify-between gap-2 pointer-events-none">
-              <div className="flex flex-wrap items-center gap-2 pointer-events-auto">
-                <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/95 border border-[#E7E2DA] text-xs font-medium text-[#5F735E] shadow-xs backdrop-blur-md">
-                  <span className="w-2 h-2 rounded-full bg-[#5F735E]" />
-                  Unified 3D Engine • v{CANONICAL_BOOK_3D_MANIFEST.version}
-                </div>
-                <button
-                  type="button"
-                  onClick={handleToggleOpen}
-                  className="min-h-[44px] flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-[#76556F] hover:bg-[#63445C] text-xs font-semibold text-white transition-all shadow-xs cursor-pointer"
-                >
-                  <BookOpen className="w-3.5 h-3.5" />
-                  {isOpen ? "Close Cover" : "Open Book"}
-                </button>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2 pointer-events-auto">
-                <div className="flex items-center rounded-lg bg-white/95 border border-[#E7E2DA] shadow-xs overflow-hidden">
+            {!hideHud && (
+              <div className="absolute top-4 left-4 right-4 z-10 flex flex-wrap items-center justify-between gap-2 pointer-events-none">
+                <div className="flex flex-wrap items-center gap-2 pointer-events-auto">
+                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/95 border border-[#E7E2DA] text-xs font-medium text-[#5F735E] shadow-xs backdrop-blur-md">
+                    <span className="w-2 h-2 rounded-full bg-[#5F735E]" />
+                    Unified 3D Engine • v{CANONICAL_BOOK_3D_MANIFEST.version}
+                  </div>
                   <button
                     type="button"
-                    onClick={() => handleTurnPage(-1)}
-                    disabled={isOpen && spreadIndex === 0}
-                    aria-label="Previous spread"
-                    className="min-w-[44px] min-h-[44px] flex items-center justify-center text-[#20242C] hover:bg-[#F0ECE1] disabled:opacity-40 cursor-pointer"
+                    onClick={handleToggleOpen}
+                    className="min-h-[44px] flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-[#76556F] hover:bg-[#63445C] text-xs font-semibold text-white transition-all shadow-xs cursor-pointer"
                   >
-                    <ChevronLeft className="w-4 h-4" />
-                  </button>
-                  <span className="px-2.5 text-xs font-medium text-[#20242C]">
-                    {isOpen
-                      ? `Spread ${spreadIndex + 1}/${totalSpreads}`
-                      : "Cover"}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => handleTurnPage(1)}
-                    disabled={isOpen && spreadIndex >= totalSpreads - 1}
-                    aria-label="Next spread"
-                    className="min-w-[44px] min-h-[44px] flex items-center justify-center text-[#20242C] hover:bg-[#F0ECE1] disabled:opacity-40 cursor-pointer"
-                  >
-                    <ChevronRight className="w-4 h-4" />
+                    <BookOpen className="w-3.5 h-3.5" />
+                    {isOpen ? "Close Cover" : "Open Book"}
                   </button>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => handleSelectCameraPreset(isOpen ? "open_spread" : "hero")}
-                  aria-label="Reset camera view"
-                  className="min-h-[44px] flex items-center gap-1.5 px-3 py-2 rounded-lg bg-white/95 hover:bg-[#F0ECE1] border border-[#E7E2DA] text-xs font-medium text-[#20242C] shadow-xs cursor-pointer"
-                >
-                  <RotateCcw className="w-3.5 h-3.5 text-[#76556F]" />
-                  Reset
-                </button>
+                <div className="flex flex-wrap items-center gap-2 pointer-events-auto">
+                  <div className="flex items-center rounded-lg bg-white/95 border border-[#E7E2DA] shadow-xs overflow-hidden">
+                    <button
+                      type="button"
+                      onClick={() => handleTurnPage(-1)}
+                      disabled={isOpen && spreadIndex === 0}
+                      aria-label="Previous spread"
+                      className="min-w-[44px] min-h-[44px] flex items-center justify-center text-[#20242C] hover:bg-[#F0ECE1] disabled:opacity-40 cursor-pointer"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                    <span className="px-2.5 text-xs font-medium text-[#20242C]">
+                      {isOpen
+                        ? `Spread ${spreadIndex + 1}/${totalSpreads}`
+                        : "Cover"}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleTurnPage(1)}
+                      disabled={isOpen && spreadIndex >= totalSpreads - 1}
+                      aria-label="Next spread"
+                      className="min-w-[44px] min-h-[44px] flex items-center justify-center text-[#20242C] hover:bg-[#F0ECE1] disabled:opacity-40 cursor-pointer"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
 
-                <button
-                  type="button"
-                  onClick={() => setIs2DMode(true)}
-                  className="min-h-[44px] flex items-center gap-1.5 px-3 py-2 rounded-lg bg-white/95 hover:bg-[#F0ECE1] border border-[#E7E2DA] text-xs font-semibold text-[#20242C] shadow-xs cursor-pointer"
-                >
-                  <FileText className="w-3.5 h-3.5 text-[#5F735E]" />
-                  2D Reader
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSelectCameraPreset(isOpen ? "open_spread" : "hero")}
+                    aria-label="Reset camera view"
+                    className="min-h-[44px] flex items-center gap-1.5 px-3 py-2 rounded-lg bg-white/95 hover:bg-[#F0ECE1] border border-[#E7E2DA] text-xs font-medium text-[#20242C] shadow-xs cursor-pointer"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5 text-[#76556F]" />
+                    Reset
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setIs2DMode(true)}
+                    className="min-h-[44px] flex items-center gap-1.5 px-3 py-2 rounded-lg bg-white/95 hover:bg-[#F0ECE1] border border-[#E7E2DA] text-xs font-semibold text-[#20242C] shadow-xs cursor-pointer"
+                  >
+                    <FileText className="w-3.5 h-3.5 text-[#5F735E]" />
+                    2D Reader
+                  </button>
+                </div>
               </div>
-            </div>
+            )}
 
             {/* Bottom Camera Preset Strip */}
-            <div className="absolute bottom-4 left-4 right-4 z-10 flex flex-wrap items-center justify-between gap-2 pointer-events-none">
-              <div className="flex flex-wrap items-center gap-1.5 pointer-events-auto bg-white/90 border border-[#E7E2DA] p-1 rounded-xl shadow-xs backdrop-blur-md">
-                <span className="px-2 text-[11px] font-medium text-[#5C5955] flex items-center gap-1">
-                  <Camera className="w-3 h-3 text-[#76556F]" />
-                  View:
-                </span>
-                {BOOK_CAMERA_PRESETS.map((preset) => (
-                  <button
-                    key={preset.id}
-                    type="button"
-                    onClick={() => handleSelectCameraPreset(preset.id)}
-                    className={`min-h-[36px] px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors cursor-pointer ${
-                      cameraPresetId === preset.id
-                        ? "bg-[#76556F] text-white"
-                        : "text-[#28272A] hover:bg-[#F0ECE1]"
-                    }`}
-                  >
-                    {preset.label}
-                  </button>
-                ))}
-              </div>
+            {!hideHud && (
+              <div className="absolute bottom-4 left-4 right-4 z-10 flex flex-wrap items-center justify-between gap-2 pointer-events-none">
+                <div className="flex flex-wrap items-center gap-1.5 pointer-events-auto bg-white/90 border border-[#E7E2DA] p-1 rounded-xl shadow-xs backdrop-blur-md">
+                  <span className="px-2 text-[11px] font-medium text-[#5C5955] flex items-center gap-1">
+                    <Camera className="w-3 h-3 text-[#76556F]" />
+                    View:
+                  </span>
+                  {BOOK_CAMERA_PRESETS.map((preset) => (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      onClick={() => handleSelectCameraPreset(preset.id)}
+                      className={`min-h-[36px] px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors cursor-pointer ${
+                        cameraPresetId === preset.id
+                          ? "bg-[#76556F] text-white"
+                          : "text-[#28272A] hover:bg-[#F0ECE1]"
+                      }`}
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
 
-              <div className="text-[11px] text-[#5C5955] bg-white/90 border border-[#E7E2DA] px-3 py-1.5 rounded-lg backdrop-blur-sm pointer-events-none hidden sm:block">
-                Click cover to open • Drag to orbit • Arrows to flip pages
+                <div className="text-[11px] text-[#5C5955] bg-white/90 border border-[#E7E2DA] px-3 py-1.5 rounded-lg backdrop-blur-sm pointer-events-none hidden sm:block">
+                  Click cover to open • Drag to orbit • Arrows to flip pages
+                </div>
               </div>
-            </div>
+            )}
 
             <LoadingProgressOverlay />
 
@@ -1531,7 +1648,7 @@ export default function ExperienceCanvas({
                     setIs2DMode(true);
                   });
                 }}
-                className="w-full h-[480px] md:h-[640px] cursor-grab active:cursor-grabbing"
+                className="w-full h-[520px] sm:h-[580px] lg:h-[640px] cursor-grab active:cursor-grabbing"
               >
                 <StudioEnvironment />
                 <ambientLight intensity={BOOK_LIGHTING_INTENT.ambientIntensity} />
@@ -1599,138 +1716,149 @@ export default function ExperienceCanvas({
       </div>
 
       {/* Material Customization Studio Sidebar */}
-      <aside className="w-full lg:w-[360px] p-6 border-t lg:border-t-0 lg:border-l border-[#E7E2DA] bg-[#FFFFFF] flex flex-col justify-between gap-6">
-        <div className="space-y-5">
-          <div>
-            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-[#76556F]">
-              <Sparkles className="w-3.5 h-3.5 text-[#76556F]" />
-              Heirloom 3D Studio
+      {!hideSidebar && (
+        <aside className="w-full lg:w-[360px] p-6 border-t lg:border-t-0 lg:border-l border-[#E7E2DA] bg-[#FFFFFF] flex flex-col justify-between gap-6">
+          <div className="space-y-5">
+            <div>
+              <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-[#76556F]">
+                <Sparkles className="w-3.5 h-3.5 text-[#76556F]" />
+                Heirloom 3D Studio
+              </div>
+              <h3 className="text-lg font-serif font-bold text-[#20242C] mt-1">
+                Material &amp; Spread Studio
+              </h3>
+              <p className="text-xs text-[#5C5955] mt-1">
+                Physical geometry ({CANONICAL_BOOK_3D_MANIFEST.dimensions.bookWidth * 100}×
+                {CANONICAL_BOOK_3D_MANIFEST.dimensions.bookHeight * 100} cm) synced across WebGL &amp; iOS RealityKit.
+              </p>
             </div>
-            <h3 className="text-lg font-serif font-bold text-[#20242C] mt-1">
-              Material &amp; Spread Studio
-            </h3>
-            <p className="text-xs text-[#5C5955] mt-1">
-              Physical geometry ({CANONICAL_BOOK_3D_MANIFEST.dimensions.bookWidth * 100}×
-              {CANONICAL_BOOK_3D_MANIFEST.dimensions.bookHeight * 100} cm) synced across WebGL &amp; iOS RealityKit.
-            </p>
-          </div>
 
-          {/* Leather Binding Swatches (Muted Plum default + 4 Archival Swatches) */}
-          <div className="space-y-2">
-            <label className="text-xs font-medium text-[#28272A] flex items-center gap-1.5">
-              <Palette className="w-3.5 h-3.5 text-[#76556F]" />
-              Archival Leather Binding
-            </label>
-            <div className="grid grid-cols-2 gap-2">
-              {LEATHER_SWATCHES.map((swatch) => (
-                <button
-                  key={swatch.id}
-                  type="button"
-                  onClick={() => setSelectedLeather(swatch)}
-                  className={`min-h-[44px] flex items-center gap-2 px-2.5 py-2 rounded-lg border text-left text-[11.5px] transition-all cursor-pointer ${
-                    selectedLeather.id === swatch.id
-                      ? "border-[#76556F] bg-[#F4EEF3] text-[#20242C] font-semibold shadow-xs"
-                      : "border-[#E7E2DA] bg-[#F7F4EE] text-[#5C5955] hover:border-[#8D857A] hover:text-[#28272A]"
-                  }`}
-                >
-                  <span
-                    className="w-3.5 h-3.5 rounded-full border border-black/15 shrink-0"
-                    style={{ backgroundColor: swatch.hex }}
-                  />
-                  <span className="leading-tight">{swatch.name}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Hot Foil Stamping */}
-          <div className="space-y-2">
-            <label className="text-xs font-medium text-[#28272A] flex items-center gap-1.5">
-              <Layers className="w-3.5 h-3.5 text-[#76556F]" />
-              Hot Foil Stamping
-            </label>
-            <div className="grid grid-cols-4 gap-1.5">
-              {FOIL_SWATCHES.map((swatch) => (
-                <button
-                  key={swatch.id}
-                  type="button"
-                  onClick={() => setSelectedFoil(swatch)}
-                  className={`min-h-[44px] flex flex-col items-center justify-center gap-1 p-1.5 rounded-lg border text-xs transition-all cursor-pointer ${
-                    selectedFoil.id === swatch.id
-                      ? "border-[#76556F] bg-[#F4EEF3] text-[#20242C] font-semibold"
-                      : "border-[#E7E2DA] bg-[#F7F4EE] text-[#5C5955] hover:border-[#8D857A]"
-                  }`}
-                >
-                  <span
-                    className="w-3.5 h-3.5 rounded-full border border-black/15"
-                    style={{
-                      backgroundColor:
-                        swatch.id === "blind_emboss" ? selectedLeather.accentHex : swatch.hex,
+            {/* Leather Binding Swatches (Muted Plum default + 4 Archival Swatches) */}
+            <div className="space-y-2">
+              <label className="text-xs font-medium text-[#28272A] flex items-center gap-1.5">
+                <Palette className="w-3.5 h-3.5 text-[#76556F]" />
+                Archival Leather Binding
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                {LEATHER_SWATCHES.map((swatch) => (
+                  <button
+                    key={swatch.id}
+                    type="button"
+                    onClick={() => {
+                      setSelectedLeather(swatch);
+                      onSelectLeatherId?.(swatch.id);
                     }}
-                  />
-                  <span className="text-[10px] text-center leading-none">{swatch.shortLabel}</span>
-                </button>
-              ))}
+                    className={`min-h-[44px] flex items-center gap-2 px-2.5 py-2 rounded-lg border text-left text-[11.5px] transition-all cursor-pointer ${
+                      selectedLeather.id === swatch.id
+                        ? "border-[#76556F] bg-[#F4EEF3] text-[#20242C] font-semibold shadow-xs"
+                        : "border-[#E7E2DA] bg-[#F7F4EE] text-[#5C5955] hover:border-[#8D857A] hover:text-[#28272A]"
+                    }`}
+                  >
+                    <span
+                      className="w-3.5 h-3.5 rounded-full border border-black/15 shrink-0"
+                      style={{ backgroundColor: swatch.hex }}
+                    />
+                    <span className="leading-tight">{swatch.name}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Hot Foil Stamping */}
+            <div className="space-y-2">
+              <label className="text-xs font-medium text-[#28272A] flex items-center gap-1.5">
+                <Layers className="w-3.5 h-3.5 text-[#76556F]" />
+                Hot Foil Stamping
+              </label>
+              <div className="grid grid-cols-4 gap-1.5">
+                {FOIL_SWATCHES.map((swatch) => (
+                  <button
+                    key={swatch.id}
+                    type="button"
+                    onClick={() => {
+                      setSelectedFoil(swatch);
+                      onSelectFoilId?.(swatch.id);
+                    }}
+                    className={`min-h-[44px] flex flex-col items-center justify-center gap-1 p-1.5 rounded-lg border text-xs transition-all cursor-pointer ${
+                      selectedFoil.id === swatch.id
+                        ? "border-[#76556F] bg-[#F4EEF3] text-[#20242C] font-semibold"
+                        : "border-[#E7E2DA] bg-[#F7F4EE] text-[#5C5955] hover:border-[#8D857A]"
+                    }`}
+                  >
+                    <span
+                      className="w-3.5 h-3.5 rounded-full border border-black/15"
+                      style={{
+                        backgroundColor:
+                          swatch.id === "blind_emboss" ? selectedLeather.accentHex : swatch.hex,
+                      }}
+                    />
+                    <span className="text-[10px] text-center leading-none">{swatch.shortLabel}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Embossed Cover Title */}
+            <div className="space-y-1.5">
+              <label htmlFor="memoria-cover-title" className="text-xs font-medium text-[#28272A]">
+                Embossed Cover Title
+              </label>
+              <input
+                id="memoria-cover-title"
+                type="text"
+                value={title}
+                onChange={(e) => {
+                  setTitle(e.target.value);
+                  onTitleChange?.(e.target.value);
+                }}
+                maxLength={28}
+                className="w-full min-h-[44px] px-3 py-2 text-xs rounded-lg border border-[#8D857A] bg-white text-[#28272A] focus:outline-none focus:border-[#76556F] focus:ring-1 focus:ring-[#76556F]"
+              />
+            </div>
+
+            {/* Accessibility & Motion Preferences */}
+            <div className="flex items-center justify-between p-3 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA]">
+              <span className="text-xs font-medium text-[#28272A] flex items-center gap-1.5">
+                <Accessibility className="w-3.5 h-3.5 text-[#5F735E]" />
+                Reduced Motion
+              </span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={reducedMotion}
+                onClick={() => setReducedMotion((prev) => !prev)}
+                className={`min-h-[32px] px-3 rounded-full text-[11px] font-semibold border transition-colors cursor-pointer ${
+                  reducedMotion
+                    ? "bg-[#5F735E] text-white border-[#5F735E]"
+                    : "bg-white text-[#5C5955] border-[#8D857A]"
+                }`}
+              >
+                {reducedMotion ? "On" : "Off"}
+              </button>
             </div>
           </div>
 
-          {/* Embossed Cover Title */}
-          <div className="space-y-1.5">
-            <label htmlFor="memoria-cover-title" className="text-xs font-medium text-[#28272A]">
-              Embossed Cover Title
-            </label>
-            <input
-              id="memoria-cover-title"
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              maxLength={28}
-              className="w-full min-h-[44px] px-3 py-2 text-xs rounded-lg border border-[#8D857A] bg-white text-[#28272A] focus:outline-none focus:border-[#76556F] focus:ring-1 focus:ring-[#76556F]"
-            />
-          </div>
-
-          {/* Accessibility & Motion Preferences */}
-          <div className="flex items-center justify-between p-3 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA]">
-            <span className="text-xs font-medium text-[#28272A] flex items-center gap-1.5">
-              <Accessibility className="w-3.5 h-3.5 text-[#5F735E]" />
-              Reduced Motion
-            </span>
+          {/* Action Footer */}
+          <div className="pt-4 border-t border-[#E7E2DA] space-y-2">
             <button
               type="button"
-              role="switch"
-              aria-checked={reducedMotion}
-              onClick={() => setReducedMotion((prev) => !prev)}
-              className={`min-h-[32px] px-3 rounded-full text-[11px] font-semibold border transition-colors cursor-pointer ${
-                reducedMotion
-                  ? "bg-[#5F735E] text-white border-[#5F735E]"
-                  : "bg-white text-[#5C5955] border-[#8D857A]"
-              }`}
+              onClick={handleToggleOpen}
+              className="w-full min-h-[44px] py-2.5 px-4 rounded-xl bg-[#76556F] hover:bg-[#63445C] text-white font-semibold text-xs tracking-wide shadow-sm transition-all cursor-pointer flex items-center justify-center gap-2"
             >
-              {reducedMotion ? "On" : "Off"}
+              <BookOpen className="w-4 h-4" />
+              {isOpen ? "Close Heirloom Edition" : "Explore Open Volume"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setIs2DMode((prev) => !prev)}
+              className="w-full min-h-[44px] py-2 px-4 rounded-xl bg-[#F7F4EE] hover:bg-[#F0ECE1] border border-[#E7E2DA] text-[#20242C] font-medium text-xs transition-all cursor-pointer flex items-center justify-center gap-2"
+            >
+              <FileText className="w-3.5 h-3.5 text-[#5F735E]" />
+              {is2DMode ? "Switch to 3D Canvas" : "Open Accessible 2D Spreads"}
             </button>
           </div>
-        </div>
-
-        {/* Action Footer */}
-        <div className="pt-4 border-t border-[#E7E2DA] space-y-2">
-          <button
-            type="button"
-            onClick={handleToggleOpen}
-            className="w-full min-h-[44px] py-2.5 px-4 rounded-xl bg-[#76556F] hover:bg-[#63445C] text-white font-semibold text-xs tracking-wide shadow-sm transition-all cursor-pointer flex items-center justify-center gap-2"
-          >
-            <BookOpen className="w-4 h-4" />
-            {isOpen ? "Close Heirloom Edition" : "Explore Open Volume"}
-          </button>
-          <button
-            type="button"
-            onClick={() => setIs2DMode((prev) => !prev)}
-            className="w-full min-h-[44px] py-2 px-4 rounded-xl bg-[#F7F4EE] hover:bg-[#F0ECE1] border border-[#E7E2DA] text-[#20242C] font-medium text-xs transition-all cursor-pointer flex items-center justify-center gap-2"
-          >
-            <FileText className="w-3.5 h-3.5 text-[#5F735E]" />
-            {is2DMode ? "Switch to 3D Canvas" : "Open Accessible 2D Spreads"}
-          </button>
-        </div>
-      </aside>
+        </aside>
+      )}
     </div>
   );
 }
