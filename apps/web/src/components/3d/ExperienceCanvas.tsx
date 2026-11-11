@@ -429,6 +429,72 @@ function createSpreadPageTexture(
   return texture;
 }
 
+function createArchivalRibbonGeometry(): THREE.BufferGeometry {
+  const geom = new THREE.BufferGeometry();
+  // 12mm silk ribbon with supple catenary curvature draping over the bottom page edges
+  const pathPoints = [
+    new THREE.Vector3(0.006, 0.0124, -0.115),
+    new THREE.Vector3(0.007, 0.0121, -0.050),
+    new THREE.Vector3(0.009, 0.0118,  0.020),
+    new THREE.Vector3(0.014, 0.0118,  0.080),
+    new THREE.Vector3(0.018, 0.0118,  0.125),
+    new THREE.Vector3(0.022, 0.0050,  0.134),
+    new THREE.Vector3(0.026, -0.0030, 0.142),
+    new THREE.Vector3(0.030, -0.0100, 0.150),
+    new THREE.Vector3(0.034, -0.0142, 0.160),
+    new THREE.Vector3(0.038, -0.0145, 0.176),
+  ];
+
+  const curve = new THREE.CatmullRomCurve3(pathPoints);
+  const segments = 40;
+  const ribbonWidth = 0.012;
+  const halfWidth = ribbonWidth / 2;
+
+  const positions: number[] = [];
+  const normals: number[] = [];
+  const uvs: number[] = [];
+  const indices: number[] = [];
+
+  for (let i = 0; i <= segments; i++) {
+    const t = i / segments;
+    const pt = curve.getPoint(t);
+    const tangent = curve.getTangent(t).normalize();
+    const normal = new THREE.Vector3(0, 1, 0);
+    if (Math.abs(tangent.y) > 0.7) {
+      normal.set(0, 0, 1);
+    }
+    const binormal = new THREE.Vector3().crossVectors(tangent, normal).normalize();
+    const correctedNormal = new THREE.Vector3().crossVectors(binormal, tangent).normalize();
+
+    const twistAngle = t > 0.6 ? Math.sin((t - 0.6) * Math.PI * 2.5) * 0.15 : 0;
+    const rotatedBinormal = binormal.clone().applyAxisAngle(tangent, twistAngle);
+
+    const left = pt.clone().addScaledVector(rotatedBinormal, -halfWidth);
+    const right = pt.clone().addScaledVector(rotatedBinormal, halfWidth);
+
+    positions.push(left.x, left.y, left.z);
+    positions.push(right.x, right.y, right.z);
+
+    normals.push(correctedNormal.x, correctedNormal.y, correctedNormal.z);
+    normals.push(correctedNormal.x, correctedNormal.y, correctedNormal.z);
+
+    uvs.push(0, t * 6);
+    uvs.push(1, t * 6);
+
+    if (i < segments) {
+      const base = i * 2;
+      indices.push(base, base + 1, base + 2);
+      indices.push(base + 1, base + 3, base + 2);
+    }
+  }
+
+  geom.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  geom.setAttribute("normal", new THREE.Float32BufferAttribute(normals, 3));
+  geom.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+  geom.setIndex(indices);
+  return geom;
+}
+
 function StudioEnvironment() {
   const { gl, scene } = useThree();
 
@@ -539,6 +605,13 @@ function Heirloom3DBook({
 
   const { scene } = useGLTF(GLB_MODEL_URL);
   const clonedScene = useMemo(() => scene.clone(true), [scene]);
+  const ribbonGeometry = useMemo(() => createArchivalRibbonGeometry(), []);
+
+  useEffect(() => {
+    return () => {
+      ribbonGeometry.dispose();
+    };
+  }, [ribbonGeometry]);
 
   const leatherSwatch = useMemo(() => resolveLeatherSwatch(leatherId), [leatherId]);
   const foilSwatch = useMemo(() => resolveFoilSwatch(foilId), [foilId]);
@@ -688,6 +761,9 @@ function Heirloom3DBook({
           parentName === BOOK_3D_HIERARCHY.ribbon
         ) {
           mesh.material = materialsBundle.ribbon;
+          mesh.geometry = ribbonGeometry;
+          mesh.castShadow = true;
+          mesh.receiveShadow = true;
         } else if (
           nodeName === BOOK_3D_HIERARCHY.turningPageLeaf ||
           parentName === BOOK_3D_HIERARCHY.turningPageLeaf
@@ -735,12 +811,22 @@ function Heirloom3DBook({
     const dt = Math.min(delta, 0.05);
 
     if (rootGroupRef.current && !reducedMotion) {
-      rootGroupRef.current.rotation.y = Math.sin(state.clock.elapsedTime * 0.4) * 0.04;
+      if (isOpen) {
+        rootGroupRef.current.rotation.y = THREE.MathUtils.lerp(rootGroupRef.current.rotation.y, 0, dt * 5);
+        rootGroupRef.current.rotation.x = THREE.MathUtils.lerp(rootGroupRef.current.rotation.x, 0.12, dt * 5);
+        rootGroupRef.current.rotation.z = THREE.MathUtils.lerp(rootGroupRef.current.rotation.z, 0, dt * 5);
+      } else {
+        rootGroupRef.current.rotation.y = Math.sin(state.clock.elapsedTime * 0.4) * 0.04;
+        rootGroupRef.current.rotation.x = THREE.MathUtils.lerp(rootGroupRef.current.rotation.x, 0.16, dt * 5);
+        rootGroupRef.current.rotation.z = THREE.MathUtils.lerp(rootGroupRef.current.rotation.z, 0.02, dt * 5);
+      }
     } else if (rootGroupRef.current && reducedMotion) {
       rootGroupRef.current.rotation.y = 0;
+      rootGroupRef.current.rotation.x = isOpen ? 0.12 : 0.16;
+      rootGroupRef.current.rotation.z = 0;
     }
 
-    // 1. Cover Hinge Kinematics (+Z rotation swings cover up & left cleanly)
+    // 1. Cover Hinge Kinematics
     const targetOpen = isOpen ? 1 : 0;
     if (reducedMotion) {
       openProgressRef.current = targetOpen;
@@ -752,7 +838,9 @@ function Heirloom3DBook({
       );
     }
 
-    const coverAngle = computeCoverHingeAngle(openProgressRef.current);
+    // Smoothly transition between closed (0 rad) and open (3.06 rad - flat resting archival spread)
+    const openAngleTarget = Math.PI * 0.975;
+    const coverAngle = openProgressRef.current * openAngleTarget;
     if (frontHingeRef.current) {
       frontHingeRef.current.rotation.z = coverAngle;
     }
@@ -893,15 +981,16 @@ function Heirloom3DBook({
 
   return (
     <Float
-      speed={reducedMotion ? 0 : 1.1}
-      rotationIntensity={reducedMotion ? 0 : 0.2}
-      floatIntensity={reducedMotion ? 0 : 0.35}
+      speed={reducedMotion || isOpen ? 0 : 0.8}
+      rotationIntensity={reducedMotion || isOpen ? 0 : 0.04}
+      floatIntensity={reducedMotion || isOpen ? 0 : 0.05}
+      floatingRange={reducedMotion || isOpen ? [0, 0] : [-0.003, 0.003]}
     >
       <group
         ref={rootGroupRef}
         position={[-0.04, 0, 0]}
         rotation={[0.16, -0.25, 0.02]}
-        scale={hovered ? 1.02 : 1.0}
+        scale={hovered ? 1.015 : 1.0}
         onPointerOver={() => setHovered(true)}
         onPointerOut={() => setHovered(false)}
         onClick={(e) => {
@@ -930,18 +1019,18 @@ function Heirloom3DBook({
         {/* Left Open Spread Content synced to FrontCoverHinge */}
         <group ref={leftPageGroupRef}>
           {openSpreadVisible && leftSpreadTexture && (
-            <mesh position={[0.10, 0.0118, 0]} rotation={[Math.PI / 2, 0, Math.PI]}>
-              <planeGeometry args={[0.186, 0.244]} />
-              <meshStandardMaterial map={leftSpreadTexture} roughness={0.94} metalness={0.0} />
+            <mesh position={[0.098, 0.0118, 0]} rotation={[Math.PI / 2, 0, Math.PI]}>
+              <planeGeometry args={[0.188, 0.246]} />
+              <meshStandardMaterial map={leftSpreadTexture} roughness={0.92} metalness={0.0} />
             </mesh>
           )}
         </group>
 
         {/* Right Open Spread Content on TextBlock Surface */}
         {openSpreadVisible && rightSpreadTexture && (
-          <mesh position={[0.10, textBlockTopY, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-            <planeGeometry args={[0.186, 0.244]} />
-            <meshStandardMaterial map={rightSpreadTexture} roughness={0.94} metalness={0.0} />
+          <mesh position={[0.098, textBlockTopY, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+            <planeGeometry args={[0.188, 0.246]} />
+            <meshStandardMaterial map={rightSpreadTexture} roughness={0.92} metalness={0.0} />
           </mesh>
         )}
       </group>
@@ -1484,13 +1573,19 @@ export default function ExperienceCanvas({
                   />
                 </Suspense>
 
+                {/* Archival Museum Display Mat & Surface Grounding */}
+                <mesh position={[0, -0.0158, 0]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
+                  <planeGeometry args={[1.2, 0.9]} />
+                  <meshStandardMaterial color="#EFECE5" roughness={0.92} metalness={0.0} />
+                </mesh>
+
                 <ContactShadows
-                  position={[0, -0.022, 0]}
-                  opacity={0.52}
-                  scale={1.35}
-                  blur={2.2}
+                  position={[0, -0.0152, 0]}
+                  opacity={0.56}
+                  scale={1.45}
+                  blur={2.4}
                   far={0.35}
-                  color="#1A1C22"
+                  color="#181A20"
                 />
                 <CameraPresetController
                   presetId={cameraPresetId}

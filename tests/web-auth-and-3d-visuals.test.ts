@@ -84,5 +84,57 @@ describe("Memoria 3D Realism & Web App Connectivity Verification Suite", () => {
       canvasContent.includes("page_edges.png"),
       "ExperienceCanvas must bind stratified fore-edge page texture"
     );
+    assert.ok(
+      canvasContent.includes("createArchivalRibbonGeometry"),
+      "ExperienceCanvas must generate supple catenary silk ribbon geometry"
+    );
+    assert.ok(
+      canvasContent.includes("Archival Museum Display Mat"),
+      "ExperienceCanvas must render archival presentation display mat for physical grounding"
+    );
+  });
+
+  test("5. Multi-View Reactive Auth Subscription & Frictionless Navigation", () => {
+    const pagesToCheck = [
+      "apps/web/src/app/spaces/page.tsx",
+      "apps/web/src/app/studio/page.tsx",
+      "apps/web/src/components/ArchiveWorkspace.tsx",
+      "apps/web/src/app/orders/page.tsx",
+      "apps/web/src/app/dashboard/page.tsx",
+      "apps/web/src/app/billing/page.tsx",
+      "apps/web/src/app/profiles/page.tsx",
+      "apps/web/src/app/collections/page.tsx",
+      "apps/web/src/app/notifications/page.tsx",
+    ];
+
+    for (const relPath of pagesToCheck) {
+      const fullPath = path.join(repoRoot, relPath);
+      assert.ok(fs.existsSync(fullPath), `${relPath} must exist`);
+      const content = fs.readFileSync(fullPath, "utf-8");
+      assert.ok(
+        content.includes("subscribeAuthChange"),
+        `${relPath} must subscribe to reactive auth changes via subscribeAuthChange`
+      );
+      assert.ok(
+        content.includes("openAuthModal"),
+        `${relPath} must provide instant modal trigger via openAuthModal`
+      );
+    }
+  });
+
+  test("6. Seamless Account Registration & Cookie Eviction on Sign Out", () => {
+    const authPanelPath = path.join(repoRoot, "apps/web/src/components/AuthFlowPanel.tsx");
+    const authPanelContent = fs.readFileSync(authPanelPath, "utf-8");
+    assert.ok(
+      !authPanelContent.includes("if (!res.verificationToken)"),
+      "AuthFlowPanel must not block registration redirect when verificationToken is present"
+    );
+
+    const apiPath = path.join(repoRoot, "apps/web/src/lib/api.ts");
+    const apiContent = fs.readFileSync(apiPath, "utf-8");
+    assert.ok(
+      apiContent.includes("max-age=0"),
+      "api.ts clearStoredSession must evict cookies with max-age=0"
+    );
   });
 });

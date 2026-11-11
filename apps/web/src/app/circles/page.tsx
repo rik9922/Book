@@ -15,10 +15,12 @@ import {
   listSpaceInvitations,
   MemorySpaceDTO,
   NotificationDTO,
+  openAuthModal,
   resendSpaceInvitation,
   revokeSpaceInvitation,
   SpaceInvitationDTO,
   SpaceProfileDTO,
+  subscribeAuthChange,
   updateSpaceMemberRole,
 } from "@/lib/api";
 
@@ -127,6 +129,10 @@ export default function CirclesPage() {
       }
     };
     init();
+    const unsubscribe = subscribeAuthChange(() => {
+      init();
+    });
+    return unsubscribe;
   }, [loadCircleData]);
 
   const handleCreateInvitation = async (e: React.FormEvent) => {
@@ -315,11 +321,16 @@ export default function CirclesPage() {
       subtitle="Collaborate with trusted relatives, assign RBAC roles, and tag loved ones across generations."
     >
       {!signedIn && !loading ? (
-        <div className="bg-[#FFFFFF] rounded-2xl border border-[#E7E2DA] p-8 text-center">
-          <p className="text-sm text-[#5C5955] mb-4">Sign in to manage circles and invitations.</p>
-          <Link href="/auth" className="inline-flex px-5 py-2.5 rounded-xl bg-[#20242C] text-[#FFFFFF] text-sm font-medium">
-            Sign In
-          </Link>
+        <div className="bg-[#FFFFFF] rounded-2xl border border-[#E7E2DA] p-8 text-center max-w-xl mx-auto space-y-4">
+          <h2 className="font-serif text-2xl font-bold text-[#20242C]">Sign in to manage Family Circles</h2>
+          <p className="text-sm text-[#5C5955]">Collaborate with family members, manage permissions, and share memories securely.</p>
+          <button
+            type="button"
+            onClick={() => openAuthModal("login")}
+            className="min-h-[44px] inline-flex items-center px-5 py-2.5 rounded-xl bg-[#76556F] hover:bg-[#63445C] text-white text-xs font-semibold cursor-pointer shadow-xs transition-colors"
+          >
+            Sign In or Create Account
+          </button>
         </div>
       ) : (
         <div className="space-y-8">
