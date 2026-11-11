@@ -1,5 +1,61 @@
 import Foundation
 
+public enum MemoryReactionKind: String, Codable, CaseIterable, Identifiable, Sendable {
+    case heart
+    case warmth
+    case tearsOfJoy
+    case gratitude
+
+    public var id: String { rawValue }
+
+    public var label: String {
+        switch self {
+        case .heart: return "Heart"
+        case .warmth: return "Warmth"
+        case .tearsOfJoy: return "Tears of Joy"
+        case .gratitude: return "Gratitude"
+        }
+    }
+
+    public var symbolName: String {
+        switch self {
+        case .heart: return "heart.fill"
+        case .warmth: return "sun.max.fill"
+        case .tearsOfJoy: return "sparkles"
+        case .gratitude: return "hands.sparkles.fill"
+        }
+    }
+}
+
+public struct MemoryReactionState: Codable, Sendable, Equatable {
+    public var counts: [String: Int]
+    public var selectedKinds: [String]
+
+    public init(counts: [String: Int] = [:], selectedKinds: [String] = []) {
+        self.counts = counts
+        self.selectedKinds = selectedKinds
+    }
+
+    public func count(for kind: MemoryReactionKind) -> Int {
+        counts[kind.rawValue] ?? 0
+    }
+
+    public func isSelected(_ kind: MemoryReactionKind) -> Bool {
+        selectedKinds.contains(kind.rawValue)
+    }
+
+    public mutating func toggle(_ kind: MemoryReactionKind) {
+        let key = kind.rawValue
+        if let idx = selectedKinds.firstIndex(of: key) {
+            selectedKinds.remove(at: idx)
+            counts[key] = max(0, (counts[key] ?? 1) - 1)
+        } else {
+            selectedKinds.append(key)
+            counts[key] = (counts[key] ?? 0) + 1
+        }
+    }
+}
+
 public struct PendingMutation: Codable, Identifiable, Sendable {
     public let id: String
     public let entityType: String
@@ -70,6 +126,102 @@ public final class LocalStorageService: @unchecked Sendable {
             return memories
         }
         return []
+    }
+
+    public func upsertLocalMemory(_ memory: Memory) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        let fileURL = cacheDirectory.appendingPathComponent("memories_\(memory.spaceId).json")
+        var current: [Memory] = []
+        if let data = try? Data(contentsOf: fileURL),
+           let decoded = try? JSONDecoder().decode([Memory].self, from: data) {
+            current = decoded
+        }
+        if let idx = current.firstIndex(where: { $0.id == memory.id }) {
+            current[idx] = memory
+        } else {
+            current.insert(memory, at: 0)
+        }
+        let encoded = try JSONEncoder().encode(current)
+        try writeProtected(encoded, to: fileURL)
+    }
+
+    // MARK: - Collections, Profiles, Comments & Emotional Reactions Local Persistence
+
+    public func saveCollectionsLocally(_ collections: [CollectionDTO], forSpaceId spaceId: String) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        let fileURL = cacheDirectory.appendingPathComponent("collections_\(spaceId).json")
+        let data = try JSONEncoder().encode(collections)
+        try writeProtected(data, to: fileURL)
+    }
+
+    public func loadLocalCollections(forSpaceId spaceId: String) -> [CollectionDTO] {
+        lock.lock()
+        defer { lock.unlock() }
+        let fileURL = cacheDirectory.appendingPathComponent("collections_\(spaceId).json")
+        if let data = try? Data(contentsOf: fileURL),
+           let decoded = try? JSONDecoder().decode([CollectionDTO].self, from: data) {
+            return decoded
+        }
+        return []
+    }
+
+    public func saveProfilesLocally(_ profiles: [SpaceProfileDTO], forSpaceId spaceId: String) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        let fileURL = cacheDirectory.appendingPathComponent("profiles_\(spaceId).json")
+        let data = try JSONEncoder().encode(profiles)
+        try writeProtected(data, to: fileURL)
+    }
+
+    public func loadLocalProfiles(forSpaceId spaceId: String) -> [SpaceProfileDTO] {
+        lock.lock()
+        defer { lock.unlock() }
+        let fileURL = cacheDirectory.appendingPathComponent("profiles_\(spaceId).json")
+        if let data = try? Data(contentsOf: fileURL),
+           let decoded = try? JSONDecoder().decode([SpaceProfileDTO].self, from: data) {
+            return decoded
+        }
+        return []
+    }
+
+    public func saveCommentsLocally(_ comments: [MemoryCommentDTO], forMemoryId memoryId: String) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        let fileURL = cacheDirectory.appendingPathComponent("comments_\(memoryId).json")
+        let data = try JSONEncoder().encode(comments)
+        try writeProtected(data, to: fileURL)
+    }
+
+    public func loadLocalComments(forMemoryId memoryId: String) -> [MemoryCommentDTO] {
+        lock.lock()
+        defer { lock.unlock() }
+        let fileURL = cacheDirectory.appendingPathComponent("comments_\(memoryId).json")
+        if let data = try? Data(contentsOf: fileURL),
+           let decoded = try? JSONDecoder().decode([MemoryCommentDTO].self, from: data) {
+            return decoded
+        }
+        return []
+    }
+
+    public func saveReactionsLocally(_ state: MemoryReactionState, forMemoryId memoryId: String) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        let fileURL = archiveDirectory.appendingPathComponent("reactions_\(memoryId).json")
+        let data = try JSONEncoder().encode(state)
+        try writeProtected(data, to: fileURL)
+    }
+
+    public func loadLocalReactions(forMemoryId memoryId: String) -> MemoryReactionState {
+        lock.lock()
+        defer { lock.unlock() }
+        let fileURL = archiveDirectory.appendingPathComponent("reactions_\(memoryId).json")
+        if let data = try? Data(contentsOf: fileURL),
+           let decoded = try? JSONDecoder().decode(MemoryReactionState.self, from: data) {
+            return decoded
+        }
+        return MemoryReactionState()
     }
 
     // MARK: - Durable Offline Pending Mutation Queue (Never deleted by clearCache)

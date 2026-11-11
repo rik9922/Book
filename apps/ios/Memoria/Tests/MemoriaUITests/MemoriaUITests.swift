@@ -55,6 +55,49 @@ final class MemoriaUITests: XCTestCase {
         if collectionsPill.waitForExistence(timeout: 3) {
             collectionsPill.tap()
             XCTAssertTrue(app.navigationBars["Collections"].waitForExistence(timeout: 3))
+
+            // IOS-33: Create a collection, open CollectionDetailView, curate memory, edit & print
+            let colTitleField = app.textFields["Collection Title"].firstMatch
+            if colTitleField.waitForExistence(timeout: 2) {
+                colTitleField.tap()
+                colTitleField.typeText("Summer Heritage Album")
+                let addColBtn = app.buttons["Add Collection"].firstMatch
+                if addColBtn.waitForExistence(timeout: 2) && addColBtn.isEnabled {
+                    addColBtn.tap()
+                }
+            }
+
+            let createdColCell = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Summer Heritage Album'")).firstMatch
+            XCTAssertTrue(createdColCell.waitForExistence(timeout: 3), "Created collection should appear in list")
+            createdColCell.tap()
+            XCTAssertTrue(app.navigationBars["Summer Heritage Album"].waitForExistence(timeout: 3))
+
+            let addMemoriesBtn = app.buttons["Add Memories"].firstMatch
+            XCTAssertTrue(addMemoriesBtn.waitForExistence(timeout: 2))
+            addMemoriesBtn.tap()
+            XCTAssertTrue(app.navigationBars["Add Memories"].waitForExistence(timeout: 3))
+            let firstPick = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Prologue'")).firstMatch
+            if firstPick.waitForExistence(timeout: 2) {
+                firstPick.tap()
+            }
+            app.buttons["Done"].firstMatch.tap()
+
+            let editColBtn = app.buttons["Edit"].firstMatch
+            if editColBtn.waitForExistence(timeout: 2) {
+                editColBtn.tap()
+                XCTAssertTrue(app.navigationBars["Edit Collection"].waitForExistence(timeout: 3))
+                app.buttons["Cancel"].firstMatch.tap()
+            }
+
+            let printBookBtn = app.buttons["Print as Book"].firstMatch
+            if printBookBtn.waitForExistence(timeout: 2) {
+                printBookBtn.tap()
+                XCTAssertTrue(app.navigationBars["Book Creator Wizard"].waitForExistence(timeout: 3))
+                app.buttons["Close"].firstMatch.tap()
+            }
+
+            app.navigationBars.buttons.element(boundBy: 0).tap()
+
             app.navigationBars.buttons.element(boundBy: 0).tap()
         }
 
@@ -75,6 +118,143 @@ final class MemoriaUITests: XCTestCase {
                 app.buttons["Cancel"].firstMatch.tap()
             }
         }
+
+        // IOS-18: Video Capture & Trim -> create trimmed video memory
+        if captureBtn.waitForExistence(timeout: 3) {
+            captureBtn.tap()
+            let videoItem = app.buttons["Video Trim Studio"].firstMatch
+            if videoItem.waitForExistence(timeout: 3) {
+                videoItem.tap()
+                XCTAssertTrue(app.navigationBars["Video Capture & Trim"].waitForExistence(timeout: 3))
+                let videoTitleField = app.textFields["Video Title"].firstMatch
+                if videoTitleField.waitForExistence(timeout: 2) {
+                    videoTitleField.tap()
+                    videoTitleField.typeText("Birthday Trim Clip")
+                }
+                let archiveClipBtn = app.buttons["Archive Clip"].firstMatch
+                if archiveClipBtn.waitForExistence(timeout: 2) && archiveClipBtn.isEnabled {
+                    archiveClipBtn.tap()
+                } else {
+                    app.buttons["Cancel"].firstMatch.tap()
+                }
+            }
+        }
+
+        // IOS-19: Oral History Voice Recorder -> create voice note memory
+        if captureBtn.waitForExistence(timeout: 3) {
+            captureBtn.tap()
+            let voiceItem = app.buttons["Voice Oral History"].firstMatch
+            if voiceItem.waitForExistence(timeout: 3) {
+                voiceItem.tap()
+                XCTAssertTrue(app.navigationBars["Voice Studio"].waitForExistence(timeout: 3))
+                let startRecBtn = app.buttons["Start Recording"].firstMatch
+                if startRecBtn.waitForExistence(timeout: 2) {
+                    startRecBtn.tap()
+                    let stopRecBtn = app.buttons["Stop Recording"].firstMatch
+                    if stopRecBtn.waitForExistence(timeout: 2) {
+                        stopRecBtn.tap()
+                    }
+                }
+                let audioTitleField = app.textFields["Recording Title"].firstMatch
+                if audioTitleField.waitForExistence(timeout: 2) {
+                    audioTitleField.tap()
+                    audioTitleField.typeText("Grandpa Oral History")
+                }
+                let saveAudioBtn = app.buttons["Save Audio"].firstMatch
+                if saveAudioBtn.waitForExistence(timeout: 2) && saveAudioBtn.isEnabled {
+                    saveAudioBtn.tap()
+                } else {
+                    app.buttons["Close"].firstMatch.tap()
+                }
+            }
+        }
+
+        // IOS-29: Open created Video memory -> MediaPlaybackView
+        let videoCard = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Birthday Trim Clip'")).firstMatch
+        XCTAssertTrue(videoCard.waitForExistence(timeout: 4), "Video memory should appear in Archive")
+        videoCard.tap()
+        XCTAssertTrue(app.navigationBars["Heirloom Story"].waitForExistence(timeout: 3))
+        let playMediaBtn = app.buttons["Inspect / Play Media"].firstMatch
+        XCTAssertTrue(playMediaBtn.waitForExistence(timeout: 2))
+        playMediaBtn.tap()
+        XCTAssertTrue(app.navigationBars["Media Viewer"].waitForExistence(timeout: 3))
+        let playBtn = app.buttons["Play"].firstMatch
+        if playBtn.waitForExistence(timeout: 2) {
+            playBtn.tap()
+        }
+        app.buttons["Done"].firstMatch.tap()
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+
+        // IOS-27, IOS-28, IOS-30, IOS-42: Open created Audio memory -> Edit Story, Attach & CoreImage Editor, Audio Player, Reflections Sheet
+        let audioCard = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Grandpa Oral History'")).firstMatch
+        XCTAssertTrue(audioCard.waitForExistence(timeout: 4), "Audio memory should appear in Archive")
+        audioCard.tap()
+        XCTAssertTrue(app.navigationBars["Heirloom Story"].waitForExistence(timeout: 3))
+
+        // IOS-27: Edit Story
+        let editStoryBtn = app.buttons["Edit Story"].firstMatch
+        XCTAssertTrue(editStoryBtn.waitForExistence(timeout: 2))
+        editStoryBtn.tap()
+        XCTAssertTrue(app.navigationBars["Edit Memory"].waitForExistence(timeout: 3))
+        let locField = app.textFields["Location"].firstMatch
+        if locField.waitForExistence(timeout: 2) {
+            locField.tap()
+            locField.typeText("Sonoma Valley")
+        }
+        app.buttons["Save"].firstMatch.tap()
+        XCTAssertTrue(app.staticTexts["Sonoma Valley"].waitForExistence(timeout: 3))
+
+        // IOS-30: Audio Player with synchronized transcript & waveform
+        let playAudioBtn = app.buttons["Inspect / Play Media"].firstMatch
+        XCTAssertTrue(playAudioBtn.waitForExistence(timeout: 2))
+        playAudioBtn.tap()
+        XCTAssertTrue(app.navigationBars["Media Viewer"].waitForExistence(timeout: 3))
+        let fwdBtn = app.buttons["Skip forward 15 seconds"].firstMatch
+        if fwdBtn.waitForExistence(timeout: 2) { fwdBtn.tap() }
+        app.buttons["Done"].firstMatch.tap()
+
+        // IOS-28: Attach local specimen & open CoreImage Editor
+        let attachBtn = app.buttons["Attach Local Media Specimen"].firstMatch
+        if attachBtn.waitForExistence(timeout: 2) {
+            attachBtn.tap()
+        }
+        let editPhotoBtn = app.buttons["Edit Photo"].firstMatch
+        XCTAssertTrue(editPhotoBtn.waitForExistence(timeout: 3))
+        editPhotoBtn.tap()
+        XCTAssertTrue(app.navigationBars["Photo Editor"].waitForExistence(timeout: 3))
+        let rotateBtn = app.buttons["Rotate +90°"].firstMatch
+        XCTAssertTrue(rotateBtn.waitForExistence(timeout: 2))
+        rotateBtn.tap()
+        let applyBtn = app.buttons["Apply"].firstMatch
+        XCTAssertTrue(applyBtn.waitForExistence(timeout: 2))
+        applyBtn.tap()
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Non-destructive derivative'")).firstMatch.waitForExistence(timeout: 4))
+        app.buttons["Close"].firstMatch.tap()
+
+        // IOS-42: Emotional Reactions & Family Reflections Sheet
+        let heartBtn = app.buttons["Heart reaction"].firstMatch
+        if !heartBtn.exists {
+            app.swipeUp()
+        }
+        XCTAssertTrue(heartBtn.waitForExistence(timeout: 3))
+        heartBtn.tap()
+        let reflectionsBtn = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Reactions & Family Reflections'")).firstMatch
+        XCTAssertTrue(reflectionsBtn.waitForExistence(timeout: 3))
+        reflectionsBtn.tap()
+        XCTAssertTrue(app.navigationBars["Reflections & Notes"].waitForExistence(timeout: 3))
+        let warmthBtn = app.buttons["Sheet Warmth reaction"].firstMatch
+        if warmthBtn.waitForExistence(timeout: 2) { warmthBtn.tap() }
+        let reflectionField = app.textFields["Share a memory or reflection..."].firstMatch
+        XCTAssertTrue(reflectionField.waitForExistence(timeout: 2))
+        reflectionField.tap()
+        reflectionField.typeText("What a cherished voice!")
+        let sendBtn = app.buttons["Send Reflection"].firstMatch
+        XCTAssertTrue(sendBtn.waitForExistence(timeout: 2) && sendBtn.isEnabled)
+        sendBtn.tap()
+        XCTAssertTrue(app.staticTexts["What a cherished voice!"].waitForExistence(timeout: 3))
+        app.buttons["Close"].firstMatch.tap()
+
+        app.navigationBars.buttons.element(boundBy: 0).tap()
 
         if captureBtn.waitForExistence(timeout: 3) {
             captureBtn.tap()
@@ -120,6 +300,53 @@ final class MemoriaUITests: XCTestCase {
         if profilesBtn.waitForExistence(timeout: 3) {
             profilesBtn.tap()
             XCTAssertTrue(app.navigationBars["People & Profiles"].waitForExistence(timeout: 3))
+
+            // IOS-37: Create Profile via '+' toolbar button
+            let newProfileBtn = app.buttons["New Profile"].firstMatch
+            if newProfileBtn.waitForExistence(timeout: 2) {
+                newProfileBtn.tap()
+                XCTAssertTrue(app.navigationBars["New Profile"].waitForExistence(timeout: 3))
+                let profileNameField = app.textFields["Full Name"].firstMatch
+                if profileNameField.waitForExistence(timeout: 2) {
+                    profileNameField.tap()
+                    profileNameField.typeText("Eleanor Bennett")
+                }
+                let relField = app.textFields["Relationship (e.g. Grandmother, Daughter)"].firstMatch
+                if relField.waitForExistence(timeout: 2) {
+                    relField.tap()
+                    relField.typeText("Grandmother")
+                }
+                let saveProfileBtn = app.buttons["Save"].firstMatch
+                if saveProfileBtn.waitForExistence(timeout: 2) && saveProfileBtn.isEnabled {
+                    saveProfileBtn.tap()
+                } else {
+                    app.buttons["Cancel"].firstMatch.tap()
+                }
+            }
+
+            // IOS-36: Open ProfileDetailView & IOS-37: Edit Profile Sheet
+            let eleanorRow = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Eleanor Bennett'")).firstMatch
+            XCTAssertTrue(eleanorRow.waitForExistence(timeout: 3), "Created profile should appear in directory")
+            eleanorRow.tap()
+            XCTAssertTrue(app.navigationBars["Eleanor Bennett"].waitForExistence(timeout: 3))
+
+            let editProfileBtn = app.buttons["Edit Profile"].firstMatch
+            XCTAssertTrue(editProfileBtn.waitForExistence(timeout: 2))
+            editProfileBtn.tap()
+            XCTAssertTrue(app.navigationBars["Edit Profile"].waitForExistence(timeout: 3))
+            let saveEditBtn = app.buttons["Save"].firstMatch
+            XCTAssertTrue(saveEditBtn.waitForExistence(timeout: 2) && saveEditBtn.isEnabled)
+            saveEditBtn.tap()
+
+            let genBioBtn = app.buttons["Generate Biography Book"].firstMatch
+            if genBioBtn.waitForExistence(timeout: 2) {
+                genBioBtn.tap()
+                XCTAssertTrue(app.navigationBars["Book Creator Wizard"].waitForExistence(timeout: 3))
+                app.buttons["Close"].firstMatch.tap()
+            }
+
+            app.navigationBars.buttons.element(boundBy: 0).tap()
+
             app.navigationBars.buttons.element(boundBy: 0).tap()
         }
 

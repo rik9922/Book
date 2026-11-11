@@ -50,6 +50,22 @@ public struct SpaceProfileDTO: Identifiable, Codable, Sendable {
     public let relationship: String?
     public let type: String
     public let birthDate: String?
+
+    public init(
+        id: String = UUID().uuidString,
+        spaceId: String,
+        name: String,
+        relationship: String? = nil,
+        type: String = "individual",
+        birthDate: String? = nil
+    ) {
+        self.id = id
+        self.spaceId = spaceId
+        self.name = name
+        self.relationship = relationship
+        self.type = type
+        self.birthDate = birthDate
+    }
 }
 
 public struct CollectionDTO: Identifiable, Codable, Sendable {
@@ -61,6 +77,38 @@ public struct CollectionDTO: Identifiable, Codable, Sendable {
     public let memoryIds: [String]?
     public let createdAt: String
     public let updatedAt: String
+
+    public init(
+        id: String = UUID().uuidString,
+        spaceId: String,
+        title: String,
+        description: String? = nil,
+        coverMemoryId: String? = nil,
+        memoryIds: [String]? = [],
+        createdAt: String = ISO8601DateFormatter().string(from: Date()),
+        updatedAt: String = ISO8601DateFormatter().string(from: Date())
+    ) {
+        self.id = id
+        self.spaceId = spaceId
+        self.title = title
+        self.description = description
+        self.coverMemoryId = coverMemoryId
+        self.memoryIds = memoryIds
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+}
+
+public struct CollectionDetailDTO: Identifiable, Codable, Sendable {
+    public let id: String
+    public let spaceId: String
+    public let title: String
+    public let description: String?
+    public let coverMemoryId: String?
+    public let memoryIds: [String]?
+    public let createdAt: String
+    public let updatedAt: String
+    public let memories: [Memory]?
 }
 
 public struct MemoryCommentDTO: Identifiable, Codable, Sendable {
@@ -71,6 +119,24 @@ public struct MemoryCommentDTO: Identifiable, Codable, Sendable {
     public let authorName: String
     public let body: String
     public let createdAt: String
+
+    public init(
+        id: String = UUID().uuidString,
+        memoryId: String,
+        spaceId: String,
+        authorId: String,
+        authorName: String,
+        body: String,
+        createdAt: String = ISO8601DateFormatter().string(from: Date())
+    ) {
+        self.id = id
+        self.memoryId = memoryId
+        self.spaceId = spaceId
+        self.authorId = authorId
+        self.authorName = authorName
+        self.body = body
+        self.createdAt = createdAt
+    }
 }
 
 public struct PrintCatalogFormatDTO: Identifiable, Decodable, Sendable {
@@ -582,8 +648,16 @@ public actor MemoriaAPIClient {
         return try JSONDecoder().decode(Envelope.self, from: data).data
     }
 
-    public func fetchMemories(spaceId: String) async throws -> [Memory] {
-        let (data, httpResponse) = try await performAuthenticatedData(path: "spaces/\(spaceId)/memories", method: "GET")
+    public func fetchMemories(spaceId: String, profileId: String? = nil) async throws -> [Memory] {
+        var queryItems: [URLQueryItem] = []
+        if let profileId, !profileId.isEmpty {
+            queryItems.append(URLQueryItem(name: "profileId", value: profileId))
+        }
+        let (data, httpResponse) = try await performAuthenticatedData(
+            path: "spaces/\(spaceId)/memories",
+            queryItems: queryItems,
+            method: "GET"
+        )
         guard (200...299).contains(httpResponse.statusCode) else {
             throw NSError(domain: "MemoriaAPIClient", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Failed to fetch memories"])
         }
@@ -759,9 +833,16 @@ public actor MemoriaAPIClient {
         return try JSONDecoder().decode(Envelope.self, from: data).data
     }
 
-    public func createProfile(spaceId: String, name: String, type: String, relationship: String? = nil) async throws -> SpaceProfileDTO {
+    public func createProfile(
+        spaceId: String,
+        name: String,
+        type: String,
+        relationship: String? = nil,
+        birthDate: String? = nil
+    ) async throws -> SpaceProfileDTO {
         var payload: [String: Any] = ["name": name, "type": type]
         if let relationship, !relationship.isEmpty { payload["relationship"] = relationship }
+        if let birthDate, !birthDate.isEmpty { payload["birthDate"] = birthDate }
         let body = try JSONSerialization.data(withJSONObject: payload)
         let (data, httpResponse) = try await performAuthenticatedData(path: "spaces/\(spaceId)/profiles", method: "POST", body: body)
         guard (200...299).contains(httpResponse.statusCode) else {
@@ -771,12 +852,60 @@ public actor MemoriaAPIClient {
         return try JSONDecoder().decode(Envelope.self, from: data).data
     }
 
+    public func updateProfile(
+        spaceId: String,
+        profileId: String,
+        name: String? = nil,
+        relationship: String? = nil,
+        type: String? = nil,
+        birthDate: String? = nil
+    ) async throws -> SpaceProfileDTO {
+        var payload: [String: Any] = [:]
+        if let name { payload["name"] = name }
+        if let relationship { payload["relationship"] = relationship }
+        if let type { payload["type"] = type }
+        if let birthDate, !birthDate.isEmpty { payload["birthDate"] = birthDate }
+        let body = try JSONSerialization.data(withJSONObject: payload)
+        let (data, httpResponse) = try await performAuthenticatedData(
+            path: "spaces/\(spaceId)/profiles/\(profileId)",
+            method: "PATCH",
+            body: body
+        )
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw NSError(domain: "MemoriaAPIClient", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Failed to update profile"])
+        }
+        struct Envelope: Decodable { let success: Bool; let data: SpaceProfileDTO }
+        return try JSONDecoder().decode(Envelope.self, from: data).data
+    }
+
+    public func deleteProfile(spaceId: String, profileId: String) async throws {
+        let (_, httpResponse) = try await performAuthenticatedData(
+            path: "spaces/\(spaceId)/profiles/\(profileId)",
+            method: "DELETE"
+        )
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw NSError(domain: "MemoriaAPIClient", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Failed to delete profile"])
+        }
+    }
+
     public func fetchCollections(spaceId: String) async throws -> [CollectionDTO] {
         let (data, httpResponse) = try await performAuthenticatedData(path: "spaces/\(spaceId)/collections", method: "GET")
         guard (200...299).contains(httpResponse.statusCode) else {
             throw NSError(domain: "MemoriaAPIClient", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Failed to fetch collections"])
         }
         struct Envelope: Decodable { let success: Bool; let data: [CollectionDTO] }
+        return try JSONDecoder().decode(Envelope.self, from: data).data
+    }
+
+    public func fetchCollectionDetail(spaceId: String, collectionId: String) async throws -> CollectionDetailDTO {
+        let (data, httpResponse) = try await performAuthenticatedData(
+            path: "spaces/\(spaceId)/collections/\(collectionId)",
+            method: "GET"
+        )
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw NSError(domain: "MemoriaAPIClient", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Failed to fetch collection detail"])
+        }
+        struct Envelope: Decodable { let success: Bool; let data: CollectionDetailDTO }
         return try JSONDecoder().decode(Envelope.self, from: data).data
     }
 
@@ -790,6 +919,76 @@ public actor MemoriaAPIClient {
         }
         struct Envelope: Decodable { let success: Bool; let data: CollectionDTO }
         return try JSONDecoder().decode(Envelope.self, from: data).data
+    }
+
+    public func updateCollection(
+        spaceId: String,
+        collectionId: String,
+        title: String? = nil,
+        description: String? = nil,
+        coverMemoryId: String? = nil
+    ) async throws -> CollectionDTO {
+        var payload: [String: Any] = [:]
+        if let title { payload["title"] = title }
+        if let description { payload["description"] = description }
+        if let coverMemoryId { payload["coverMemoryId"] = coverMemoryId }
+        let body = try JSONSerialization.data(withJSONObject: payload)
+        let (data, httpResponse) = try await performAuthenticatedData(
+            path: "spaces/\(spaceId)/collections/\(collectionId)",
+            method: "PATCH",
+            body: body
+        )
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw NSError(domain: "MemoriaAPIClient", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Failed to update collection"])
+        }
+        struct Envelope: Decodable { let success: Bool; let data: CollectionDTO }
+        return try JSONDecoder().decode(Envelope.self, from: data).data
+    }
+
+    public func addMemoryToCollection(
+        spaceId: String,
+        collectionId: String,
+        memoryId: String,
+        sortOrder: Int = 0
+    ) async throws -> CollectionDTO {
+        let body = try JSONSerialization.data(withJSONObject: [
+            "memoryId": memoryId,
+            "sortOrder": sortOrder,
+        ])
+        let (data, httpResponse) = try await performAuthenticatedData(
+            path: "spaces/\(spaceId)/collections/\(collectionId)/memories",
+            method: "POST",
+            body: body
+        )
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw NSError(domain: "MemoriaAPIClient", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Failed to add memory to collection"])
+        }
+        struct Envelope: Decodable { let success: Bool; let data: CollectionDTO }
+        return try JSONDecoder().decode(Envelope.self, from: data).data
+    }
+
+    public func removeMemoryFromCollection(
+        spaceId: String,
+        collectionId: String,
+        memoryId: String
+    ) async throws {
+        let (_, httpResponse) = try await performAuthenticatedData(
+            path: "spaces/\(spaceId)/collections/\(collectionId)/memories/\(memoryId)",
+            method: "DELETE"
+        )
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw NSError(domain: "MemoriaAPIClient", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Failed to remove memory from collection"])
+        }
+    }
+
+    public func deleteCollection(spaceId: String, collectionId: String) async throws {
+        let (_, httpResponse) = try await performAuthenticatedData(
+            path: "spaces/\(spaceId)/collections/\(collectionId)",
+            method: "DELETE"
+        )
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw NSError(domain: "MemoriaAPIClient", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Failed to delete collection"])
+        }
     }
 
     public func fetchComments(memoryId: String) async throws -> [MemoryCommentDTO] {
@@ -922,10 +1121,19 @@ public actor MemoriaAPIClient {
         return try JSONDecoder().decode(Envelope.self, from: data).data
     }
 
-    public func editMemory(memoryId: String, title: String, content: String?, location: String?) async throws -> Memory {
+    public func editMemory(
+        memoryId: String,
+        title: String,
+        content: String?,
+        location: String?,
+        tags: [String]? = nil,
+        capturedAt: String? = nil
+    ) async throws -> Memory {
         var dict: [String: Any] = ["title": title]
         if let content { dict["content"] = content }
         if let location { dict["location"] = location }
+        if let tags { dict["tags"] = tags }
+        if let capturedAt, !capturedAt.isEmpty { dict["capturedAt"] = capturedAt }
         let body = try JSONSerialization.data(withJSONObject: dict)
         let (data, httpResponse) = try await performAuthenticatedData(path: "memories/\(memoryId)", method: "PATCH", body: body)
         guard (200...299).contains(httpResponse.statusCode) else {

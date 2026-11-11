@@ -407,6 +407,88 @@ struct Book3DEngineTests {
         #expect(membersUrl.absoluteString == "http://127.0.0.1:4000/api/v1/collab/spaces/spc-1/members")
     }
 
+    @Test("Verify CollectionDetailDTO, SpaceProfileDTO, Reactions & Collection/Profile Route Encoding")
+    func testCollectionDetailProfileAndReactions() async throws {
+        let detailJson = """
+        {
+          "id": "col-99",
+          "spaceId": "spc-1",
+          "title": "Grandpa Letters",
+          "description": "Typed and handwritten correspondence",
+          "coverMemoryId": null,
+          "memoryIds": ["mem-10"],
+          "createdAt": "2026-11-11T00:00:00Z",
+          "updatedAt": "2026-11-11T00:00:00Z",
+          "memories": [
+            {
+              "id": "mem-10",
+              "spaceId": "spc-1",
+              "authorId": "usr-1",
+              "title": "Letter from Lisbon",
+              "content": "Arrived safely at harbor.",
+              "format": "document",
+              "capturedAt": "1968-05-12T10:00:00Z",
+              "location": "Lisbon",
+              "latitude": null,
+              "longitude": null,
+              "isFavorite": true,
+              "associatedProfileIds": ["prof-1"],
+              "mediaIds": [],
+              "tags": ["letters"],
+              "createdAt": "2026-11-11T00:00:00Z",
+              "updatedAt": null
+            }
+          ]
+        }
+        """
+        let detail = try JSONDecoder().decode(CollectionDetailDTO.self, from: Data(detailJson.utf8))
+        #expect(detail.title == "Grandpa Letters")
+        #expect(detail.memories?.count == 1)
+        #expect(detail.memories?.first?.title == "Letter from Lisbon")
+
+        let profileJson = """
+        {
+          "id": "prof-1",
+          "spaceId": "spc-1",
+          "name": "Eleanor Bennett",
+          "relationship": "Grandmother",
+          "type": "parent",
+          "birthDate": "1932-05-12"
+        }
+        """
+        let profile = try JSONDecoder().decode(SpaceProfileDTO.self, from: Data(profileJson.utf8))
+        #expect(profile.name == "Eleanor Bennett")
+        #expect(profile.birthDate == "1932-05-12")
+
+        var reactions = MemoryReactionState()
+        reactions.toggle(.heart)
+        reactions.toggle(.gratitude)
+        #expect(reactions.isSelected(.heart))
+        #expect(reactions.count(for: .heart) == 1)
+        #expect(reactions.count(for: .gratitude) == 1)
+        reactions.toggle(.heart)
+        #expect(!reactions.isSelected(.heart))
+        #expect(reactions.count(for: .heart) == 0)
+
+        let testMemoryId = "test-mem-\(UUID().uuidString)"
+        try LocalStorageService.shared.saveReactionsLocally(reactions, forMemoryId: testMemoryId)
+        let loadedReactions = LocalStorageService.shared.loadLocalReactions(forMemoryId: testMemoryId)
+        #expect(loadedReactions == reactions)
+
+        let client = MemoriaAPIClient(baseURL: URL(string: "http://127.0.0.1:4000/api/v1")!)
+        let colDetailUrl = await client.buildURL(path: "spaces/spc-1/collections/col-99")
+        let colMemUrl = await client.buildURL(path: "spaces/spc-1/collections/col-99/memories/mem-10")
+        let profUrl = await client.buildURL(path: "spaces/spc-1/profiles/prof-1")
+        let profMemsUrl = await client.buildURL(
+            path: "spaces/spc-1/memories",
+            queryItems: [URLQueryItem(name: "profileId", value: "prof-1")]
+        )
+        #expect(colDetailUrl.absoluteString == "http://127.0.0.1:4000/api/v1/spaces/spc-1/collections/col-99")
+        #expect(colMemUrl.absoluteString == "http://127.0.0.1:4000/api/v1/spaces/spc-1/collections/col-99/memories/mem-10")
+        #expect(profUrl.absoluteString == "http://127.0.0.1:4000/api/v1/spaces/spc-1/profiles/prof-1")
+        #expect(profMemsUrl.absoluteString == "http://127.0.0.1:4000/api/v1/spaces/spc-1/memories?profileId=prof-1")
+    }
+
     #if os(iOS) && canImport(RealityKit)
     @Test("Verify Bundled MemoriaHeirloomBook.usdz Loads and Matches Node Hierarchy")
     @MainActor

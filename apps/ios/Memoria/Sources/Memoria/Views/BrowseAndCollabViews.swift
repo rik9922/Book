@@ -338,6 +338,8 @@ public struct EditMemorySheet: View {
     @State private var title: String
     @State private var content: String
     @State private var location: String
+    @State private var tagsText: String
+    @State private var capturedDate: Date
     @State private var isSaving = false
     @State private var errorMessage: String?
 
@@ -347,6 +349,8 @@ public struct EditMemorySheet: View {
         self._title = State(initialValue: memory.title)
         self._content = State(initialValue: memory.content ?? "")
         self._location = State(initialValue: memory.location ?? "")
+        self._tagsText = State(initialValue: memory.tags.joined(separator: ", "))
+        self._capturedDate = State(initialValue: Self.parseCapturedDate(memory.capturedAt))
     }
 
     public var body: some View {
@@ -355,6 +359,8 @@ public struct EditMemorySheet: View {
                 Section("Edit Archival Metadata (IOS-27)") {
                     TextField("Memory Title", text: $title)
                     TextField("Location", text: $location)
+                    DatePicker("Capture Date", selection: $capturedDate, in: ...Date(), displayedComponents: .date)
+                    TextField("Tags (comma separated)", text: $tagsText)
                     TextField("Story Narrative", text: $content, axis: .vertical)
                         .lineLimit(4...8)
                 }
@@ -385,16 +391,62 @@ public struct EditMemorySheet: View {
         }
     }
 
+    private static func parseCapturedDate(_ raw: String) -> Date {
+        let iso = ISO8601DateFormatter()
+        if let d = iso.date(from: raw) { return d }
+        let df = DateFormatter()
+        df.dateFormat = "yyyy-MM-dd"
+        df.locale = Locale(identifier: "en_US_POSIX")
+        return df.date(from: String(raw.prefix(10))) ?? Date()
+    }
+
     private func saveChanges() async {
         isSaving = true
         errorMessage = nil
         let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanContent = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanLocation = location.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parsedTags = tagsText
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        let capturedISO = ISO8601DateFormatter().string(from: capturedDate)
+
+        let hasAuthToken = await MemoriaAPIClient.shared.getAuthToken() != nil
+        guard hasAuthToken else {
+            let localUpdated = Memory(
+                id: memory.id,
+                spaceId: memory.spaceId,
+                authorId: memory.authorId,
+                title: cleanTitle,
+                content: cleanContent.isEmpty ? nil : cleanContent,
+                format: memory.format,
+                capturedAt: capturedISO,
+                location: cleanLocation.isEmpty ? nil : cleanLocation,
+                latitude: memory.latitude,
+                longitude: memory.longitude,
+                isFavorite: memory.isFavorite,
+                associatedProfileIds: memory.associatedProfileIds,
+                mediaIds: memory.mediaIds,
+                tags: parsedTags,
+                createdAt: memory.createdAt,
+                updatedAt: ISO8601DateFormatter().string(from: Date())
+            )
+            try? LocalStorageService.shared.upsertLocalMemory(localUpdated)
+            onUpdated?(localUpdated)
+            isSaving = false
+            dismiss()
+            return
+        }
+
         do {
             let updated = try await MemoriaAPIClient.shared.editMemory(
                 memoryId: memory.id,
                 title: cleanTitle,
-                content: content.trimmingCharacters(in: .whitespacesAndNewlines),
-                location: location.trimmingCharacters(in: .whitespacesAndNewlines)
+                content: cleanContent,
+                location: cleanLocation,
+                tags: parsedTags,
+                capturedAt: capturedISO
             )
             onUpdated?(updated)
             dismiss()

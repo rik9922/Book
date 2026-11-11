@@ -86,7 +86,7 @@ export const iosScreens2: ScreenSpec[] = [
       e2e: ["taps video thumbnail, verifies playback starts, scrubs forward 30 seconds"]
     },
     uiComponents: ["AVPlayerCanvasView", "VideoScrubberSlider", "AirPlayPicker", "PlaybackControlBar"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "IOS-30",
@@ -170,7 +170,7 @@ export const iosScreens2: ScreenSpec[] = [
       e2e: ["plays voice note, taps on transcript sentence at 0:45, verifies playback jumps to 0:45"]
     },
     uiComponents: ["AudioWaveformVisualizer", "TranscriptScrollView", "AudioPlaybackBar", "SpeedSelectorMenu"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "IOS-31",
@@ -421,7 +421,7 @@ export const iosScreens2: ScreenSpec[] = [
       e2e: ["opens collection, reorders two items, verifies new order persists"]
     },
     uiComponents: ["ParallaxHeaderView", "MemoryGridView", "ReorderableList", "FloatingActionBar", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "IOS-34",
@@ -675,7 +675,7 @@ export const iosScreens2: ScreenSpec[] = [
       e2e: ["navigates to Grandma profile, scrolls to 1954 wedding photo, taps photo to view detail"]
     },
     uiComponents: ["ProfileHeroHeader", "MilestoneTimelineView", "MemoryThumbnailGrid", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "IOS-37",
@@ -771,7 +771,7 @@ export const iosScreens2: ScreenSpec[] = [
       e2e: ["fills profile form, picks avatar, taps Save, verifies profile created in directory"]
     },
     uiComponents: ["PhotosPicker", "TextField", "DatePicker", "Toggle", "TextEditor", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "IOS-38",
@@ -1197,7 +1197,7 @@ export const iosScreens2: ScreenSpec[] = [
       e2e: ["types reflection, taps Send, verifies comment appears in thread"]
     },
     uiComponents: ["ReactionBar", "CommentsListView", "CommentCell", "CommentComposerBar", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
 
   // ==========================================

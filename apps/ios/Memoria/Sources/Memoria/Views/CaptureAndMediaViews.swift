@@ -106,16 +106,24 @@ public struct VideoCaptureTrimView: View {
 
     private func saveVideoMemory() async {
         isSaving = true
+        defer { isSaving = false }
         let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let summary = "[Trim \(Int(trimStart))s–\(Int(trimEnd))s] " + notes.trimmingCharacters(in: .whitespacesAndNewlines)
-        let localMemory = Memory(
-            spaceId: spaceId,
-            authorId: "local-author",
-            title: cleanTitle,
-            content: summary,
-            format: .video,
-            tags: ["video-trim"]
-        )
+        let hasAuth = await MemoriaAPIClient.shared.getAuthToken() != nil
+        guard hasAuth else {
+            let localMemory = Memory(
+                spaceId: spaceId,
+                authorId: "local-author",
+                title: cleanTitle,
+                content: summary,
+                format: .video,
+                tags: ["video-trim"]
+            )
+            try? LocalStorageService.shared.upsertLocalMemory(localMemory)
+            onSaved?(localMemory)
+            dismiss()
+            return
+        }
         do {
             let created = try await MemoriaAPIClient.shared.createMemory(
                 spaceId: spaceId,
@@ -127,14 +135,8 @@ public struct VideoCaptureTrimView: View {
             onSaved?(created)
             dismiss()
         } catch {
-            var existing = LocalStorageService.shared.loadLocalMemories(forSpaceId: spaceId)
-            existing.insert(localMemory, at: 0)
-            try? LocalStorageService.shared.saveMemoriesLocally(existing, forSpaceId: spaceId)
-            onSaved?(localMemory)
-            statusMessage = "Saved locally to device archive (sync pending)."
-            dismiss()
+            statusMessage = "Failed to archive clip: \(error.localizedDescription)"
         }
-        isSaving = false
     }
 }
 
@@ -153,6 +155,7 @@ public struct VoiceRecorderView: View {
     @State private var pulseLevel: CGFloat = 0.4
     @State private var timerTask: Task<Void, Never>?
     @State private var isSaving = false
+    @State private var errorMessage: String?
 
     public init(spaceId: String, onSaved: ((Memory) -> Void)? = nil) {
         self.spaceId = spaceId
@@ -200,6 +203,13 @@ public struct VoiceRecorderView: View {
                         TextField("Recording Title", text: $title)
                         TextField("Speaker Notes or Transcript", text: $transcriptNotes, axis: .vertical)
                             .lineLimit(3...6)
+                    }
+                    if let errorMessage {
+                        Section {
+                            Text(errorMessage)
+                                .font(.footnote)
+                                .foregroundStyle(MemoriaTheme.error)
+                        }
                     }
                 }
                 .scrollContentBackground(.hidden)
@@ -256,9 +266,17 @@ public struct VoiceRecorderView: View {
     private func saveAudioMemory() async {
         stopTimer()
         isSaving = true
+        defer { isSaving = false }
         let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let notes = "[Oral History • \(formattedTime)] " + transcriptNotes.trimmingCharacters(in: .whitespacesAndNewlines)
-        let local = Memory(spaceId: spaceId, authorId: "local-author", title: cleanTitle, content: notes, format: .audio, tags: ["oral-history"])
+        let hasAuth = await MemoriaAPIClient.shared.getAuthToken() != nil
+        guard hasAuth else {
+            let local = Memory(spaceId: spaceId, authorId: "local-author", title: cleanTitle, content: notes, format: .audio, tags: ["oral-history"])
+            try? LocalStorageService.shared.upsertLocalMemory(local)
+            onSaved?(local)
+            dismiss()
+            return
+        }
         do {
             let created = try await MemoriaAPIClient.shared.createMemory(
                 spaceId: spaceId,
@@ -268,14 +286,10 @@ public struct VoiceRecorderView: View {
                 tags: ["oral-history"]
             )
             onSaved?(created)
+            dismiss()
         } catch {
-            var existing = LocalStorageService.shared.loadLocalMemories(forSpaceId: spaceId)
-            existing.insert(local, at: 0)
-            try? LocalStorageService.shared.saveMemoriesLocally(existing, forSpaceId: spaceId)
-            onSaved?(local)
+            errorMessage = error.localizedDescription
         }
-        isSaving = false
-        dismiss()
     }
 }
 
@@ -403,10 +417,13 @@ public struct CoreImageEditorView: View {
     @State private var rotateDegrees: Int = 0
     @State private var warmth: Double = 0.0
     @State private var cropPreset: String = "original"
+    @State private var filterPreset: String = "Original"
     @State private var isSaving = false
     @State private var statusMessage: String?
+    @State private var errorMessage: String?
 
     private let cropPresets = ["original", "square_1_1", "portrait_4_5", "book_spread_8_10"]
+    private let filterPresets = ["Original", "Archival Warm", "Faded Print", "High Contrast B&W"]
 
     public init(mediaId: String) {
         self.mediaId = mediaId
@@ -415,6 +432,22 @@ public struct CoreImageEditorView: View {
     public var body: some View {
         NavigationStack {
             Form {
+                if let errorMessage {
+                    Section {
+                        Text(errorMessage)
+                            .font(.footnote)
+                            .foregroundStyle(MemoriaTheme.error)
+                    }
+                }
+
+                if let statusMessage {
+                    Section {
+                        Text(statusMessage)
+                            .font(.footnote)
+                            .foregroundStyle(MemoriaTheme.sageFunc)
+                    }
+                }
+
                 Section("Non-Destructive Archival Preview (IOS-28)") {
                     VStack(spacing: 12) {
                         RoundedRectangle(cornerRadius: 12)
@@ -422,7 +455,7 @@ public struct CoreImageEditorView: View {
                                 LinearGradient(
                                     colors: [
                                         Color(red: min(1.0, 0.94 + warmth * 0.04), green: 0.91, blue: max(0.75, 0.87 - warmth * 0.08)),
-                                        MemoriaTheme.plumLight,
+                                        filterPreset == "High Contrast B&W" ? Color.gray.opacity(0.35) : MemoriaTheme.plumLight,
                                     ],
                                     startPoint: .topLeading,
                                     endPoint: .bottomTrailing
@@ -432,10 +465,10 @@ public struct CoreImageEditorView: View {
                             .overlay {
                                 Image(systemName: "photo.artframe")
                                     .font(.system(size: 56))
-                                    .foregroundStyle(MemoriaTheme.plum)
+                                    .foregroundStyle(filterPreset == "High Contrast B&W" ? MemoriaTheme.ink : MemoriaTheme.plum)
                                     .rotationEffect(.degrees(Double(rotateDegrees)))
                             }
-                        Text("Original master SHA-256 preserved • Crop: \(cropPreset)")
+                        Text("Original master SHA-256 preserved • \(filterPreset) • Crop: \(cropPreset)")
                             .font(.caption)
                             .foregroundStyle(MemoriaTheme.textSecondary)
                     }
@@ -458,19 +491,30 @@ public struct CoreImageEditorView: View {
                             .tint(MemoriaTheme.warning)
                     }
 
+                    Picker("Filter Preset", selection: $filterPreset) {
+                        ForEach(filterPresets, id: \.self) { preset in
+                            Text(preset).tag(preset)
+                        }
+                    }
+                    .onChange(of: filterPreset) { _, next in
+                        if next == "Archival Warm" { warmth = 0.6 }
+                        else if next == "Faded Print" { warmth = 0.2 }
+                        else if next == "Original" { warmth = 0.0 }
+                    }
+
                     Picker("Aspect Preset", selection: $cropPreset) {
                         ForEach(cropPresets, id: \.self) { preset in
                             Text(preset).tag(preset)
                         }
                     }
-                }
 
-                if let statusMessage {
-                    Section {
-                        Text(statusMessage)
-                            .font(.footnote)
-                            .foregroundStyle(MemoriaTheme.sageFunc)
+                    Button("Reset Adjustments") {
+                        rotateDegrees = 0
+                        warmth = 0.0
+                        cropPreset = "original"
+                        filterPreset = "Original"
                     }
+                    .foregroundStyle(MemoriaTheme.textSecondary)
                 }
             }
             .scrollContentBackground(.hidden)
@@ -493,6 +537,16 @@ public struct CoreImageEditorView: View {
 
     private func saveEdits() async {
         isSaving = true
+        defer { isSaving = false }
+        errorMessage = nil
+        statusMessage = nil
+
+        let hasAuth = await MemoriaAPIClient.shared.getAuthToken() != nil
+        guard hasAuth else {
+            statusMessage = "Non-destructive derivative parameters saved locally."
+            return
+        }
+
         do {
             try await MemoriaAPIClient.shared.applyMediaNonDestructiveEdit(
                 mediaId: mediaId,
@@ -502,9 +556,8 @@ public struct CoreImageEditorView: View {
             )
             statusMessage = "Non-destructive derivative parameters saved."
         } catch {
-            statusMessage = "Preview updated locally: \(error.localizedDescription)"
+            errorMessage = error.localizedDescription
         }
-        isSaving = false
     }
 }
 
@@ -516,6 +569,7 @@ public struct MediaPlaybackView: View {
     public let memory: Memory
     @State private var isPlaying = false
     @State private var progress: Double = 0.0
+    @State private var playbackSpeed: Double = 1.0
     @State private var zoomScale: CGFloat = 1.0
     @State private var resolvedUrl: URL?
     @State private var ocrText: String?
@@ -524,8 +578,19 @@ public struct MediaPlaybackView: View {
     @State private var player: AVPlayer?
     #endif
 
+    private let speedOptions: [Double] = [0.75, 1.0, 1.25, 1.5]
+
     public init(memory: Memory) {
         self.memory = memory
+    }
+
+    private var transcriptSegments: [String] {
+        let source = (ocrText?.isEmpty == false ? ocrText : memory.content) ?? ""
+        let parts = source
+            .split(whereSeparator: { $0 == "." || $0 == "\n" })
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        return parts
     }
 
     public var body: some View {
@@ -535,13 +600,13 @@ public struct MediaPlaybackView: View {
                     ZStack {
                         RoundedRectangle(cornerRadius: MemoriaTheme.radiusLg)
                             .fill(MemoriaTheme.surfacePrimary)
-                            .frame(minHeight: 280)
+                            .frame(minHeight: 260)
                             .shadow(color: .black.opacity(0.06), radius: 10, y: 4)
 
                         #if canImport(AVKit)
                         if (memory.format == .video || memory.format == .audio), let player {
                             VideoPlayer(player: player)
-                                .frame(height: 280)
+                                .frame(height: 260)
                                 .clipShape(RoundedRectangle(cornerRadius: MemoriaTheme.radiusLg))
                         } else if let resolvedUrl, memory.format == .image {
                             AsyncImage(url: resolvedUrl) { phase in
@@ -551,7 +616,7 @@ public struct MediaPlaybackView: View {
                                         .resizable()
                                         .scaledToFit()
                                         .scaleEffect(zoomScale)
-                                        .frame(maxHeight: 280)
+                                        .frame(maxHeight: 260)
                                 default:
                                     fallbackSpecimen
                                 }
@@ -569,11 +634,37 @@ public struct MediaPlaybackView: View {
                         }
                     }
 
+                    if memory.format == .audio {
+                        HStack(spacing: 5) {
+                            ForEach(0..<18, id: \.self) { idx in
+                                let active = Double(idx) / 18.0 <= progress
+                                let factor = isPlaying
+                                    ? (0.35 + 0.65 * abs(sin(Double(idx) * 0.7 + progress * 12.0)))
+                                    : (0.25 + 0.3 * abs(sin(Double(idx) * 0.6)))
+                                RoundedRectangle(cornerRadius: 3)
+                                    .fill(active ? MemoriaTheme.plum : MemoriaTheme.sageLight)
+                                    .frame(width: 8, height: max(10, 48 * CGFloat(factor)))
+                            }
+                        }
+                        .frame(height: 52)
+                        .padding(.horizontal)
+                        .memoriaCard()
+                    }
+
                     if memory.format == .video || memory.format == .audio {
-                        VStack(spacing: 10) {
+                        VStack(spacing: 12) {
                             Slider(value: $progress, in: 0...1)
                                 .tint(MemoriaTheme.plum)
-                            HStack {
+                            HStack(spacing: 12) {
+                                Button {
+                                    progress = max(0, progress - 0.15)
+                                } label: {
+                                    Image(systemName: "gobackward.15")
+                                }
+                                .buttonStyle(.bordered)
+                                .tint(MemoriaTheme.ink)
+                                .accessibilityLabel("Skip back 15 seconds")
+
                                 Button {
                                     togglePlay()
                                 } label: {
@@ -581,24 +672,73 @@ public struct MediaPlaybackView: View {
                                 }
                                 .buttonStyle(.borderedProminent)
                                 .tint(MemoriaTheme.plum)
+
+                                Button {
+                                    progress = min(1, progress + 0.15)
+                                } label: {
+                                    Image(systemName: "goforward.15")
+                                }
+                                .buttonStyle(.bordered)
+                                .tint(MemoriaTheme.ink)
+                                .accessibilityLabel("Skip forward 15 seconds")
+
                                 Spacer()
+
+                                Menu {
+                                    ForEach(speedOptions, id: \.self) { speed in
+                                        Button("\(String(format: "%.2g", speed))x") {
+                                            playbackSpeed = speed
+                                            #if canImport(AVFoundation)
+                                            if isPlaying { player?.rate = Float(speed) }
+                                            #endif
+                                        }
+                                    }
+                                } label: {
+                                    Text("\(String(format: "%.2g", playbackSpeed))x")
+                                        .font(.caption.weight(.semibold))
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 5)
+                                        .background(MemoriaTheme.plumLight)
+                                        .foregroundStyle(MemoriaTheme.plum)
+                                        .clipShape(Capsule())
+                                }
+                                .accessibilityLabel("Playback speed")
+                            }
+                            HStack {
                                 Text("\(Int(progress * 100))% played")
                                     .font(.caption.monospacedDigit())
                                     .foregroundStyle(MemoriaTheme.textSecondary)
+                                Spacer()
                             }
                         }
                         .padding()
                         .memoriaCard()
                     }
 
-                    if let ocrText, !ocrText.isEmpty {
-                        VStack(alignment: .leading, spacing: 6) {
+                    if !transcriptSegments.isEmpty {
+                        VStack(alignment: .leading, spacing: 8) {
                             Text("Synchronized Transcript / OCR")
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(MemoriaTheme.plum)
-                            Text(ocrText)
-                                .font(.footnote)
-                                .foregroundStyle(MemoriaTheme.ink)
+                            ForEach(Array(transcriptSegments.enumerated()), id: \.offset) { idx, segment in
+                                let total = max(1, transcriptSegments.count)
+                                let segStart = Double(idx) / Double(total)
+                                let segEnd = Double(idx + 1) / Double(total)
+                                let isActive = progress >= segStart && progress <= segEnd
+                                Button {
+                                    progress = segStart
+                                } label: {
+                                    Text(segment)
+                                        .font(.footnote)
+                                        .foregroundStyle(isActive ? MemoriaTheme.plum : MemoriaTheme.ink)
+                                        .fontWeight(isActive ? .semibold : .regular)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .padding(6)
+                                        .background(isActive ? MemoriaTheme.plumLight.opacity(0.6) : Color.clear)
+                                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                                }
+                                .buttonStyle(.plain)
+                            }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding()

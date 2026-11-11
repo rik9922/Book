@@ -3,7 +3,7 @@
 **Official Product Name**: **Memoria**  
 **Official Product Tagline**: *Your memories, made timeless.*  
 **Document Version**: 2.0.0 (Production Master Reference)  
-**Generated Timestamp**: 2026-11-11T10:58:53.943Z  
+**Generated Timestamp**: 2026-11-11T11:35:26.145Z  
 **Total Canonical Screens**: **164 Screens** (82 Web/PWA, 56 Native iOS, 26 Admin Portal)  
 **Architectural Governance**: Sections 2 and 10 of the Memoria Master Engineering Directive  
 
@@ -9329,7 +9329,7 @@ This document establishes the exhaustive, binding single source of truth for all
 ### IOS-18 — Video Capture & Native Trim Preview
 
 **Category**: Native iOS — Capture & Uploads  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Record short family video clips (up to 10 minutes) and trim start/end points using UIVideoEditorController.
@@ -9421,7 +9421,7 @@ This document establishes the exhaustive, binding single source of truth for all
 ### IOS-19 — Native Voice Note Recorder & Live Waveform
 
 **Category**: Native iOS — Capture & Uploads  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Record high-quality oral history voice notes with AVAudioRecorder, live audio waveform rendering, and pause/resume.
@@ -10159,7 +10159,7 @@ This document establishes the exhaustive, binding single source of truth for all
 ### IOS-27 — Edit Memory Metadata Sheet
 
 **Category**: Native iOS — Browsing & Management  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Edit memory title, capture date/time, location, tagged profiles, and tags via native iOS sheet.
@@ -10259,7 +10259,7 @@ This document establishes the exhaustive, binding single source of truth for all
 ### IOS-28 — CoreImage-Powered Filter, Crop & Orientation Editor
 
 **Category**: Native iOS — Browsing & Management  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Rotate, crop, and adjust archival contrast/warmth non-destructively using Apple's CoreImage framework.
@@ -10351,7 +10351,7 @@ This document establishes the exhaustive, binding single source of truth for all
 ### IOS-29 — AVPlayer Native Video Playback View
 
 **Category**: Native iOS — Browsing & Management  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Watch recorded family video memories with native hardware-accelerated AVPlayer, scrubbing controls, and AirPlay streaming.
@@ -10443,7 +10443,7 @@ This document establishes the exhaustive, binding single source of truth for all
 ### IOS-30 — Audio Player with Synchronized Transcript View
 
 **Category**: Native iOS — Browsing & Management  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Listen to recorded elder voice notes or oral history audio with synchronized scrolling transcript.
@@ -10718,7 +10718,7 @@ This document establishes the exhaustive, binding single source of truth for all
 ### IOS-33 — Collection Detail & Memory Curator View
 
 **Category**: Native iOS — Browsing & Management  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: View all memories within a specific collection, reorder them, add new memories, or launch book creation from this collection.
@@ -10997,7 +10997,7 @@ Permanent deletion requires double confirmation modal: 'This cannot be undone. A
 ### IOS-36 — Profile Milestone Detail & Biographical Archive
 
 **Category**: Native iOS — Profiles & Collaboration  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: View an individual's complete biographical dossier, life milestones, tagged memories, and audio oral histories.
@@ -11088,7 +11088,7 @@ Permanent deletion requires double confirmation modal: 'This cannot be undone. A
 ### IOS-37 — Profile Creator & Editor Sheet
 
 **Category**: Native iOS — Profiles & Collaboration  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Create or edit a person profile with full name, relationship, birthdate, portrait photo, and biographical notes.
@@ -11567,7 +11567,7 @@ Demoting an Admin or removing a member prompts: 'Confirm permission change for [
 ### IOS-42 — Memory Comments & Emotional Reaction Sheet
 
 **Category**: Native iOS — Profiles & Collaboration  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Leave heartfelt comments, family voice reactions, and warm emotional reflections on an archival memory.
@@ -15566,8 +15566,8 @@ The following traceability matrix establishes the direct mapping between each sc
 | `IOS-15` | As an archivist, I want to tap the microphone and say 'Grandpa fishing 1972' to find matching photos instantly. | NativeSearchView, SearchFilterChips, ResultCard, VoiceDictationButton | GET /api/search | search-service | memories, media_assets | Events: search.executed | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `IOS-16` | As an archivist, I want to tap the big '+' button to immediately choose whether I am snapping a photo, recording a voice note, or writing a thought. | QuickCaptureSheet, CaptureOptionCard, Button | N/A N/A (Client workflow router) | iOS Client | None | None | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `IOS-17` | As an archivist, I want to take a crisp photo of grandmother's heirloom necklace or select 10 photos from my camera roll with lossless SHA-256 preservation. | CameraViewfinder, ShutterButton, PHPickerWrapper, Button | POST /api/media/upload-session | media-service | media_assets, memories | Events: media.photo_captured; Jobs: generate-derivatives | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
-| `IOS-18` | As an archivist, I want to record my children singing happy birthday to grandfather and trim out the first 2 seconds. | VideoCaptureView, VideoTrimScrubber, AVPlayerPreview, Button | POST /api/media/upload-session | media-service | media_assets, memories | Events: media.video_captured; Jobs: generate-video-poster | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
-| `IOS-19` | As an interviewer, I want to record grandfather telling war stories with live audio wave visualization on my iPhone and pause when he takes a sip of water. | VoiceRecorderView, AudioWaveformCanvas, RecordButton, Button | POST /api/media/upload-audio | media-service | media_assets, memories | Events: media.audio_recorded; Jobs: generate-audio-waveform, transcribe-audio | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
+| `IOS-18` | As an archivist, I want to record my children singing happy birthday to grandfather and trim out the first 2 seconds. | VideoCaptureView, VideoTrimScrubber, AVPlayerPreview, Button | POST /api/media/upload-session | media-service | media_assets, memories | Events: media.video_captured; Jobs: generate-video-poster | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
+| `IOS-19` | As an interviewer, I want to record grandfather telling war stories with live audio wave visualization on my iPhone and pause when he takes a sip of water. | VoiceRecorderView, AudioWaveformCanvas, RecordButton, Button | POST /api/media/upload-audio | media-service | media_assets, memories | Events: media.audio_recorded; Jobs: generate-audio-waveform, transcribe-audio | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `IOS-20` | As an archivist, I want to quickly jot down a funny quote my daughter said at breakfast before I forget it. | StoryComposerView, TextEditor, TagPersonPill, Button | POST /api/memories | memory-service | memories | Events: memory.created | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `IOS-21` | As an archivist uploading 30 photos over cellular, I want to see upload progress and know transfers continue in background even if I switch apps. | UploadQueueSheet, UploadTaskRow, ProgressBar, Button | N/A Native URLSession background delegate events | iOS Background URLSession | media_assets | Events: media.upload_progress_updated | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `IOS-22` | As an archivist traveling in rural areas without cellular service, I want to review my offline created memories and ensure they sync without data loss when I reach Wi-Fi. | OfflineQueueSheet, PendingMutationRow, ConflictCard, Button | POST /api/sync/batch | memory-service | memories, outbox_events | Events: ios.offline_sync_completed | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
@@ -15575,22 +15575,22 @@ The following traceability matrix establishes the direct mapping between each sc
 | `IOS-24` | As an archivist, I want to pinch the photo grid to zoom out to 5 columns for bird's-eye browsing or pinch in to 2 columns for large previews. | MediaGridView, GridThumbnailCell, DensityPicker, Button | GET /api/spaces/:spaceId/memories | memory-service | memories, media_assets | None | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `IOS-25` | As an archivist, I want to tap on June 18 in the calendar to see all memories from that date across different years. | CalendarHeatmapView, CalendarDayCell, DayMemoryList, Button | GET /api/memories/calendar | memory-service | memories | None | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `IOS-26` | As an archivist, I want to open a memory to see the high-res photo with parallax scroll, listen to grandmother's voice recording, and read family comments. | MemoryDetailView, ParallaxMediaHeader, AudioWaveformBar, StoryText (+1) | GET /api/memories/:memoryId | memory-service | memories, media_assets, memory_media | Events: ios.memory_viewed | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
-| `IOS-27` | As an archivist, I want to correct the capture date from 1974 to 1976 and tag my aunt in the memory. | EditMemorySheet, TextField, DatePicker, Button | PUT /api/memories/:memoryId | memory-service | memories | Events: memory.updated | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
-| `IOS-28` | As an archivist, I want to rotate a scanned photo 90 degrees and warm up faded colors without overwriting the master archival file. | CoreImageCanvas, CropHandles, AdjustmentSlider, Button | POST /api/media/:mediaId/derivatives | media-service | media_assets | Events: media.derivative_created | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
-| `IOS-29` | As a family member, I want to watch high-definition video memories with smooth scrubbing and AirPlay support on my iOS device. | AVPlayerCanvasView, VideoScrubberSlider, AirPlayPicker, PlaybackControlBar | GET /api/media/:mediaId/stream | media-service | media_assets | Events: media.streamed | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
-| `IOS-30` | As a grandchild, I want to listen to Grandma's voice note while watching the spoken words highlight in real time so I can follow every treasured detail. | AudioWaveformVisualizer, TranscriptScrollView, AudioPlaybackBar, SpeedSelectorMenu | GET /api/memories/:memoryId/audio-transcript | memory-service | memories, media_assets | Events: audio.played | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
+| `IOS-27` | As an archivist, I want to correct the capture date from 1974 to 1976 and tag my aunt in the memory. | EditMemorySheet, TextField, DatePicker, Button | PUT /api/memories/:memoryId | memory-service | memories | Events: memory.updated | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
+| `IOS-28` | As an archivist, I want to rotate a scanned photo 90 degrees and warm up faded colors without overwriting the master archival file. | CoreImageCanvas, CropHandles, AdjustmentSlider, Button | POST /api/media/:mediaId/derivatives | media-service | media_assets | Events: media.derivative_created | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
+| `IOS-29` | As a family member, I want to watch high-definition video memories with smooth scrubbing and AirPlay support on my iOS device. | AVPlayerCanvasView, VideoScrubberSlider, AirPlayPicker, PlaybackControlBar | GET /api/media/:mediaId/stream | media-service | media_assets | Events: media.streamed | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
+| `IOS-30` | As a grandchild, I want to listen to Grandma's voice note while watching the spoken words highlight in real time so I can follow every treasured detail. | AudioWaveformVisualizer, TranscriptScrollView, AudioPlaybackBar, SpeedSelectorMenu | GET /api/memories/:memoryId/audio-transcript | memory-service | memories, media_assets | Events: audio.played | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `IOS-31` | As a family curator, I want to quickly pull up all starred heirloom memories so I can select them for the annual print book. | MasonryGridView, MemoryCard, FavoriteToggleBadge, FilterChipBar (+1) | GET /api/spaces/:spaceId/memories | memory-service | memories | None | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `IOS-32` | As an archivist, I want to see our thematic memory collections in beautiful card albums so that our stories are structured logically. | CollectionGrid, CollectionCard, AlbumCoverCollage, SearchTextField (+1) | GET /api/spaces/:spaceId/collections | memory-service | memory_spaces, memories | None | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
-| `IOS-33` | As an archivist, I want to open our 'Grandpa's Letters' collection to read the letters in chronological order and add new scans. | ParallaxHeaderView, MemoryGridView, ReorderableList, FloatingActionBar (+1) | GET /api/spaces/:spaceId/collections/:collectionId | memory-service | memories | None | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
+| `IOS-33` | As an archivist, I want to open our 'Grandpa's Letters' collection to read the letters in chronological order and add new scans. | ParallaxHeaderView, MemoryGridView, ReorderableList, FloatingActionBar (+1) | GET /api/spaces/:spaceId/collections/:collectionId | memory-service | memories | None | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `IOS-34` | As a space admin or memory creator, I want to view deleted memories in the trash so that I can restore an accidentally removed photo before 30 days elapse. | TrashListView, TrashedMemoryCard, AlertModal, ToolbarActionBar (+1) | GET /api/spaces/:spaceId/trash | memory-service | memories, media_assets, outbox_events | Events: memory.restored, memory.purged; Jobs: purge-expired-trash | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `IOS-35` | As a family member, I want to tap on my grandfather's profile bubble to explore his life milestones, stories, and photographs. | AvatarBubbleCarousel, ProfileRowCell, SegmentedControl, SearchTextField (+1) | GET /api/spaces/:spaceId/profiles | memory-service | space_profiles | None | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
-| `IOS-36` | As a grandchild, I want to view my grandmother's profile to see all memories where she is tagged, sorted from her youth to present day. | ProfileHeroHeader, MilestoneTimelineView, MemoryThumbnailGrid, Button | GET /api/spaces/:spaceId/profiles/:profileId | memory-service | space_profiles, memories, memory_profiles | None | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
-| `IOS-37` | As a space contributor, I want to create a profile for my newborn daughter with her birth date and baby picture. | PhotosPicker, TextField, DatePicker, Toggle (+2) | POST /api/spaces/:spaceId/profiles | memory-service | space_profiles, outbox_events | Events: profile.created, profile.updated | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
+| `IOS-36` | As a grandchild, I want to view my grandmother's profile to see all memories where she is tagged, sorted from her youth to present day. | ProfileHeroHeader, MilestoneTimelineView, MemoryThumbnailGrid, Button | GET /api/spaces/:spaceId/profiles/:profileId | memory-service | space_profiles, memories, memory_profiles | None | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
+| `IOS-37` | As a space contributor, I want to create a profile for my newborn daughter with her birth date and baby picture. | PhotosPicker, TextField, DatePicker, Toggle (+2) | POST /api/spaces/:spaceId/profiles | memory-service | space_profiles, outbox_events | Events: profile.created, profile.updated | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `IOS-38` | As a space administrator, I want to see which family members have joined our space and verify that kids are set to Contributor role. | MembersListView, MemberRowCell, RolePillBadge, Button | GET /api/spaces/:spaceId/members | identity-service | space_members, users | None | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `IOS-39` | As an archivist, I want to tap 'Invite Family' and send an invitation link directly via iMessage or AirDrop to my sister. | QRCodeImageView, CopyLinkBox, UIActivityViewController, Menu (+1) | POST /api/spaces/:spaceId/invites | identity-service | space_invitations | Events: space.invite_created | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `IOS-40` | As a space administrator, I want to change Uncle Bob's role to Admin so he can help manage scanned letters and member invites. | RoleSelectionRow, Toggle, DestructiveButton, Button | PATCH /api/spaces/:spaceId/members/:userId | identity-service | space_members, outbox_events | Events: space.member_role_updated | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `IOS-41` | As a family member, I want to pull down to refresh the space activity stream to see what new stories Uncle Dave added today. | ActivityFeedView, ActivityRowCell, ThumbnailPreviewStrip, UIRefreshControl | GET /api/spaces/:spaceId/activity | memory-service | space_activity, users, memories | None | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
-| `IOS-42` | As an aunt, I want to comment on my nephew's baby photo and attach a 10-second voice note remembering that day. | ReactionBar, CommentsListView, CommentCell, CommentComposerBar (+1) | POST /api/memories/:memoryId/comments | memory-service | memory_comments, memory_reactions, outbox_events | Events: memory.comment_added, memory.reaction_added | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
+| `IOS-42` | As an aunt, I want to comment on my nephew's baby photo and attach a 10-second voice note remembering that day. | ReactionBar, CommentsListView, CommentCell, CommentComposerBar (+1) | POST /api/memories/:memoryId/comments | memory-service | memory_comments, memory_reactions, outbox_events | Events: memory.comment_added, memory.reaction_added | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `IOS-43` | As an archivist, I want to see our published volumes on an interactive 3D shelf, rotate them in 3D space, and tap to read. | RealityView, BookshelfSceneEntity, BookModel3D, BookDetailBanner (+1) | GET /api/spaces/:spaceId/books | book-service | books | None | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `IOS-44` | As an archivist, I want to inspect our 8x10 Hardcover volume to see its page count, chapters, and print readiness. | BookPreviewCard, SpecPillGroup, ChapterList, PrimaryActionButton (+1) | GET /api/books/:bookId | book-service | books, book_spreads | None | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `IOS-45` | As an archivist, I want a 3-step wizard on iOS to compile all 2024 memories into an annual family yearbook. | WizardStepBar, TextField, FormatSelectionCard, SegmentedPicker (+1) | POST /api/spaces/:spaceId/books | book-service | books, outbox_events | Events: book.created; Jobs: generate-auto-book-layout | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |

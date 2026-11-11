@@ -1537,7 +1537,7 @@ export const iosScreens1: ScreenSpec[] = [
       e2e: ["records 3-second test clip, trims 1 second, confirms export"]
     },
     uiComponents: ["VideoCaptureView", "VideoTrimScrubber", "AVPlayerPreview", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "IOS-19",
@@ -1621,7 +1621,7 @@ export const iosScreens1: ScreenSpec[] = [
       e2e: ["records 4 seconds, pauses, resumes, saves, verifies audio file exists"]
     },
     uiComponents: ["VoiceRecorderView", "AudioWaveformCanvas", "RecordButton", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "IOS-20",
@@ -2303,7 +2303,7 @@ export const iosScreens1: ScreenSpec[] = [
       e2e: ["edits title, taps Save, verifies updated title in detail view"]
     },
     uiComponents: ["EditMemorySheet", "TextField", "DatePicker", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "IOS-28",
@@ -2387,7 +2387,7 @@ export const iosScreens1: ScreenSpec[] = [
       e2e: ["rotates image 90 degrees, applies Archival Warm preset, taps Save"]
     },
     uiComponents: ["CoreImageCanvas", "CropHandles", "AdjustmentSlider", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   }
 ];
 

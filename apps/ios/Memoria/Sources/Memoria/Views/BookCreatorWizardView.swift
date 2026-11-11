@@ -5,17 +5,20 @@ import SwiftUI
 public struct BookCreatorWizardView: View {
     @Environment(\.dismiss) private var dismiss
 
+    public let initialSpaceId: String?
+    public let initialSelectedMemories: [Memory]
+    public let initialTitle: String?
     public var onBookCreated: ((BookVolumeRecord) -> Void)?
 
     @State private var step = 1
     @State private var spaces: [MemorySpace] = []
-    @State private var selectedSpaceId = "e8cf4fc3-137e-4397-883d-21cd6a7cb61f"
-    @State private var title = ""
+    @State private var selectedSpaceId: String
+    @State private var title: String
     @State private var subtitle = ""
     @State private var format = "hardcover_standard_8x10"
 
     @State private var availableMemories: [Memory] = []
-    @State private var selectedMemories: [Memory] = []
+    @State private var selectedMemories: [Memory]
 
     @State private var selectedTemplate = "editorial_classic"
     @State private var selectedLeather: BookLeatherSwatch = .plum
@@ -37,8 +40,19 @@ public struct BookCreatorWizardView: View {
         ("fine_art_spread", "Fine-Art Full Bleed"),
     ]
 
-    public init(onBookCreated: ((BookVolumeRecord) -> Void)? = nil) {
+    public init(
+        initialSpaceId: String? = nil,
+        initialSelectedMemories: [Memory] = [],
+        initialTitle: String? = nil,
+        onBookCreated: ((BookVolumeRecord) -> Void)? = nil
+    ) {
+        self.initialSpaceId = initialSpaceId
+        self.initialSelectedMemories = initialSelectedMemories
+        self.initialTitle = initialTitle
         self.onBookCreated = onBookCreated
+        self._selectedSpaceId = State(initialValue: initialSpaceId ?? "e8cf4fc3-137e-4397-883d-21cd6a7cb61f")
+        self._selectedMemories = State(initialValue: initialSelectedMemories)
+        self._title = State(initialValue: initialTitle ?? "")
     }
 
     public var body: some View {
@@ -272,7 +286,11 @@ public struct BookCreatorWizardView: View {
     private func loadSpacesAndMemories() async {
         if let fetchedSpaces = try? await MemoriaAPIClient.shared.fetchSpaces(), !fetchedSpaces.isEmpty {
             spaces = fetchedSpaces
-            selectedSpaceId = fetchedSpaces[0].id
+            if let initialSpaceId, fetchedSpaces.contains(where: { $0.id == initialSpaceId }) {
+                selectedSpaceId = initialSpaceId
+            } else if !fetchedSpaces.contains(where: { $0.id == selectedSpaceId }) {
+                selectedSpaceId = fetchedSpaces[0].id
+            }
         }
         await loadMemories(for: selectedSpaceId)
     }
@@ -280,19 +298,24 @@ public struct BookCreatorWizardView: View {
     private func loadMemories(for spaceId: String) async {
         isLoadingMemories = true
         defer { isLoadingMemories = false }
+        var loaded: [Memory] = []
         if let remote = try? await MemoriaAPIClient.shared.fetchMemories(spaceId: spaceId), !remote.isEmpty {
-            availableMemories = remote
-            return
+            loaded = remote
+        } else {
+            let local = LocalStorageService.shared.loadLocalMemories(forSpaceId: spaceId)
+            if !local.isEmpty {
+                loaded = local
+            } else {
+                loaded = [
+                    Memory(spaceId: spaceId, authorId: "local", title: "Prologue • Family Hearth", content: "Three generations gathered under the wisteria pergola."),
+                    Memory(spaceId: spaceId, authorId: "local", title: "Autumn Harvest in Sonoma", content: "Pressed Kodachrome reels and cider ledger notes."),
+                ]
+            }
         }
-        let local = LocalStorageService.shared.loadLocalMemories(forSpaceId: spaceId)
-        if !local.isEmpty {
-            availableMemories = local
-            return
+        for preselected in initialSelectedMemories where !loaded.contains(where: { $0.id == preselected.id }) {
+            loaded.insert(preselected, at: 0)
         }
-        availableMemories = [
-            Memory(spaceId: spaceId, authorId: "local", title: "Prologue • Family Hearth", content: "Three generations gathered under the wisteria pergola."),
-            Memory(spaceId: spaceId, authorId: "local", title: "Autumn Harvest in Sonoma", content: "Pressed Kodachrome reels and cider ledger notes."),
-        ]
+        availableMemories = loaded
     }
 
     private func createAndCurateBook() async {

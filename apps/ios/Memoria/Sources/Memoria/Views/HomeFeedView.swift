@@ -93,7 +93,11 @@ public struct HomeFeedView: View {
                             LazyVGrid(columns: gridColumns, spacing: 14) {
                                 ForEach(displayedMemories) { memory in
                                     NavigationLink {
-                                        MemoryDetailView(memory: memory)
+                                        MemoryDetailView(memory: memory) { updated in
+                                            if let idx = memories.firstIndex(where: { $0.id == updated.id }) {
+                                                memories[idx] = updated
+                                            }
+                                        }
                                     } label: {
                                         MemoryCardView(memory: memory, compact: columnDensity > 1)
                                     }
