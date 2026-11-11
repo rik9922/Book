@@ -27,10 +27,16 @@ import {
   PostgresMemoryRepository,
   PostgresCollaborationRepository,
   PostgresOutboxRepository,
+  PostgresCollectionRepository,
+  PostgresMemoryCommentRepository,
   SpaceRepository,
   MemoryRepository,
   CollaborationRepository,
   OutboxRepository,
+  CollectionRepository,
+  MemoryCommentRepository,
+  CollectionRecord,
+  MemoryCommentRecord,
 } from "@memory-capsule/database";
 
 const logger: Logger = createServiceLogger("memory-service");
@@ -51,6 +57,19 @@ class InMemorySpaceTestRepo implements SpaceRepository {
     const list = Array.from(this.spaces.values());
     return ownerId ? list.filter((s) => s.ownerId === ownerId) : list;
   }
+  async updateSpace(
+    id: string,
+    updates: Partial<Pick<MemorySpace, "name" | "description" | "type" | "coverUrl">>
+  ): Promise<MemorySpace | null> {
+    const existing = this.spaces.get(id);
+    if (!existing) return null;
+    const merged = { ...existing, ...updates, updatedAt: new Date().toISOString() };
+    this.spaces.set(id, merged);
+    return merged;
+  }
+  async softDeleteSpace(id: string): Promise<boolean> {
+    return this.spaces.delete(id);
+  }
   async createProfile(profile: SpaceProfile): Promise<SpaceProfile> {
     this.profiles.set(profile.id, profile);
     return profile;
@@ -61,17 +80,31 @@ class InMemorySpaceTestRepo implements SpaceRepository {
   async findProfileById(id: string): Promise<SpaceProfile | null> {
     return this.profiles.get(id) || null;
   }
+  async updateProfile(
+    id: string,
+    updates: Partial<Pick<SpaceProfile, "name" | "relationship" | "type" | "birthDate" | "avatarMediaId">>
+  ): Promise<SpaceProfile | null> {
+    const existing = this.profiles.get(id);
+    if (!existing) return null;
+    const merged = { ...existing, ...updates, updatedAt: new Date().toISOString() };
+    this.profiles.set(id, merged);
+    return merged;
+  }
+  async softDeleteProfile(id: string): Promise<boolean> {
+    return this.profiles.delete(id);
+  }
 }
 
 class InMemoryMemoryTestRepo implements MemoryRepository {
   private memories = new Map<string, Memory>();
+  private deletedMemories = new Map<string, Memory>();
 
   async createMemory(memory: Memory): Promise<Memory> {
     this.memories.set(memory.id, memory);
     return memory;
   }
-  async findMemoryById(id: string): Promise<Memory | null> {
-    return this.memories.get(id) || null;
+  async findMemoryById(id: string, includeDeleted = false): Promise<Memory | null> {
+    return this.memories.get(id) || (includeDeleted ? this.deletedMemories.get(id) || null : null);
   }
   async listMemories(
     spaceId: string,
@@ -85,6 +118,9 @@ class InMemoryMemoryTestRepo implements MemoryRepository {
       list = list.filter((m) => m.isFavorite === options.isFavorite);
     }
     return list;
+  }
+  async listDeletedMemories(spaceId: string): Promise<Memory[]> {
+    return Array.from(this.deletedMemories.values()).filter((m) => m.spaceId === spaceId);
   }
   async listMemoriesKeyset(spaceId: string, options?: any): Promise<any> {
     const list = await this.listMemories(spaceId, options);
@@ -112,7 +148,79 @@ class InMemoryMemoryTestRepo implements MemoryRepository {
     return merged;
   }
   async softDeleteMemory(id: string): Promise<boolean> {
-    return this.memories.delete(id);
+    const existing = this.memories.get(id);
+    if (!existing) return false;
+    this.memories.delete(id);
+    this.deletedMemories.set(id, existing);
+    return true;
+  }
+  async restoreMemory(id: string): Promise<Memory | null> {
+    const existing = this.deletedMemories.get(id);
+    if (!existing) return null;
+    this.deletedMemories.delete(id);
+    const restored = { ...existing, updatedAt: new Date().toISOString() };
+    this.memories.set(id, restored);
+    return restored;
+  }
+  async hardDeleteMemory(id: string): Promise<boolean> {
+    return this.deletedMemories.delete(id);
+  }
+}
+
+class InMemoryCollectionTestRepo implements CollectionRepository {
+  private collections = new Map<string, CollectionRecord>();
+  async createCollection(col: Omit<CollectionRecord, "createdAt" | "updatedAt" | "memoryIds">): Promise<CollectionRecord> {
+    const now = new Date().toISOString();
+    const record: CollectionRecord = { ...col, memoryIds: [], createdAt: now, updatedAt: now };
+    this.collections.set(col.id, record);
+    return record;
+  }
+  async listCollections(spaceId: string): Promise<CollectionRecord[]> {
+    return Array.from(this.collections.values()).filter((c) => c.spaceId === spaceId);
+  }
+  async findCollectionById(id: string): Promise<CollectionRecord | null> {
+    return this.collections.get(id) || null;
+  }
+  async updateCollection(id: string, updates: Partial<Pick<CollectionRecord, "title" | "description" | "coverMemoryId">>): Promise<CollectionRecord | null> {
+    const existing = this.collections.get(id);
+    if (!existing) return null;
+    const merged = { ...existing, ...updates, updatedAt: new Date().toISOString() };
+    this.collections.set(id, merged);
+    return merged;
+  }
+  async deleteCollection(id: string): Promise<boolean> {
+    return this.collections.delete(id);
+  }
+  async addMemory(collectionId: string, memoryId: string): Promise<void> {
+    const existing = this.collections.get(collectionId);
+    if (!existing) return;
+    const ids = new Set(existing.memoryIds || []);
+    ids.add(memoryId);
+    this.collections.set(collectionId, { ...existing, memoryIds: Array.from(ids), updatedAt: new Date().toISOString() });
+  }
+  async removeMemory(collectionId: string, memoryId: string): Promise<boolean> {
+    const existing = this.collections.get(collectionId);
+    if (!existing) return false;
+    const next = (existing.memoryIds || []).filter((id) => id !== memoryId);
+    this.collections.set(collectionId, { ...existing, memoryIds: next });
+    return true;
+  }
+}
+
+class InMemoryCommentTestRepo implements MemoryCommentRepository {
+  private comments = new Map<string, MemoryCommentRecord>();
+  async createComment(comment: Omit<MemoryCommentRecord, "createdAt">): Promise<MemoryCommentRecord> {
+    const record: MemoryCommentRecord = { ...comment, createdAt: new Date().toISOString() };
+    this.comments.set(comment.id, record);
+    return record;
+  }
+  async listComments(memoryId: string): Promise<MemoryCommentRecord[]> {
+    return Array.from(this.comments.values()).filter((c) => c.memoryId === memoryId);
+  }
+  async deleteComment(id: string, authorId: string): Promise<boolean> {
+    const existing = this.comments.get(id);
+    if (!existing || existing.authorId !== authorId) return false;
+    return this.comments.delete(id);
   }
 }
 
@@ -145,6 +253,14 @@ export async function buildMemoryService(): Promise<FastifyInstance> {
   const memoryRepo: MemoryRepository = dbUrl
     ? new PostgresMemoryRepository(db)
     : new InMemoryMemoryTestRepo();
+
+  const collectionRepo: CollectionRepository = dbUrl
+    ? new PostgresCollectionRepository(db)
+    : new InMemoryCollectionTestRepo();
+
+  const commentRepo: MemoryCommentRepository = dbUrl
+    ? new PostgresMemoryCommentRepository(db)
+    : new InMemoryCommentTestRepo();
 
   const collabDb: DatabaseClient | null = cfg.COLLAB_DATABASE_URL
     ? createDatabaseClient(cfg.COLLAB_DATABASE_URL)
@@ -189,7 +305,7 @@ export async function buildMemoryService(): Promise<FastifyInstance> {
 
   await app.register(cors, {
     origin: (origin, cb) => {
-      if (!origin || allowedOrigins.includes(origin) || origin.startsWith("http://localhost:")) {
+      if (!origin || allowedOrigins.includes(origin) || origin.startsWith("http://localhost:") || origin.startsWith("http://127.0.0.1:")) {
         cb(null, true);
         return;
       }
@@ -353,6 +469,53 @@ export async function buildMemoryService(): Promise<FastifyInstance> {
     }
   );
 
+  // Update Space Settings
+  const UpdateSpaceSchema = z.object({
+    name: z.string().min(1).max(200).optional(),
+    description: z.string().nullable().optional(),
+    type: z.enum(["personal", "family", "event", "journey"]).optional(),
+  });
+
+  app.patch(
+    "/api/v1/spaces/:spaceId",
+    async (req: FastifyRequest<{ Params: { spaceId: string } }>, reply) => {
+      const userId = await requireAuthUser(req);
+      const space = await spaceRepo.findSpaceById(req.params.spaceId);
+      if (!space) {
+        return reply.status(404).send(createErrorResponse("SPACE_NOT_FOUND", "Space does not exist"));
+      }
+      await assertSpaceAccess(space.id, userId, true);
+      const parseResult = UpdateSpaceSchema.safeParse(req.body);
+      if (!parseResult.success) {
+        return reply.status(400).send(createErrorResponse("VALIDATION_ERROR", "Invalid space update payload"));
+      }
+      const updated = spaceRepo.updateSpace
+        ? await spaceRepo.updateSpace(space.id, {
+            ...parseResult.data,
+            description: parseResult.data.description === null ? undefined : parseResult.data.description,
+          })
+        : space;
+      return reply.status(200).send(createSuccessResponse(updated));
+    }
+  );
+
+  // Soft-Delete / Archive Space (Owner only)
+  app.delete(
+    "/api/v1/spaces/:spaceId",
+    async (req: FastifyRequest<{ Params: { spaceId: string } }>, reply) => {
+      const userId = await requireAuthUser(req);
+      const space = await spaceRepo.findSpaceById(req.params.spaceId);
+      if (!space) {
+        return reply.status(404).send(createErrorResponse("SPACE_NOT_FOUND", "Space does not exist"));
+      }
+      if (space.ownerId !== userId) {
+        throw new ForbiddenError("Only the space owner can archive or delete a memory space");
+      }
+      const deleted = spaceRepo.softDeleteSpace ? await spaceRepo.softDeleteSpace(space.id) : false;
+      return reply.status(200).send(createSuccessResponse({ deleted, spaceId: space.id }));
+    }
+  );
+
   // 2. Create Profile inside Space
   const CreateProfileSchema = z.object({
     name: z.string().min(1),
@@ -413,6 +576,40 @@ export async function buildMemoryService(): Promise<FastifyInstance> {
       await assertSpaceAccess(space.id, userId, false);
       const list = await spaceRepo.listProfiles(req.params.spaceId);
       return reply.status(200).send(createSuccessResponse(list));
+    }
+  );
+
+  app.patch(
+    "/api/v1/spaces/:spaceId/profiles/:profileId",
+    async (req: FastifyRequest<{ Params: { spaceId: string; profileId: string } }>, reply) => {
+      const userId = await requireAuthUser(req);
+      await assertSpaceAccess(req.params.spaceId, userId, true);
+      const existing = await spaceRepo.findProfileById(req.params.profileId);
+      if (!existing || existing.spaceId !== req.params.spaceId) {
+        return reply.status(404).send(createErrorResponse("PROFILE_NOT_FOUND", "Profile not found"));
+      }
+      const parsed = CreateProfileSchema.partial().safeParse(req.body);
+      if (!parsed.success) {
+        return reply.status(400).send(createErrorResponse("VALIDATION_ERROR", "Invalid profile update payload"));
+      }
+      const updated = spaceRepo.updateProfile
+        ? await spaceRepo.updateProfile(existing.id, parsed.data)
+        : existing;
+      return reply.status(200).send(createSuccessResponse(updated));
+    }
+  );
+
+  app.delete(
+    "/api/v1/spaces/:spaceId/profiles/:profileId",
+    async (req: FastifyRequest<{ Params: { spaceId: string; profileId: string } }>, reply) => {
+      const userId = await requireAuthUser(req);
+      await assertSpaceAccess(req.params.spaceId, userId, true);
+      const existing = await spaceRepo.findProfileById(req.params.profileId);
+      if (!existing || existing.spaceId !== req.params.spaceId) {
+        return reply.status(404).send(createErrorResponse("PROFILE_NOT_FOUND", "Profile not found"));
+      }
+      const deleted = spaceRepo.softDeleteProfile ? await spaceRepo.softDeleteProfile(existing.id) : false;
+      return reply.status(200).send(createSuccessResponse({ deleted, profileId: existing.id }));
     }
   );
 
@@ -659,6 +856,240 @@ export async function buildMemoryService(): Promise<FastifyInstance> {
         });
       }
       return reply.status(200).send(createSuccessResponse({ deleted, memoryId: memory.id }));
+    }
+  );
+
+  // Trash & Recovery (PWA-48 / IOS-34)
+  app.get(
+    "/api/v1/spaces/:spaceId/memories/trash",
+    async (req: FastifyRequest<{ Params: { spaceId: string } }>, reply) => {
+      const userId = await requireAuthUser(req);
+      await assertSpaceAccess(req.params.spaceId, userId, false);
+      const items = memoryRepo.listDeletedMemories
+        ? await memoryRepo.listDeletedMemories(req.params.spaceId)
+        : [];
+      return reply.status(200).send(createSuccessResponse(items));
+    }
+  );
+
+  app.post(
+    "/api/v1/memories/:memoryId/restore",
+    async (req: FastifyRequest<{ Params: { memoryId: string } }>, reply) => {
+      const userId = await requireAuthUser(req);
+      const existing = await memoryRepo.findMemoryById(req.params.memoryId, true);
+      if (!existing) {
+        return reply.status(404).send(createErrorResponse("MEMORY_NOT_FOUND", "Deleted memory not found"));
+      }
+      await assertSpaceAccess(existing.spaceId, userId, true);
+      const restored = memoryRepo.restoreMemory ? await memoryRepo.restoreMemory(existing.id) : existing;
+      return reply.status(200).send(createSuccessResponse(restored));
+    }
+  );
+
+  app.delete(
+    "/api/v1/memories/:memoryId/permanent",
+    async (req: FastifyRequest<{ Params: { memoryId: string } }>, reply) => {
+      const userId = await requireAuthUser(req);
+      const existing = await memoryRepo.findMemoryById(req.params.memoryId, true);
+      if (!existing) {
+        return reply.status(404).send(createErrorResponse("MEMORY_NOT_FOUND", "Deleted memory not found"));
+      }
+      await assertSpaceAccess(existing.spaceId, userId, true);
+      const deleted = memoryRepo.hardDeleteMemory ? await memoryRepo.hardDeleteMemory(existing.id) : false;
+      return reply.status(200).send(createSuccessResponse({ permanentlyDeleted: deleted, memoryId: existing.id }));
+    }
+  );
+
+  // Curated Collections (PWA-29/30/31 & IOS-32/33)
+  const CreateCollectionSchema = z.object({
+    title: z.string().min(1).max(200),
+    description: z.string().optional().nullable(),
+    coverMemoryId: z.string().uuid().optional().nullable(),
+  });
+
+  app.post(
+    "/api/v1/spaces/:spaceId/collections",
+    async (req: FastifyRequest<{ Params: { spaceId: string } }>, reply) => {
+      const userId = await requireAuthUser(req);
+      await assertSpaceAccess(req.params.spaceId, userId, true);
+      const parsed = CreateCollectionSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return reply.status(400).send(createErrorResponse("VALIDATION_ERROR", "Invalid collection payload"));
+      }
+      const created = await collectionRepo.createCollection({
+        id: crypto.randomUUID(),
+        spaceId: req.params.spaceId,
+        title: parsed.data.title,
+        description: parsed.data.description || null,
+        coverMemoryId: parsed.data.coverMemoryId || null,
+      });
+      return reply.status(201).send(createSuccessResponse(created));
+    }
+  );
+
+  app.get(
+    "/api/v1/spaces/:spaceId/collections",
+    async (req: FastifyRequest<{ Params: { spaceId: string } }>, reply) => {
+      const userId = await requireAuthUser(req);
+      await assertSpaceAccess(req.params.spaceId, userId, false);
+      const list = await collectionRepo.listCollections(req.params.spaceId);
+      return reply.status(200).send(createSuccessResponse(list));
+    }
+  );
+
+  app.patch(
+    "/api/v1/spaces/:spaceId/collections/:collectionId",
+    async (req: FastifyRequest<{ Params: { spaceId: string; collectionId: string } }>, reply) => {
+      const userId = await requireAuthUser(req);
+      await assertSpaceAccess(req.params.spaceId, userId, true);
+      const col = await collectionRepo.findCollectionById(req.params.collectionId);
+      if (!col || col.spaceId !== req.params.spaceId) {
+        return reply.status(404).send(createErrorResponse("COLLECTION_NOT_FOUND", "Collection not found"));
+      }
+      const parsed = CreateCollectionSchema.partial().safeParse(req.body);
+      if (!parsed.success) {
+        return reply.status(400).send(createErrorResponse("VALIDATION_ERROR", "Invalid collection update"));
+      }
+      const updated = await collectionRepo.updateCollection(col.id, parsed.data);
+      return reply.status(200).send(createSuccessResponse(updated));
+    }
+  );
+
+  app.delete(
+    "/api/v1/spaces/:spaceId/collections/:collectionId",
+    async (req: FastifyRequest<{ Params: { spaceId: string; collectionId: string } }>, reply) => {
+      const userId = await requireAuthUser(req);
+      await assertSpaceAccess(req.params.spaceId, userId, true);
+      const col = await collectionRepo.findCollectionById(req.params.collectionId);
+      if (!col || col.spaceId !== req.params.spaceId) {
+        return reply.status(404).send(createErrorResponse("COLLECTION_NOT_FOUND", "Collection not found"));
+      }
+      const deleted = await collectionRepo.deleteCollection(col.id);
+      return reply.status(200).send(createSuccessResponse({ deleted, collectionId: col.id }));
+    }
+  );
+
+  app.post(
+    "/api/v1/spaces/:spaceId/collections/:collectionId/memories",
+    async (req: FastifyRequest<{ Params: { spaceId: string; collectionId: string } }>, reply) => {
+      const userId = await requireAuthUser(req);
+      await assertSpaceAccess(req.params.spaceId, userId, true);
+      const col = await collectionRepo.findCollectionById(req.params.collectionId);
+      if (!col || col.spaceId !== req.params.spaceId) {
+        return reply.status(404).send(createErrorResponse("COLLECTION_NOT_FOUND", "Collection not found"));
+      }
+      const body = (req.body as { memoryId?: string; sortOrder?: number }) || {};
+      if (!body.memoryId) {
+        return reply.status(400).send(createErrorResponse("VALIDATION_ERROR", "memoryId is required"));
+      }
+      const mem = await memoryRepo.findMemoryById(body.memoryId);
+      if (!mem || mem.spaceId !== req.params.spaceId) {
+        return reply.status(404).send(createErrorResponse("MEMORY_NOT_FOUND", "Memory not found in space"));
+      }
+      await collectionRepo.addMemory(col.id, mem.id, body.sortOrder ?? 0);
+      const updated = await collectionRepo.findCollectionById(col.id);
+      return reply.status(200).send(createSuccessResponse(updated));
+    }
+  );
+
+  app.delete(
+    "/api/v1/spaces/:spaceId/collections/:collectionId/memories/:memoryId",
+    async (
+      req: FastifyRequest<{ Params: { spaceId: string; collectionId: string; memoryId: string } }>,
+      reply
+    ) => {
+      const userId = await requireAuthUser(req);
+      await assertSpaceAccess(req.params.spaceId, userId, true);
+      const removed = await collectionRepo.removeMemory(req.params.collectionId, req.params.memoryId);
+      return reply.status(200).send(createSuccessResponse({ removed }));
+    }
+  );
+
+  // Memory Discussion Comments & Annotations (PWA-55 / IOS-42)
+  app.get(
+    "/api/v1/memories/:memoryId/comments",
+    async (req: FastifyRequest<{ Params: { memoryId: string } }>, reply) => {
+      const userId = await requireAuthUser(req);
+      const mem = await memoryRepo.findMemoryById(req.params.memoryId);
+      if (!mem) {
+        return reply.status(404).send(createErrorResponse("MEMORY_NOT_FOUND", "Memory not found"));
+      }
+      await assertSpaceAccess(mem.spaceId, userId, false);
+      const comments = await commentRepo.listComments(mem.id);
+      return reply.status(200).send(createSuccessResponse(comments));
+    }
+  );
+
+  app.post(
+    "/api/v1/memories/:memoryId/comments",
+    async (req: FastifyRequest<{ Params: { memoryId: string } }>, reply) => {
+      const userId = await requireAuthUser(req);
+      const mem = await memoryRepo.findMemoryById(req.params.memoryId);
+      if (!mem) {
+        return reply.status(404).send(createErrorResponse("MEMORY_NOT_FOUND", "Memory not found"));
+      }
+      await assertSpaceAccess(mem.spaceId, userId, false);
+      const body = (req.body as { body?: string; authorName?: string }) || {};
+      const text = body.body?.trim();
+      if (!text) {
+        return reply.status(400).send(createErrorResponse("VALIDATION_ERROR", "Comment body is required"));
+      }
+      const created = await commentRepo.createComment({
+        id: crypto.randomUUID(),
+        memoryId: mem.id,
+        spaceId: mem.spaceId,
+        authorId: userId,
+        authorName: body.authorName?.trim() || "Family Member",
+        body: text,
+      });
+      await publishDomainEvent("memory.comment.created", "memory.comment.created", created.id, {
+        memoryId: mem.id,
+        spaceId: mem.spaceId,
+        authorId: userId,
+      });
+      return reply.status(201).send(createSuccessResponse(created));
+    }
+  );
+
+  app.delete(
+    "/api/v1/memories/:memoryId/comments/:commentId",
+    async (req: FastifyRequest<{ Params: { memoryId: string; commentId: string } }>, reply) => {
+      const userId = await requireAuthUser(req);
+      const mem = await memoryRepo.findMemoryById(req.params.memoryId);
+      if (!mem) {
+        return reply.status(404).send(createErrorResponse("MEMORY_NOT_FOUND", "Memory not found"));
+      }
+      await assertSpaceAccess(mem.spaceId, userId, false);
+      const deleted = await commentRepo.deleteComment(req.params.commentId, userId);
+      return reply.status(200).send(createSuccessResponse({ deleted }));
+    }
+  );
+
+  // Full Space Archive Export Bundle (PWA-81 / IOS-55)
+  app.get(
+    "/api/v1/spaces/:spaceId/export",
+    async (req: FastifyRequest<{ Params: { spaceId: string } }>, reply) => {
+      const userId = await requireAuthUser(req);
+      const space = await spaceRepo.findSpaceById(req.params.spaceId);
+      if (!space) {
+        return reply.status(404).send(createErrorResponse("SPACE_NOT_FOUND", "Space does not exist"));
+      }
+      await assertSpaceAccess(space.id, userId, false);
+      const [profiles, memories, collections] = await Promise.all([
+        spaceRepo.listProfiles(space.id),
+        memoryRepo.listMemories(space.id),
+        collectionRepo.listCollections(space.id),
+      ]);
+      const payload = {
+        schemaVersion: "memoria-export-v1",
+        exportedAt: new Date().toISOString(),
+        space,
+        profiles,
+        collections,
+        memories,
+      };
+      const sha256 = crypto.createHash("sha256").update(JSON.stringify(payload)).digest("hex");
+      return reply.status(200).send(createSuccessResponse({ ...payload, integritySha256: sha256 }));
     }
   );
 

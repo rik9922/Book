@@ -49,7 +49,7 @@ import {
 } from "@memory-capsule/contracts/book-3d";
 import { CanvasErrorBoundary } from "./CanvasErrorBoundary";
 import { AccessibleSpreadReader } from "./AccessibleSpreadReader";
-import { getStoredSession } from "@/lib/api";
+import { getApiBaseUrl, getStoredSession } from "@/lib/api";
 
 const GLB_MODEL_URL = `/models/memoria_heirloom_book.glb?v=${CANONICAL_BOOK_3D_MANIFEST.version}`;
 
@@ -856,7 +856,7 @@ export default function ExperienceCanvas({
 
   useEffect(() => {
     if (typeof window === "undefined" || !bookId) return;
-    const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:4000/api/v1";
+    const apiBase = getApiBaseUrl();
     const controller = new AbortController();
     const { accessToken } = getStoredSession();
     const headers: Record<string, string> = {};

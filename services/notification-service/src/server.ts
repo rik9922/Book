@@ -157,12 +157,19 @@ export async function buildNotificationService(): Promise<FastifyInstance> {
   });
 
   app.post("/api/v1/notifications", async (req: FastifyRequest, reply: FastifyReply) => {
-    await requireAuthUser(req);
+    const internalKey = req.headers["x-internal-service-key"] as string | undefined;
+    const isInternalCall = Boolean(internalKey && internalKey === cfg.INTERNAL_SERVICE_KEY);
+    const actorId = isInternalCall ? null : await requireAuthUser(req);
     const parseResult = CreateNotificationSchema.safeParse(req.body);
     if (!parseResult.success) {
       return reply
         .status(400)
         .send(createErrorResponse("VALIDATION_ERROR", "Invalid notification payload"));
+    }
+    if (!isInternalCall && actorId !== parseResult.data.userId) {
+      return reply
+        .status(403)
+        .send(createErrorResponse("FORBIDDEN", "Cannot dispatch notifications for another user"));
     }
     const created = await notificationRepo.createNotification({
       id: crypto.randomUUID(),

@@ -231,7 +231,7 @@ export async function buildMediaService(): Promise<FastifyInstance> {
 
   await app.register(cors, {
     origin: (origin, cb) => {
-      if (!origin || allowedOrigins.includes(origin) || origin.startsWith("http://localhost:")) {
+      if (!origin || allowedOrigins.includes(origin) || origin.startsWith("http://localhost:") || origin.startsWith("http://127.0.0.1:")) {
         cb(null, true);
         return;
       }

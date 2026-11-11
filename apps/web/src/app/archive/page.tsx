@@ -15,9 +15,13 @@ import {
 } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import {
+  addMemoryComment,
   apiRequest,
+  deleteMemoryComment,
   enqueueOfflineMutation,
   getStoredSession,
+  listMemoryComments,
+  MemoryCommentDTO,
   MemoryDTO,
   MemorySpaceDTO,
   uploadFileToMediaService,
@@ -49,6 +53,8 @@ export default function ArchivePage() {
 
   // Accessible Modal Detail state
   const [activeMemory, setActiveMemory] = useState<MemoryDTO | null>(null);
+  const [comments, setComments] = useState<MemoryCommentDTO[]>([]);
+  const [commentBody, setCommentBody] = useState("");
   const lastTriggerRef = useRef<HTMLButtonElement | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const modalDialogRef = useRef<HTMLDivElement | null>(null);
@@ -97,7 +103,13 @@ export default function ArchivePage() {
 
   // Modal Escape key, Tab focus trap & inert background (WCAG 2.2 AA)
   useEffect(() => {
-    if (!activeMemory) return;
+    if (!activeMemory) {
+      setComments([]);
+      return;
+    }
+    listMemoryComments(activeMemory.id)
+      .then((list) => setComments(list))
+      .catch(() => setComments([]));
     const surface = archiveSurfaceRef.current;
     surface?.setAttribute("inert", "");
     closeButtonRef.current?.focus();
@@ -247,9 +259,37 @@ export default function ArchivePage() {
       await apiRequest(`/memories/${mem.id}`, { method: "DELETE" });
       setMemories((prev) => prev.filter((m) => m.id !== mem.id));
       setActiveMemory(null);
+      setNotice("Moved memory to Trash (recoverable for 30 days at /trash).");
       lastTriggerRef.current?.focus();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to delete memory.");
+    }
+  };
+
+  const handleAddComment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeMemory || !commentBody.trim()) return;
+    try {
+      const user = getStoredSession().user;
+      const created = await addMemoryComment(
+        activeMemory.id,
+        commentBody.trim(),
+        user?.fullName || "Family Member"
+      );
+      setComments((prev) => [...prev, created]);
+      setCommentBody("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to post annotation.");
+    }
+  };
+
+  const handleDeleteComment = async (commentId: string) => {
+    if (!activeMemory) return;
+    try {
+      await deleteMemoryComment(activeMemory.id, commentId);
+      setComments((prev) => prev.filter((c) => c.id !== commentId));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to delete annotation.");
     }
   };
 
@@ -665,6 +705,54 @@ export default function ArchivePage() {
                 ))}
               </div>
             )}
+
+            <div className="pt-4 border-t border-[#F0ECE1] space-y-2.5">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-[#76556F]">
+                Family Reflections &amp; Annotations ({comments.length})
+              </h3>
+              {comments.length > 0 && (
+                <ul className="space-y-1.5 max-h-32 overflow-y-auto">
+                  {comments.map((c) => (
+                    <li
+                      key={c.id}
+                      className="p-2.5 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] flex items-start justify-between gap-2 text-xs"
+                    >
+                      <div>
+                        <span className="font-semibold text-[#20242C]">{c.authorName}: </span>
+                        <span className="text-[#5C5955]">{c.body}</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteComment(c.id)}
+                        aria-label="Delete comment"
+                        className="text-[11px] text-[#B6423E] hover:underline shrink-0"
+                      >
+                        Remove
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <form onSubmit={handleAddComment} className="flex gap-2">
+                <label htmlFor="memory-comment-input" className="sr-only">
+                  Add family annotation
+                </label>
+                <input
+                  id="memory-comment-input"
+                  type="text"
+                  value={commentBody}
+                  onChange={(e) => setCommentBody(e.target.value)}
+                  placeholder="Add a family reflection..."
+                  className="flex-1 px-3 py-1.5 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] text-xs"
+                />
+                <button
+                  type="submit"
+                  className="px-3 py-1.5 rounded-xl bg-[#76556F] text-white text-xs font-medium"
+                >
+                  Post
+                </button>
+              </form>
+            </div>
 
             <div className="flex items-center justify-between pt-4 border-t border-[#E7E2DA]">
               <button

@@ -2,6 +2,8 @@ import SwiftUI
 
 public struct MemoryDetailView: View {
     public let memory: Memory
+    @State private var comments: [MemoryCommentDTO] = []
+    @State private var newComment = ""
 
     public init(memory: Memory) {
         self.memory = memory
@@ -87,6 +89,40 @@ public struct MemoryDetailView: View {
                         }
                     }
                 }
+
+                Divider()
+
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Family Reflections (\(comments.count))")
+                        .font(.headline)
+                        .foregroundStyle(MemoriaTheme.ink)
+
+                    ForEach(comments) { comment in
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(comment.authorName)
+                                .font(.caption.bold())
+                                .foregroundStyle(MemoriaTheme.plum)
+                            Text(comment.body)
+                                .font(.subheadline)
+                                .foregroundStyle(MemoriaTheme.textPrimary)
+                        }
+                        .padding(10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(MemoriaTheme.surfacePrimary)
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                    }
+
+                    HStack {
+                        TextField("Add a reflection...", text: $newComment)
+                            .textFieldStyle(.roundedBorder)
+                        Button("Post") {
+                            Task { await postComment() }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(MemoriaTheme.plum)
+                        .disabled(newComment.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                }
             }
             .padding()
         }
@@ -95,5 +131,19 @@ public struct MemoryDetailView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
+        .task {
+            if let fetched = try? await MemoriaAPIClient.shared.fetchComments(memoryId: memory.id) {
+                comments = fetched
+            }
+        }
+    }
+
+    private func postComment() async {
+        let trimmed = newComment.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        if let created = try? await MemoriaAPIClient.shared.addComment(memoryId: memory.id, body: trimmed) {
+            comments.append(created)
+            newComment = ""
+        }
     }
 }

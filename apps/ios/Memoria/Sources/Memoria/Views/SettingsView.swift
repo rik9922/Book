@@ -7,6 +7,7 @@ public struct SettingsView: View {
     @State private var cameraStatus = "Checking..."
     @State private var microphoneStatus = "Checking..."
     @State private var cacheCleared = false
+    @State private var showOnboarding = false
 
     public init() {}
 
@@ -54,6 +55,11 @@ public struct SettingsView: View {
                 }
 
                 Section("Application Identity") {
+                    Button("Run Guided Archive Onboarding") {
+                        showOnboarding = true
+                    }
+                    .foregroundStyle(MemoriaTheme.plum)
+
                     HStack {
                         Text("Product Name")
                             .foregroundStyle(MemoriaTheme.textPrimary)
@@ -95,6 +101,9 @@ public struct SettingsView: View {
                 #endif
             }
             .navigationTitle("Settings")
+            .sheet(isPresented: $showOnboarding) {
+                OnboardingFlowView()
+            }
             .task {
                 checkPermissions()
             }

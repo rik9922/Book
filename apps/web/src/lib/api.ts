@@ -3,6 +3,20 @@
 export const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:4000/api/v1";
 
+export function getApiBaseUrl(): string {
+  if (typeof window !== "undefined") {
+    const override = (window as Window & { __MEMORIA_API_URL__?: string }).__MEMORIA_API_URL__;
+    if (override) return override;
+    try {
+      const stored = localStorage.getItem("memoria_api_url_override");
+      if (stored) return stored;
+    } catch {
+      return API_BASE_URL;
+    }
+  }
+  return API_BASE_URL;
+}
+
 const TOKEN_STORAGE_KEY = "memoria_web_access_token";
 const REFRESH_STORAGE_KEY = "memoria_web_refresh_token";
 const USER_STORAGE_KEY = "memoria_web_user";
@@ -77,6 +91,8 @@ export interface PrintOrderDTO {
   status: string;
   totalCents: number;
   currency: string;
+  shippingAddress?: Record<string, any>;
+  printSpec?: Record<string, any>;
   createdAt: string;
 }
 
@@ -89,6 +105,133 @@ export interface NotificationDTO {
   body: string;
   isRead: boolean;
   createdAt: string;
+}
+
+export interface CollectionDTO {
+  id: string;
+  spaceId: string;
+  title: string;
+  description?: string | null;
+  coverMemoryId?: string | null;
+  memoryIds?: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MemoryCommentDTO {
+  id: string;
+  memoryId: string;
+  spaceId: string;
+  authorId: string;
+  authorName: string;
+  body: string;
+  createdAt: string;
+}
+
+export interface PreflightReportDTO {
+  bookId: string;
+  version: number;
+  isFrozenForPrint: boolean;
+  frozenEditionHash?: string | null;
+  passed: boolean;
+  checks: Array<{
+    id: string;
+    label: string;
+    passed: boolean;
+    detail: string;
+  }>;
+  checkedAt: string;
+}
+
+export interface ActiveSessionDTO {
+  id: string;
+  userAgent: string;
+  ipAddress: string;
+  expiresAt: string;
+  createdAt: string;
+}
+
+export interface SpaceQuotaDTO {
+  spaceId: string;
+  usedBytes: number;
+  maxBytes: number;
+  usedPercentage: number;
+  isWarningThreshold: boolean;
+  isQuotaExceeded: boolean;
+}
+
+export interface SpaceMemberDTO {
+  id: string;
+  spaceId: string;
+  userId: string;
+  role: "owner" | "admin" | "contributor" | "viewer";
+  permissions?: Record<string, boolean>;
+  joinedAt: string;
+}
+
+export interface SpaceInvitationDTO {
+  id: string;
+  spaceId: string;
+  inviteeEmail: string;
+  role: string;
+  status: string;
+  expiresAt: string;
+  createdAt: string;
+}
+
+export interface PrintCatalogDTO {
+  currency: string;
+  pricingPolicy: string;
+  formats: Array<{
+    id: BookDTO["format"];
+    label: string;
+    dimensionsCm: string;
+    baseCents: number;
+  }>;
+  bindings: Array<{
+    id: "hardcover_linen" | "french_morocco";
+    label: string;
+    surchargeCents: number;
+  }>;
+  paperStocks: Array<{
+    id: "140gsm_matte" | "170gsm_lustre";
+    label: string;
+    surchargeCents: number;
+  }>;
+}
+
+export interface OrderQuoteDTO {
+  currency: string;
+  quantity: number;
+  unitCents: number;
+  subtotalCents: number;
+  shippingCents: number;
+  taxCents: number;
+  totalCents: number;
+  estimatedDays: string;
+}
+
+export interface OrderReceiptDTO {
+  receiptNumber: string;
+  orderId: string;
+  bookId: string;
+  status: string;
+  currency: string;
+  totalCents: number;
+  shippingAddress: Record<string, any>;
+  printSpec: Record<string, any>;
+  issuedAt: string;
+  policyNote: string;
+}
+
+export interface SpaceExportBundleDTO {
+  schemaVersion: string;
+  exportedAt: string;
+  space: MemorySpaceDTO;
+  profiles: SpaceProfileDTO[];
+  collections: CollectionDTO[];
+  memories: MemoryDTO[];
+  integritySha256: string;
 }
 
 export interface OfflineMutationItem {
@@ -176,7 +319,7 @@ async function refreshAccessToken(): Promise<string | null> {
 
   refreshPromise = (async () => {
     try {
-      const res = await fetch(`${API_BASE_URL}/auth/refresh`, {
+      const res = await fetch(`${getApiBaseUrl()}/auth/refresh`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ refreshToken }),
@@ -209,7 +352,7 @@ async function refreshAccessToken(): Promise<string | null> {
 export async function logoutCurrentSession(): Promise<void> {
   const { refreshToken } = getStoredSession();
   if (refreshToken) {
-    await fetch(`${API_BASE_URL}/auth/logout`, {
+    await fetch(`${getApiBaseUrl()}/auth/logout`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ refreshToken }),
@@ -232,7 +375,7 @@ export async function apiRequest<T>(
     headers.set("Authorization", `Bearer ${accessToken}`);
   }
 
-  const res = await fetch(`${API_BASE_URL}${path}`, {
+  const res = await fetch(`${getApiBaseUrl()}${path}`, {
     ...options,
     headers,
   });
@@ -316,4 +459,234 @@ export async function uploadFileToMediaService(
   });
 
   return { mediaId: session.mediaId };
+}
+
+export async function fetchSpaces(): Promise<MemorySpaceDTO[]> {
+  const res = await apiRequest<{ spaces?: MemorySpaceDTO[]; items?: MemorySpaceDTO[] } | MemorySpaceDTO[]>(
+    "/spaces"
+  );
+  return Array.isArray(res) ? res : res.spaces || res.items || [];
+}
+
+export async function createSpace(payload: {
+  name: string;
+  description?: string;
+  type: MemorySpaceDTO["type"];
+}): Promise<MemorySpaceDTO> {
+  return apiRequest<MemorySpaceDTO>("/spaces", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateSpace(
+  spaceId: string,
+  payload: Partial<Pick<MemorySpaceDTO, "name" | "description" | "type">>
+): Promise<MemorySpaceDTO> {
+  return apiRequest<MemorySpaceDTO>(`/spaces/${spaceId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteSpace(spaceId: string): Promise<{ deleted: boolean }> {
+  return apiRequest<{ deleted: boolean }>(`/spaces/${spaceId}`, {
+    method: "DELETE",
+  });
+}
+
+export async function listProfiles(spaceId: string): Promise<SpaceProfileDTO[]> {
+  const res = await apiRequest<{ profiles?: SpaceProfileDTO[]; items?: SpaceProfileDTO[] } | SpaceProfileDTO[]>(
+    `/spaces/${spaceId}/profiles`
+  );
+  return Array.isArray(res) ? res : res.profiles || res.items || [];
+}
+
+export async function createProfile(
+  spaceId: string,
+  payload: { name: string; type: SpaceProfileDTO["type"]; relationship?: string; birthDate?: string }
+): Promise<SpaceProfileDTO> {
+  return apiRequest<SpaceProfileDTO>(`/spaces/${spaceId}/profiles`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateProfile(
+  spaceId: string,
+  profileId: string,
+  payload: Partial<{ name: string; type: SpaceProfileDTO["type"]; relationship?: string; birthDate?: string }>
+): Promise<SpaceProfileDTO> {
+  return apiRequest<SpaceProfileDTO>(`/spaces/${spaceId}/profiles/${profileId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteProfile(spaceId: string, profileId: string): Promise<{ deleted: boolean }> {
+  return apiRequest<{ deleted: boolean }>(`/spaces/${spaceId}/profiles/${profileId}`, {
+    method: "DELETE",
+  });
+}
+
+export async function listCollections(spaceId: string): Promise<CollectionDTO[]> {
+  const res = await apiRequest<CollectionDTO[] | { items?: CollectionDTO[] }>(`/spaces/${spaceId}/collections`);
+  return Array.isArray(res) ? res : res.items || [];
+}
+
+export async function createCollection(
+  spaceId: string,
+  payload: { title: string; description?: string; coverMemoryId?: string }
+): Promise<CollectionDTO> {
+  return apiRequest<CollectionDTO>(`/spaces/${spaceId}/collections`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateCollection(
+  spaceId: string,
+  collectionId: string,
+  payload: Partial<{ title: string; description: string; coverMemoryId: string }>
+): Promise<CollectionDTO> {
+  return apiRequest<CollectionDTO>(`/spaces/${spaceId}/collections/${collectionId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteCollection(spaceId: string, collectionId: string): Promise<{ deleted: boolean }> {
+  return apiRequest<{ deleted: boolean }>(`/spaces/${spaceId}/collections/${collectionId}`, {
+    method: "DELETE",
+  });
+}
+
+export async function addMemoryToCollection(
+  spaceId: string,
+  collectionId: string,
+  memoryId: string
+): Promise<CollectionDTO> {
+  return apiRequest<CollectionDTO>(`/spaces/${spaceId}/collections/${collectionId}/memories`, {
+    method: "POST",
+    body: JSON.stringify({ memoryId }),
+  });
+}
+
+export async function removeMemoryFromCollection(
+  spaceId: string,
+  collectionId: string,
+  memoryId: string
+): Promise<{ removed: boolean }> {
+  return apiRequest<{ removed: boolean }>(`/spaces/${spaceId}/collections/${collectionId}/memories/${memoryId}`, {
+    method: "DELETE",
+  });
+}
+
+export async function listTrashMemories(spaceId: string): Promise<MemoryDTO[]> {
+  const res = await apiRequest<MemoryDTO[] | { items?: MemoryDTO[] }>(`/spaces/${spaceId}/memories/trash`);
+  return Array.isArray(res) ? res : res.items || [];
+}
+
+export async function restoreMemory(memoryId: string): Promise<MemoryDTO> {
+  return apiRequest<MemoryDTO>(`/memories/${memoryId}/restore`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
+export async function permanentlyDeleteMemory(memoryId: string): Promise<{ permanentlyDeleted: boolean }> {
+  return apiRequest<{ permanentlyDeleted: boolean }>(`/memories/${memoryId}/permanent`, {
+    method: "DELETE",
+  });
+}
+
+export async function listMemoryComments(memoryId: string): Promise<MemoryCommentDTO[]> {
+  return apiRequest<MemoryCommentDTO[]>(`/memories/${memoryId}/comments`);
+}
+
+export async function addMemoryComment(
+  memoryId: string,
+  body: string,
+  authorName?: string
+): Promise<MemoryCommentDTO> {
+  return apiRequest<MemoryCommentDTO>(`/memories/${memoryId}/comments`, {
+    method: "POST",
+    body: JSON.stringify({ body, authorName }),
+  });
+}
+
+export async function deleteMemoryComment(memoryId: string, commentId: string): Promise<{ deleted: boolean }> {
+  return apiRequest<{ deleted: boolean }>(`/memories/${memoryId}/comments/${commentId}`, {
+    method: "DELETE",
+  });
+}
+
+export async function listNotifications(): Promise<NotificationDTO[]> {
+  const res = await apiRequest<{ notifications?: NotificationDTO[]; items?: NotificationDTO[] } | NotificationDTO[]>(
+    "/notifications"
+  );
+  return Array.isArray(res) ? res : res.notifications || res.items || [];
+}
+
+export async function markNotificationRead(id: string): Promise<void> {
+  await apiRequest(`/notifications/${id}/read`, { method: "POST", body: JSON.stringify({}) });
+}
+
+export async function markAllNotificationsRead(): Promise<void> {
+  await apiRequest("/notifications/read-all", { method: "POST", body: JSON.stringify({}) });
+}
+
+export async function getBookCatalog(): Promise<PrintCatalogDTO> {
+  return apiRequest<PrintCatalogDTO>("/books/catalog");
+}
+
+export async function getOrderQuote(payload: {
+  format: string;
+  binding: string;
+  paperWeight: string;
+  quantity: number;
+  country: string;
+}): Promise<OrderQuoteDTO> {
+  return apiRequest<OrderQuoteDTO>("/orders/quote", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function listMyOrders(): Promise<PrintOrderDTO[]> {
+  return apiRequest<PrintOrderDTO[]>("/orders/me");
+}
+
+export async function getOrderReceipt(orderId: string): Promise<OrderReceiptDTO> {
+  return apiRequest<OrderReceiptDTO>(`/orders/${orderId}/receipt`);
+}
+
+export async function exportSpaceBundle(spaceId: string): Promise<SpaceExportBundleDTO> {
+  return apiRequest<SpaceExportBundleDTO>(`/spaces/${spaceId}/export`);
+}
+
+export async function listSessions(): Promise<ActiveSessionDTO[]> {
+  return apiRequest<ActiveSessionDTO[]>("/auth/sessions");
+}
+
+export async function revokeSession(sessionId: string): Promise<{ revoked: boolean }> {
+  return apiRequest<{ revoked: boolean }>(`/auth/sessions/${sessionId}`, { method: "DELETE" });
+}
+
+export async function updateUserProfile(payload: {
+  fullName?: string;
+  avatarUrl?: string | null;
+}): Promise<AuthUser> {
+  const res = await apiRequest<{ user: AuthUser }>("/auth/me", {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+  return res.user;
+}
+
+export async function deleteAccount(password: string): Promise<{ deleted: boolean }> {
+  return apiRequest<{ deleted: boolean }>("/auth/account/delete", {
+    method: "POST",
+    body: JSON.stringify({ password }),
+  });
 }

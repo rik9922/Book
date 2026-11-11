@@ -48,10 +48,14 @@ export interface UserRepository {
   findByEmail(email: string): Promise<UserRecord | null>;
   findById(id: string): Promise<UserRecord | null>;
   create(user: Omit<UserRecord, "createdAt" | "updatedAt">): Promise<UserRecord>;
+  updateProfile?(userId: string, updates: { fullName?: string; avatarUrl?: string | null }): Promise<UserRecord | null>;
+  deleteUser?(userId: string): Promise<boolean>;
   updatePassword?(userId: string, passwordHash: string): Promise<void>;
   markEmailVerified?(userId: string): Promise<void>;
   createSession(session: UserSessionRecord): Promise<void>;
   findSessionByToken(refreshTokenHash: string): Promise<UserSessionRecord | null>;
+  listSessionsForUser?(userId: string): Promise<UserSessionRecord[]>;
+  revokeSessionById?(sessionId: string, userId: string): Promise<boolean>;
   deleteSession(id: string): Promise<void>;
   revokeSessionByTokenHash?(refreshTokenHash: string): Promise<boolean>;
   revokeAllSessionsForUser?(userId: string): Promise<void>;
@@ -107,6 +111,26 @@ export class PostgresUserRepository implements UserRepository {
     };
   }
 
+  async updateProfile(
+    userId: string,
+    updates: { fullName?: string; avatarUrl?: string | null }
+  ): Promise<UserRecord | null> {
+    const existing = await this.findById(userId);
+    if (!existing) return null;
+    const nextFullName = updates.fullName !== undefined ? updates.fullName : existing.fullName;
+    const nextAvatarUrl = updates.avatarUrl !== undefined ? updates.avatarUrl : existing.avatarUrl;
+    await this.db.query(
+      `UPDATE users SET full_name = $1, avatar_url = $2, updated_at = NOW() WHERE id = $3`,
+      [nextFullName, nextAvatarUrl || null, userId]
+    );
+    return this.findById(userId);
+  }
+
+  async deleteUser(userId: string): Promise<boolean> {
+    const res = await this.db.query(`DELETE FROM users WHERE id = $1`, [userId]);
+    return (res.rowCount || 0) > 0;
+  }
+
   async updatePassword(userId: string, passwordHash: string): Promise<void> {
     await this.db.query(
       `UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2`,
@@ -152,6 +176,27 @@ export class PostgresUserRepository implements UserRepository {
 
   async deleteSession(id: string): Promise<void> {
     await this.db.query(`DELETE FROM user_sessions WHERE id = $1`, [id]);
+  }
+
+  async listSessionsForUser(userId: string): Promise<UserSessionRecord[]> {
+    const res = await this.db.query(
+      `SELECT id, user_id as "userId", refresh_token_hash as "refreshTokenHash",
+              user_agent as "userAgent", ip_address as "ipAddress",
+              expires_at::text as "expiresAt", created_at::text as "createdAt"
+       FROM user_sessions
+       WHERE user_id = $1 AND revoked_at IS NULL AND expires_at > NOW()
+       ORDER BY created_at DESC`,
+      [userId]
+    );
+    return res.rows;
+  }
+
+  async revokeSessionById(sessionId: string, userId: string): Promise<boolean> {
+    const res = await this.db.query(
+      `UPDATE user_sessions SET revoked_at = NOW() WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL`,
+      [sessionId, userId]
+    );
+    return (res.rowCount || 0) > 0;
   }
 
   async revokeSessionByTokenHash(refreshTokenHash: string): Promise<boolean> {
@@ -201,9 +246,13 @@ export interface SpaceRepository {
   createSpace(space: MemorySpace): Promise<MemorySpace>;
   findSpaceById(id: string): Promise<MemorySpace | null>;
   listSpaces(ownerId?: string): Promise<MemorySpace[]>;
+  updateSpace?(id: string, updates: Partial<Pick<MemorySpace, "name" | "description" | "type" | "coverUrl">>): Promise<MemorySpace | null>;
+  softDeleteSpace?(id: string): Promise<boolean>;
   createProfile(profile: SpaceProfile): Promise<SpaceProfile>;
   listProfiles(spaceId: string): Promise<SpaceProfile[]>;
   findProfileById(id: string): Promise<SpaceProfile | null>;
+  updateProfile?(id: string, updates: Partial<Pick<SpaceProfile, "name" | "relationship" | "type" | "birthDate" | "avatarMediaId">>): Promise<SpaceProfile | null>;
+  softDeleteProfile?(id: string): Promise<boolean>;
 }
 
 export class PostgresSpaceRepository implements SpaceRepository {
@@ -231,7 +280,7 @@ export class PostgresSpaceRepository implements SpaceRepository {
     const res = await this.db.query(
       `SELECT id, owner_id as "ownerId", name, description, space_type as "type",
               cover_url as "coverUrl", created_at::text as "createdAt", updated_at::text as "updatedAt"
-       FROM memory_spaces WHERE id = $1 LIMIT 1`,
+       FROM memory_spaces WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
       [id]
     );
     return res.rows[0] || null;
@@ -242,7 +291,7 @@ export class PostgresSpaceRepository implements SpaceRepository {
       const res = await this.db.query(
         `SELECT id, owner_id as "ownerId", name, description, space_type as "type",
                 cover_url as "coverUrl", created_at::text as "createdAt", updated_at::text as "updatedAt"
-         FROM memory_spaces WHERE owner_id = $1 ORDER BY updated_at DESC`,
+         FROM memory_spaces WHERE owner_id = $1 AND deleted_at IS NULL ORDER BY updated_at DESC`,
         [ownerId]
       );
       return res.rows;
@@ -250,9 +299,35 @@ export class PostgresSpaceRepository implements SpaceRepository {
     const res = await this.db.query(
       `SELECT id, owner_id as "ownerId", name, description, space_type as "type",
               cover_url as "coverUrl", created_at::text as "createdAt", updated_at::text as "updatedAt"
-       FROM memory_spaces ORDER BY updated_at DESC`
+       FROM memory_spaces WHERE deleted_at IS NULL ORDER BY updated_at DESC`
     );
     return res.rows;
+  }
+
+  async updateSpace(
+    id: string,
+    updates: Partial<Pick<MemorySpace, "name" | "description" | "type" | "coverUrl">>
+  ): Promise<MemorySpace | null> {
+    const existing = await this.findSpaceById(id);
+    if (!existing) return null;
+    const merged: MemorySpace = {
+      ...existing,
+      ...updates,
+      updatedAt: new Date().toISOString(),
+    };
+    await this.db.query(
+      `UPDATE memory_spaces SET name = $1, description = $2, space_type = $3, cover_url = $4, updated_at = $5 WHERE id = $6 AND deleted_at IS NULL`,
+      [merged.name, merged.description || null, merged.type, merged.coverUrl || null, merged.updatedAt, id]
+    );
+    return merged;
+  }
+
+  async softDeleteSpace(id: string): Promise<boolean> {
+    const res = await this.db.query(
+      `UPDATE memory_spaces SET deleted_at = NOW(), updated_at = NOW() WHERE id = $1 AND deleted_at IS NULL`,
+      [id]
+    );
+    return (res.rowCount || 0) > 0;
   }
 
   async createProfile(profile: SpaceProfile): Promise<SpaceProfile> {
@@ -279,7 +354,7 @@ export class PostgresSpaceRepository implements SpaceRepository {
       `SELECT id, space_id as "spaceId", name, relationship, profile_type as "type",
               birth_date::text as "birthDate", avatar_media_id as "avatarMediaId",
               created_at::text as "createdAt", updated_at::text as "updatedAt"
-       FROM space_profiles WHERE space_id = $1 ORDER BY created_at ASC`,
+       FROM space_profiles WHERE space_id = $1 AND deleted_at IS NULL ORDER BY created_at ASC`,
       [spaceId]
     );
     return res.rows;
@@ -290,10 +365,36 @@ export class PostgresSpaceRepository implements SpaceRepository {
       `SELECT id, space_id as "spaceId", name, relationship, profile_type as "type",
               birth_date::text as "birthDate", avatar_media_id as "avatarMediaId",
               created_at::text as "createdAt", updated_at::text as "updatedAt"
-       FROM space_profiles WHERE id = $1 LIMIT 1`,
+       FROM space_profiles WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
       [id]
     );
     return res.rows[0] || null;
+  }
+
+  async updateProfile(
+    id: string,
+    updates: Partial<Pick<SpaceProfile, "name" | "relationship" | "type" | "birthDate" | "avatarMediaId">>
+  ): Promise<SpaceProfile | null> {
+    const existing = await this.findProfileById(id);
+    if (!existing) return null;
+    const merged: SpaceProfile = {
+      ...existing,
+      ...updates,
+      updatedAt: new Date().toISOString(),
+    };
+    await this.db.query(
+      `UPDATE space_profiles SET name = $1, relationship = $2, profile_type = $3, birth_date = $4, avatar_media_id = $5, updated_at = $6 WHERE id = $7 AND deleted_at IS NULL`,
+      [merged.name, merged.relationship || null, merged.type, merged.birthDate || null, merged.avatarMediaId || null, merged.updatedAt, id]
+    );
+    return merged;
+  }
+
+  async softDeleteProfile(id: string): Promise<boolean> {
+    const res = await this.db.query(
+      `UPDATE space_profiles SET deleted_at = NOW(), updated_at = NOW() WHERE id = $1 AND deleted_at IS NULL`,
+      [id]
+    );
+    return (res.rowCount || 0) > 0;
   }
 }
 
@@ -318,10 +419,13 @@ export interface MemoryRepository {
   createMemory(memory: Memory): Promise<Memory>;
   findMemoryById(id: string, includeDeleted?: boolean): Promise<Memory | null>;
   listMemories(spaceId: string, options?: { profileId?: string; isFavorite?: boolean }): Promise<Memory[]>;
+  listDeletedMemories?(spaceId: string): Promise<Memory[]>;
   listMemoriesKeyset(spaceId: string, options?: KeysetPaginationOptions): Promise<KeysetPaginationResult<Memory>>;
   searchMemories(spaceId: string, queryText: string, limit?: number): Promise<Memory[]>;
   updateMemory(id: string, updates: Partial<Memory>): Promise<Memory | null>;
   softDeleteMemory(id: string): Promise<boolean>;
+  restoreMemory?(id: string): Promise<Memory | null>;
+  hardDeleteMemory?(id: string): Promise<boolean>;
 }
 
 export class PostgresMemoryRepository implements MemoryRepository {
@@ -544,6 +648,33 @@ export class PostgresMemoryRepository implements MemoryRepository {
       `UPDATE memories SET deleted_at = NOW() WHERE id = $1 AND deleted_at IS NULL`,
       [id]
     );
+    return (res.rowCount || 0) > 0;
+  }
+
+  async listDeletedMemories(spaceId: string): Promise<Memory[]> {
+    const res = await this.db.query(
+      `SELECT id, space_id as "spaceId", author_id as "authorId", title, content, format,
+              captured_at::text as "capturedAt", location, is_favorite as "isFavorite",
+              associated_profile_ids as "associatedProfileIds", media_ids as "mediaIds", tags,
+              created_at::text as "createdAt", updated_at::text as "updatedAt"
+       FROM memories
+       WHERE space_id = $1 AND deleted_at IS NOT NULL
+       ORDER BY deleted_at DESC`,
+      [spaceId]
+    );
+    return res.rows;
+  }
+
+  async restoreMemory(id: string): Promise<Memory | null> {
+    await this.db.query(
+      `UPDATE memories SET deleted_at = NULL, updated_at = NOW() WHERE id = $1 AND deleted_at IS NOT NULL`,
+      [id]
+    );
+    return this.findMemoryById(id, false);
+  }
+
+  async hardDeleteMemory(id: string): Promise<boolean> {
+    const res = await this.db.query(`DELETE FROM memories WHERE id = $1 AND deleted_at IS NOT NULL`, [id]);
     return (res.rowCount || 0) > 0;
   }
 }
@@ -1081,8 +1212,11 @@ export interface CollaborationRepository {
   addMember(member: Omit<SpaceMemberRecord, "joinedAt" | "updatedAt">): Promise<SpaceMemberRecord>;
   getMembers(spaceId: string): Promise<SpaceMemberRecord[]>;
   getMember(spaceId: string, userId: string): Promise<SpaceMemberRecord | null>;
+  updateMemberRole?(spaceId: string, userId: string, role: SpaceMemberRecord["role"], permissions: Record<string, boolean>): Promise<SpaceMemberRecord | null>;
   removeMember(spaceId: string, userId: string): Promise<boolean>;
   createInvitation(invitation: Omit<SpaceInvitationRecord, "createdAt">): Promise<SpaceInvitationRecord>;
+  listInvitations?(spaceId: string): Promise<SpaceInvitationRecord[]>;
+  revokeInvitation?(id: string, spaceId: string): Promise<boolean>;
   getInvitationByTokenHash(tokenHash: string): Promise<SpaceInvitationRecord | null>;
   acceptInvitation(id: string): Promise<void>;
 }
@@ -1134,6 +1268,22 @@ export class PostgresCollaborationRepository implements CollaborationRepository 
     return (res.rowCount || 0) > 0;
   }
 
+  async updateMemberRole(
+    spaceId: string,
+    userId: string,
+    role: SpaceMemberRecord["role"],
+    permissions: Record<string, boolean>
+  ): Promise<SpaceMemberRecord | null> {
+    const res = await this.db.query(
+      `UPDATE space_members SET role = $1, permissions = $2, updated_at = NOW()
+       WHERE space_id = $3 AND user_id = $4
+       RETURNING id, space_id as "spaceId", user_id as "userId", role, permissions,
+                 joined_at::text as "joinedAt", updated_at::text as "updatedAt"`,
+      [role, JSON.stringify(permissions), spaceId, userId]
+    );
+    return res.rows[0] || null;
+  }
+
   async createInvitation(invitation: Omit<SpaceInvitationRecord, "createdAt">): Promise<SpaceInvitationRecord> {
     await this.db.query(
       `INSERT INTO space_invitations (id, space_id, inviter_id, invitee_email, role, token_hash, status, expires_at, created_at)
@@ -1173,6 +1323,25 @@ export class PostgresCollaborationRepository implements CollaborationRepository 
       [id]
     );
   }
+
+  async listInvitations(spaceId: string): Promise<SpaceInvitationRecord[]> {
+    const res = await this.db.query(
+      `SELECT id, space_id as "spaceId", inviter_id as "inviterId",
+              invitee_email as "inviteeEmail", role, token_hash as "tokenHash",
+              status, expires_at::text as "expiresAt", created_at::text as "createdAt"
+       FROM space_invitations WHERE space_id = $1 ORDER BY created_at DESC`,
+      [spaceId]
+    );
+    return res.rows;
+  }
+
+  async revokeInvitation(id: string, spaceId: string): Promise<boolean> {
+    const res = await this.db.query(
+      `UPDATE space_invitations SET status = 'revoked' WHERE id = $1 AND space_id = $2 AND status = 'pending'`,
+      [id, spaceId]
+    );
+    return (res.rowCount || 0) > 0;
+  }
 }
 
 // ----------------------------------------------------------------------------
@@ -1196,6 +1365,7 @@ export interface CommerceRepository {
   createOrder(order: Omit<PrintOrderRecord, "createdAt" | "updatedAt">): Promise<PrintOrderRecord>;
   getOrderById(id: string): Promise<PrintOrderRecord | null>;
   listOrders(spaceId: string): Promise<PrintOrderRecord[]>;
+  listOrdersByUser?(userId: string): Promise<PrintOrderRecord[]>;
   updateOrderStatus(id: string, status: string): Promise<void>;
 }
 
@@ -1244,6 +1414,17 @@ export class PostgresCommerceRepository implements CommerceRepository {
               print_spec as "printSpec", created_at::text as "createdAt", updated_at::text as "updatedAt"
        FROM print_orders WHERE space_id = $1 ORDER BY created_at DESC`,
       [spaceId]
+    );
+    return res.rows;
+  }
+
+  async listOrdersByUser(userId: string): Promise<PrintOrderRecord[]> {
+    const res = await this.db.query(
+      `SELECT id, space_id as "spaceId", user_id as "userId", book_id as "bookId",
+              status, total_cents as "totalCents", currency, shipping_address as "shippingAddress",
+              print_spec as "printSpec", created_at::text as "createdAt", updated_at::text as "updatedAt"
+       FROM print_orders WHERE user_id = $1 ORDER BY created_at DESC`,
+      [userId]
     );
     return res.rows;
   }
@@ -1342,3 +1523,165 @@ export class PostgresNotificationRepository implements NotificationRepository {
   }
 }
 
+
+// ----------------------------------------------------------------------------
+// 10. Collections & Memory Comments Repositories
+// ----------------------------------------------------------------------------
+export interface CollectionRecord {
+  id: string;
+  spaceId: string;
+  title: string;
+  description?: string | null;
+  coverMemoryId?: string | null;
+  memoryIds?: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MemoryCommentRecord {
+  id: string;
+  memoryId: string;
+  spaceId: string;
+  authorId: string;
+  authorName: string;
+  body: string;
+  createdAt: string;
+}
+
+export interface CollectionRepository {
+  createCollection(col: Omit<CollectionRecord, "createdAt" | "updatedAt" | "memoryIds">): Promise<CollectionRecord>;
+  listCollections(spaceId: string): Promise<CollectionRecord[]>;
+  findCollectionById(id: string): Promise<CollectionRecord | null>;
+  updateCollection(id: string, updates: Partial<Pick<CollectionRecord, "title" | "description" | "coverMemoryId">>): Promise<CollectionRecord | null>;
+  deleteCollection(id: string): Promise<boolean>;
+  addMemory(collectionId: string, memoryId: string, sortOrder?: number): Promise<void>;
+  removeMemory(collectionId: string, memoryId: string): Promise<boolean>;
+}
+
+export class PostgresCollectionRepository implements CollectionRepository {
+  constructor(private db: DatabaseClient) {}
+
+  async createCollection(
+    col: Omit<CollectionRecord, "createdAt" | "updatedAt" | "memoryIds">
+  ): Promise<CollectionRecord> {
+    const now = new Date().toISOString();
+    await this.db.query(
+      `INSERT INTO memory_collections (id, space_id, title, description, cover_memory_id, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [col.id, col.spaceId, col.title, col.description || null, col.coverMemoryId || null, now, now]
+    );
+    return { ...col, memoryIds: [], createdAt: now, updatedAt: now };
+  }
+
+  async listCollections(spaceId: string): Promise<CollectionRecord[]> {
+    const res = await this.db.query(
+      `SELECT c.id, c.space_id as "spaceId", c.title, c.description, c.cover_memory_id as "coverMemoryId",
+              c.created_at::text as "createdAt", c.updated_at::text as "updatedAt",
+              COALESCE(array_agg(cm.memory_id ORDER BY cm.sort_order ASC) FILTER (WHERE cm.memory_id IS NOT NULL), '{}') as "memoryIds"
+       FROM memory_collections c
+       LEFT JOIN collection_memories cm ON cm.collection_id = c.id
+       WHERE c.space_id = $1 AND c.deleted_at IS NULL
+       GROUP BY c.id
+       ORDER BY c.updated_at DESC`,
+      [spaceId]
+    );
+    return res.rows;
+  }
+
+  async findCollectionById(id: string): Promise<CollectionRecord | null> {
+    const res = await this.db.query(
+      `SELECT c.id, c.space_id as "spaceId", c.title, c.description, c.cover_memory_id as "coverMemoryId",
+              c.created_at::text as "createdAt", c.updated_at::text as "updatedAt",
+              COALESCE(array_agg(cm.memory_id ORDER BY cm.sort_order ASC) FILTER (WHERE cm.memory_id IS NOT NULL), '{}') as "memoryIds"
+       FROM memory_collections c
+       LEFT JOIN collection_memories cm ON cm.collection_id = c.id
+       WHERE c.id = $1 AND c.deleted_at IS NULL
+       GROUP BY c.id
+       LIMIT 1`,
+      [id]
+    );
+    return res.rows[0] || null;
+  }
+
+  async updateCollection(
+    id: string,
+    updates: Partial<Pick<CollectionRecord, "title" | "description" | "coverMemoryId">>
+  ): Promise<CollectionRecord | null> {
+    const existing = await this.findCollectionById(id);
+    if (!existing) return null;
+    const title = updates.title !== undefined ? updates.title : existing.title;
+    const description = updates.description !== undefined ? updates.description : existing.description;
+    const coverMemoryId = updates.coverMemoryId !== undefined ? updates.coverMemoryId : existing.coverMemoryId;
+    await this.db.query(
+      `UPDATE memory_collections SET title = $1, description = $2, cover_memory_id = $3, updated_at = NOW() WHERE id = $4`,
+      [title, description || null, coverMemoryId || null, id]
+    );
+    return this.findCollectionById(id);
+  }
+
+  async deleteCollection(id: string): Promise<boolean> {
+    const res = await this.db.query(
+      `UPDATE memory_collections SET deleted_at = NOW(), updated_at = NOW() WHERE id = $1 AND deleted_at IS NULL`,
+      [id]
+    );
+    return (res.rowCount || 0) > 0;
+  }
+
+  async addMemory(collectionId: string, memoryId: string, sortOrder = 0): Promise<void> {
+    await this.db.query(
+      `INSERT INTO collection_memories (collection_id, memory_id, sort_order, added_at)
+       VALUES ($1, $2, $3, NOW())
+       ON CONFLICT (collection_id, memory_id) DO UPDATE SET sort_order = $3`,
+      [collectionId, memoryId, sortOrder]
+    );
+    await this.db.query(`UPDATE memory_collections SET updated_at = NOW() WHERE id = $1`, [collectionId]);
+  }
+
+  async removeMemory(collectionId: string, memoryId: string): Promise<boolean> {
+    const res = await this.db.query(
+      `DELETE FROM collection_memories WHERE collection_id = $1 AND memory_id = $2`,
+      [collectionId, memoryId]
+    );
+    return (res.rowCount || 0) > 0;
+  }
+}
+
+export interface MemoryCommentRepository {
+  createComment(comment: Omit<MemoryCommentRecord, "createdAt">): Promise<MemoryCommentRecord>;
+  listComments(memoryId: string): Promise<MemoryCommentRecord[]>;
+  deleteComment(id: string, authorId: string): Promise<boolean>;
+}
+
+export class PostgresMemoryCommentRepository implements MemoryCommentRepository {
+  constructor(private db: DatabaseClient) {}
+
+  async createComment(comment: Omit<MemoryCommentRecord, "createdAt">): Promise<MemoryCommentRecord> {
+    const now = new Date().toISOString();
+    await this.db.query(
+      `INSERT INTO memory_comments (id, memory_id, space_id, author_id, author_name, body, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [comment.id, comment.memoryId, comment.spaceId, comment.authorId, comment.authorName, comment.body, now]
+    );
+    return { ...comment, createdAt: now };
+  }
+
+  async listComments(memoryId: string): Promise<MemoryCommentRecord[]> {
+    const res = await this.db.query(
+      `SELECT id, memory_id as "memoryId", space_id as "spaceId", author_id as "authorId",
+              author_name as "authorName", body, created_at::text as "createdAt"
+       FROM memory_comments
+       WHERE memory_id = $1 AND deleted_at IS NULL
+       ORDER BY created_at ASC`,
+      [memoryId]
+    );
+    return res.rows;
+  }
+
+  async deleteComment(id: string, authorId: string): Promise<boolean> {
+    const res = await this.db.query(
+      `UPDATE memory_comments SET deleted_at = NOW() WHERE id = $1 AND author_id = $2 AND deleted_at IS NULL`,
+      [id, authorId]
+    );
+    return (res.rowCount || 0) > 0;
+  }
+}

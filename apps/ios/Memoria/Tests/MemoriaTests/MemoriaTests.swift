@@ -174,6 +174,51 @@ struct Book3DEngineTests {
         #expect(dto.endpoints.usdz.contains("MemoriaHeirloomBook.usdz"))
     }
 
+    @Test("Verify CollectionDTO, MemoryCommentDTO, PrintCatalogDTO & PrintOrderDTO Decoding")
+    func testExpandedDTOParity() throws {
+        let collectionJson = """
+        {
+          "id": "col-1",
+          "spaceId": "sp-1",
+          "title": "Summer at the Lake",
+          "description": "1998 family retreat",
+          "coverMemoryId": null,
+          "memoryIds": ["mem-1", "mem-2"],
+          "createdAt": "2026-11-11T00:00:00Z",
+          "updatedAt": "2026-11-11T00:00:00Z"
+        }
+        """
+        let col = try JSONDecoder().decode(CollectionDTO.self, from: Data(collectionJson.utf8))
+        #expect(col.title == "Summer at the Lake")
+        #expect(col.memoryIds?.count == 2)
+
+        let commentJson = """
+        {
+          "id": "cmt-1",
+          "memoryId": "mem-1",
+          "spaceId": "sp-1",
+          "authorId": "usr-1",
+          "authorName": "Elena",
+          "body": "Grandma smiled all afternoon.",
+          "createdAt": "2026-11-11T00:00:00Z"
+        }
+        """
+        let cmt = try JSONDecoder().decode(MemoryCommentDTO.self, from: Data(commentJson.utf8))
+        #expect(cmt.authorName == "Elena")
+
+        let catalogJson = """
+        {
+          "currency": "USD",
+          "pricingPolicy": "zero_markup_pass_through",
+          "formats": [{ "id": "hardcover_square_8x8", "label": "Square 8x8", "dimensionsCm": "20.3 x 20.3 cm", "baseCents": 4200 }],
+          "bindings": [{ "id": "hardcover_linen", "label": "Linen", "surchargeCents": 0 }],
+          "paperStocks": [{ "id": "140gsm_matte", "label": "140gsm Matte", "surchargeCents": 0 }]
+        }
+        """
+        let catalog = try JSONDecoder().decode(PrintCatalogDTO.self, from: Data(catalogJson.utf8))
+        #expect(catalog.formats.first?.baseCents == 4200)
+    }
+
     #if os(iOS) && canImport(RealityKit)
     @Test("Verify Bundled MemoriaHeirloomBook.usdz Loads and Matches Node Hierarchy")
     @MainActor

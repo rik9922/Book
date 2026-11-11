@@ -50,12 +50,36 @@ class InMemoryCollabTestRepo implements CollaborationRepository {
   async removeMember(spaceId: string, userId: string): Promise<boolean> {
     return this.members.delete(`${spaceId}:${userId}`);
   }
+  async updateMemberRole(
+    spaceId: string,
+    userId: string,
+    role: SpaceMemberRecord["role"],
+    permissions: Record<string, boolean>
+  ): Promise<SpaceMemberRecord | null> {
+    const existing = this.members.get(`${spaceId}:${userId}`);
+    if (!existing) return null;
+    const updated = { ...existing, role, permissions, updatedAt: new Date().toISOString() };
+    this.members.set(`${spaceId}:${userId}`, updated);
+    return updated;
+  }
   async createInvitation(
     invitation: Omit<SpaceInvitationRecord, "createdAt">
   ): Promise<SpaceInvitationRecord> {
     const record: SpaceInvitationRecord = { ...invitation, createdAt: new Date().toISOString() };
     this.invitations.set(invitation.tokenHash, record);
     return record;
+  }
+  async listInvitations(spaceId: string): Promise<SpaceInvitationRecord[]> {
+    return Array.from(this.invitations.values()).filter((i) => i.spaceId === spaceId);
+  }
+  async revokeInvitation(id: string, spaceId: string): Promise<boolean> {
+    for (const [k, inv] of this.invitations.entries()) {
+      if (inv.id === id && inv.spaceId === spaceId && inv.status === "pending") {
+        this.invitations.set(k, { ...inv, status: "revoked" });
+        return true;
+      }
+    }
+    return false;
   }
   async getInvitationByTokenHash(tokenHash: string): Promise<SpaceInvitationRecord | null> {
     return this.invitations.get(tokenHash) || null;
@@ -234,6 +258,79 @@ export async function buildCollabService(): Promise<FastifyInstance> {
       }
       const removed = await collabRepo.removeMember(req.params.spaceId, req.params.userId);
       return reply.status(200).send(createSuccessResponse({ removed }));
+    }
+  );
+
+  // Update Member Role & Fine-Grained Permissions (PWA-50 / PWA-51)
+  app.patch(
+    "/api/v1/collab/spaces/:spaceId/members/:userId",
+    async (req: FastifyRequest<{ Params: { spaceId: string; userId: string } }>, reply: FastifyReply) => {
+      const actorId = await requireAuthUser(req);
+      const actor = await collabRepo.getMember(req.params.spaceId, actorId);
+      if (!actor || (actor.role !== "owner" && actor.role !== "admin")) {
+        throw new ForbiddenError("Only space owners or admins can update member permissions");
+      }
+      const parsed = UpsertMemberSchema.omit({ userId: true }).safeParse(req.body);
+      if (!parsed.success) {
+        return reply.status(400).send(createErrorResponse("VALIDATION_ERROR", "Invalid role update payload"));
+      }
+      const role = parsed.data.role;
+      const permissions = parsed.data.permissions || {
+        can_create_memories: role !== "viewer",
+        can_edit_books: role === "owner" || role === "admin",
+        can_invite: role === "owner" || role === "admin",
+      };
+      const updated = collabRepo.updateMemberRole
+        ? await collabRepo.updateMemberRole(req.params.spaceId, req.params.userId, role, permissions)
+        : null;
+      if (!updated) {
+        return reply.status(404).send(createErrorResponse("MEMBER_NOT_FOUND", "Space member not found"));
+      }
+      return reply.status(200).send(createSuccessResponse(updated));
+    }
+  );
+
+  // List & Revoke Space Invitations (PWA-49)
+  app.get(
+    "/api/v1/collab/spaces/:spaceId/invitations",
+    async (req: FastifyRequest<{ Params: { spaceId: string } }>, reply: FastifyReply) => {
+      const actorId = await requireAuthUser(req);
+      const actor = await collabRepo.getMember(req.params.spaceId, actorId);
+      if (!actor || (actor.role !== "owner" && actor.role !== "admin" && !actor.permissions?.can_invite)) {
+        throw new ForbiddenError("Invite management permission required");
+      }
+      const list = collabRepo.listInvitations ? await collabRepo.listInvitations(req.params.spaceId) : [];
+      return reply.status(200).send(
+        createSuccessResponse(
+          list.map((inv) => ({
+            id: inv.id,
+            spaceId: inv.spaceId,
+            inviteeEmail: inv.inviteeEmail,
+            role: inv.role,
+            status: inv.status,
+            expiresAt: inv.expiresAt,
+            createdAt: inv.createdAt,
+          }))
+        )
+      );
+    }
+  );
+
+  app.delete(
+    "/api/v1/collab/spaces/:spaceId/invitations/:invitationId",
+    async (
+      req: FastifyRequest<{ Params: { spaceId: string; invitationId: string } }>,
+      reply: FastifyReply
+    ) => {
+      const actorId = await requireAuthUser(req);
+      const actor = await collabRepo.getMember(req.params.spaceId, actorId);
+      if (!actor || (actor.role !== "owner" && actor.role !== "admin")) {
+        throw new ForbiddenError("Only space owners or admins can revoke invitations");
+      }
+      const revoked = collabRepo.revokeInvitation
+        ? await collabRepo.revokeInvitation(req.params.invitationId, req.params.spaceId)
+        : false;
+      return reply.status(200).send(createSuccessResponse({ revoked }));
     }
   );
 

@@ -67,12 +67,26 @@ public struct HomeFeedView: View {
                     }
                 }
                 ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        isCreatingMemory = true
-                    } label: {
-                        Image(systemName: "plus.circle.fill")
-                            .font(.title3)
-                            .foregroundStyle(MemoriaTheme.plum)
+                    HStack(spacing: 12) {
+                        NavigationLink {
+                            CollectionsView(spaceId: spaceId)
+                        } label: {
+                            Image(systemName: "folder")
+                                .foregroundStyle(MemoriaTheme.sageFunc)
+                        }
+                        NavigationLink {
+                            TrashRecoveryView(spaceId: spaceId)
+                        } label: {
+                            Image(systemName: "trash")
+                                .foregroundStyle(MemoriaTheme.textSecondary)
+                        }
+                        Button {
+                            isCreatingMemory = true
+                        } label: {
+                            Image(systemName: "plus.circle.fill")
+                                .font(.title3)
+                                .foregroundStyle(MemoriaTheme.plum)
+                        }
                     }
                 }
             }

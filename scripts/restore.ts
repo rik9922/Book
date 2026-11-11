@@ -8,7 +8,10 @@ import { BackupManifest } from "./backup.js";
 
 const execFileAsync = promisify(execFile);
 
-const BACKUPS_ROOT = path.resolve(process.cwd(), "backups");
+const BACKUPS_ROOT = path.resolve(
+  process.cwd(),
+  process.env.MEMORIA_BACKUP_ROOT || "backups"
+);
 const STORAGE_LOCAL = path.resolve(
   process.cwd(),
   process.env.LOCAL_STORAGE_PATH || "storage_data"
@@ -27,6 +30,8 @@ async function calculateFileSha256(filePath: string): Promise<string> {
 export async function restoreBackup(options: {
   backupDir?: string;
   verifyOnly?: boolean;
+  targetDbSuffix?: string;
+  targetStorageDir?: string;
 }): Promise<boolean> {
   let targetDir = options.backupDir;
 
@@ -115,7 +120,8 @@ export async function restoreBackup(options: {
 
   for (const db of manifest.databases) {
     const fullDumpPath = path.join(targetDir, db.dumpFile);
-    process.stdout.write(`  ⏳ Restoring database '${db.name}'... `);
+    const targetDbName = options.targetDbSuffix ? `${db.name}${options.targetDbSuffix}` : db.name;
+    process.stdout.write(`  ⏳ Restoring database '${targetDbName}'... `);
 
     try {
       await execFileAsync("psql", [
@@ -123,7 +129,7 @@ export async function restoreBackup(options: {
         "-h", pgHost,
         "-p", pgPort,
         "-U", pgUser,
-        "-d", db.name,
+        "-d", targetDbName,
         "-f", fullDumpPath,
       ], {
         env: { ...process.env, ...(pgPass ? { PGPASSWORD: pgPass } : {}) },
@@ -139,14 +145,17 @@ export async function restoreBackup(options: {
   if (manifest.mediaArchive) {
     const mediaPath = path.join(targetDir, manifest.mediaArchive.file);
     if (existsSync(mediaPath)) {
+      const storageTarget = options.targetStorageDir
+        ? path.resolve(options.targetStorageDir)
+        : STORAGE_LOCAL;
       console.log("\n--- STEP 3: Restoring Media Storage ---");
-      await fs.mkdir(path.dirname(STORAGE_LOCAL), { recursive: true });
-      process.stdout.write(`  ⏳ Unpacking ${manifest.mediaArchive.file} to ${path.dirname(STORAGE_LOCAL)}... `);
+      await fs.mkdir(path.dirname(storageTarget), { recursive: true });
+      process.stdout.write(`  ⏳ Unpacking ${manifest.mediaArchive.file} to ${path.dirname(storageTarget)}... `);
       await execFileAsync("tar", [
         "-xzf",
         mediaPath,
         "-C",
-        path.dirname(STORAGE_LOCAL),
+        path.dirname(storageTarget),
       ]);
       process.stdout.write("🟢 RESTORED\n");
     }

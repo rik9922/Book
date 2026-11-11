@@ -15,6 +15,14 @@ import {
   WifiOff,
   LogIn,
   LogOut,
+  Bell,
+  FolderKanban,
+  Layers,
+  Package,
+  Trash2,
+  Download,
+  CreditCard,
+  Compass,
 } from "lucide-react";
 import {
   AuthUser,
@@ -30,6 +38,18 @@ const NAV_ITEMS = [
   { href: "/circles", label: "Family Circles", icon: Users },
   { href: "/studio", label: "Book Studio", icon: BookOpen },
   { href: "/settings", label: "Settings", icon: Settings },
+];
+
+const WORKSPACE_SUBNAV_ITEMS = [
+  { href: "/spaces", label: "Spaces", icon: Layers },
+  { href: "/profiles", label: "Profiles", icon: Users },
+  { href: "/collections", label: "Collections", icon: FolderKanban },
+  { href: "/notifications", label: "Notifications", icon: Bell },
+  { href: "/orders", label: "Orders", icon: Package },
+  { href: "/billing", label: "Billing", icon: CreditCard },
+  { href: "/trash", label: "Trash", icon: Trash2 },
+  { href: "/export", label: "Export", icon: Download },
+  { href: "/onboarding", label: "Onboarding", icon: Compass },
 ];
 
 export function AppShell({
@@ -176,6 +196,45 @@ export function AppShell({
               </Link>
             );
           })}
+        </nav>
+
+        <nav
+          aria-label="Workspace Modules"
+          className="border-t border-[#E7E2DA]/80 bg-[#FAF8F4]"
+        >
+          <div className="max-w-7xl mx-auto px-4 sm:px-8 py-1.5 flex items-center gap-1.5 overflow-x-auto">
+            {WORKSPACE_SUBNAV_ITEMS.map((item) => {
+              const Icon = item.icon;
+              const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium whitespace-nowrap shrink-0 transition-colors ${
+                    active
+                      ? "bg-[#20242C] text-white"
+                      : "text-[#5C5955] hover:bg-[#F0ECE1] hover:text-[#20242C]"
+                  }`}
+                >
+                  <Icon className="w-3 h-3" aria-hidden="true" />
+                  {item.label}
+                </Link>
+              );
+            })}
+            <span className="text-[#E7E2DA] px-1" aria-hidden="true">|</span>
+            <Link href="/gallery" className="px-2 py-1 rounded-lg text-[11px] text-[#5C5955] hover:text-[#20242C] whitespace-nowrap shrink-0">
+              Gallery
+            </Link>
+            <Link href="/sample-book" className="px-2 py-1 rounded-lg text-[11px] text-[#5C5955] hover:text-[#20242C] whitespace-nowrap shrink-0">
+              3D Sample
+            </Link>
+            <Link href="/pricing" className="px-2 py-1 rounded-lg text-[11px] text-[#5C5955] hover:text-[#20242C] whitespace-nowrap shrink-0">
+              Pricing
+            </Link>
+            <Link href="/help" className="px-2 py-1 rounded-lg text-[11px] text-[#5C5955] hover:text-[#20242C] whitespace-nowrap shrink-0">
+              Help
+            </Link>
+          </div>
         </nav>
       </header>
 

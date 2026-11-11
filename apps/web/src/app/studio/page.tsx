@@ -2,7 +2,8 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { BookOpen, Lock, Package, Plus, Save, Sparkles } from "lucide-react";
+import { BookOpen, CheckCircle2, Lock, Package, Plus, Save, Sparkles } from "lucide-react";
+import { BOOK_LEATHER_SWATCHES } from "@memory-capsule/contracts/book-3d";
 import { AppShell } from "@/components/AppShell";
 import { ClientStudioMount } from "@/components/3d/ClientStudioMount";
 import {
@@ -10,16 +11,14 @@ import {
   BookDTO,
   getStoredSession,
   MemorySpaceDTO,
+  PreflightReportDTO,
   PrintOrderDTO,
 } from "@/lib/api";
 
-const COVER_SWATCHES = [
-  { label: "Dusk Plum", hex: "#76556F" },
-  { label: "Deep Sage", hex: "#5F735E" },
-  { label: "Obsidian Linen", hex: "#20242C" },
-  { label: "Warm Terracotta", hex: "#9E5E4A" },
-  { label: "Archival Sand", hex: "#8D857A" },
-];
+const COVER_SWATCHES = BOOK_LEATHER_SWATCHES.map((s) => ({
+  label: s.name,
+  hex: s.hex,
+}));
 
 export default function BookStudioPage() {
   const [signedIn, setSignedIn] = useState(false);
@@ -46,6 +45,7 @@ export default function BookStudioPage() {
   const [editFoil, setEditFoil] = useState<BookDTO["foilStamping"]>("gold");
   const [spreadTitle, setSpreadTitle] = useState("");
   const [spreadCaption, setSpreadCaption] = useState("");
+  const [preflight, setPreflight] = useState<PreflightReportDTO | null>(null);
 
   // Checkout shipping
   const [recipientName, setRecipientName] = useState("");
@@ -251,6 +251,26 @@ export default function BookStudioPage() {
       setNotice("Updated interior spread layout.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to update spread.");
+    }
+  };
+
+  const handleRunPreflight = async () => {
+    if (!selectedBook) return;
+    setError(null);
+    setNotice(null);
+    try {
+      const report = await apiRequest<PreflightReportDTO>(`/books/${selectedBook.id}/preflight`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      setPreflight(report);
+      setNotice(
+        report.passed
+          ? "Print preflight passed all trim, bleed, and 300 DPI checks."
+          : "Preflight flagged items to review before freezing."
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to run preflight check.");
     }
   };
 
@@ -593,6 +613,14 @@ export default function BookStudioPage() {
                         </button>
                         <button
                           type="button"
+                          onClick={handleRunPreflight}
+                          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#EEF2ED] text-[#22593E] border border-[#B6DBC7] text-xs font-medium"
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5" aria-hidden="true" />
+                          Run Preflight
+                        </button>
+                        <button
+                          type="button"
                           onClick={handleFreezeEdition}
                           disabled={selectedBook.isFrozenForPrint}
                           className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#20242C] text-[#FFFFFF] text-xs font-medium disabled:opacity-40"
@@ -601,6 +629,25 @@ export default function BookStudioPage() {
                           {selectedBook.isFrozenForPrint ? "Edition Frozen" : "Freeze for Print"}
                         </button>
                       </div>
+                      {preflight && (
+                        <div className="pt-3 border-t border-[#F0ECE1] space-y-1.5">
+                          <p className="text-[11px] font-semibold uppercase tracking-wider text-[#5F735E]">
+                            Preflight Validation ({preflight.passed ? "PASSED" : "REVIEW"})
+                          </p>
+                          <ul className="space-y-1">
+                            {preflight.checks.map((c) => (
+                              <li key={c.id} className="text-xs text-[#28272A] flex items-start gap-1.5">
+                                <span className={c.passed ? "text-[#5F735E]" : "text-[#B6423E]"}>
+                                  {c.passed ? "✓" : "✕"}
+                                </span>
+                                <span>
+                                  <strong>{c.label}:</strong> {c.detail}
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
                     </form>
                   </div>
 

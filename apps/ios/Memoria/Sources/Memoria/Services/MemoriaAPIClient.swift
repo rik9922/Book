@@ -43,6 +43,68 @@ public struct NotificationItemDTO: Identifiable, Decodable, Sendable {
     public let createdAt: String
 }
 
+public struct SpaceProfileDTO: Identifiable, Codable, Sendable {
+    public let id: String
+    public let spaceId: String
+    public let name: String
+    public let relationship: String?
+    public let type: String
+    public let birthDate: String?
+}
+
+public struct CollectionDTO: Identifiable, Codable, Sendable {
+    public let id: String
+    public let spaceId: String
+    public let title: String
+    public let description: String?
+    public let coverMemoryId: String?
+    public let memoryIds: [String]?
+    public let createdAt: String
+    public let updatedAt: String
+}
+
+public struct MemoryCommentDTO: Identifiable, Codable, Sendable {
+    public let id: String
+    public let memoryId: String
+    public let spaceId: String
+    public let authorId: String
+    public let authorName: String
+    public let body: String
+    public let createdAt: String
+}
+
+public struct PrintCatalogFormatDTO: Identifiable, Decodable, Sendable {
+    public let id: String
+    public let label: String
+    public let dimensionsCm: String
+    public let baseCents: Int
+}
+
+public struct PrintCatalogOptionDTO: Identifiable, Decodable, Sendable {
+    public let id: String
+    public let label: String
+    public let surchargeCents: Int
+}
+
+public struct PrintCatalogDTO: Decodable, Sendable {
+    public let currency: String
+    public let pricingPolicy: String
+    public let formats: [PrintCatalogFormatDTO]
+    public let bindings: [PrintCatalogOptionDTO]
+    public let paperStocks: [PrintCatalogOptionDTO]
+}
+
+public struct PrintOrderDTO: Identifiable, Codable, Sendable {
+    public let id: String
+    public let spaceId: String
+    public let userId: String
+    public let bookId: String
+    public let status: String
+    public let totalCents: Int
+    public let currency: String
+    public let createdAt: String
+}
+
 public actor MemoriaAPIClient {
     public static let shared = MemoriaAPIClient()
 
@@ -409,5 +471,131 @@ public actor MemoriaAPIClient {
 
         let decoded = try JSONDecoder().decode(ManifestEnvelope.self, from: data)
         return decoded.data
+    }
+
+    public func createSpace(name: String, type: String = "family", description: String? = nil) async throws -> MemorySpace {
+        var payload: [String: Any] = ["name": name, "type": type]
+        if let description, !description.isEmpty { payload["description"] = description }
+        let body = try JSONSerialization.data(withJSONObject: payload)
+        let (data, httpResponse) = try await performAuthenticatedData(path: "spaces", method: "POST", body: body)
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw NSError(domain: "MemoriaAPIClient", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Failed to create space"])
+        }
+        struct Envelope: Decodable { let success: Bool; let data: MemorySpace }
+        return try JSONDecoder().decode(Envelope.self, from: data).data
+    }
+
+    public func fetchProfiles(spaceId: String) async throws -> [SpaceProfileDTO] {
+        let (data, httpResponse) = try await performAuthenticatedData(path: "spaces/\(spaceId)/profiles", method: "GET")
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw NSError(domain: "MemoriaAPIClient", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Failed to fetch profiles"])
+        }
+        struct Envelope: Decodable { let success: Bool; let data: [SpaceProfileDTO] }
+        return try JSONDecoder().decode(Envelope.self, from: data).data
+    }
+
+    public func createProfile(spaceId: String, name: String, type: String, relationship: String? = nil) async throws -> SpaceProfileDTO {
+        var payload: [String: Any] = ["name": name, "type": type]
+        if let relationship, !relationship.isEmpty { payload["relationship"] = relationship }
+        let body = try JSONSerialization.data(withJSONObject: payload)
+        let (data, httpResponse) = try await performAuthenticatedData(path: "spaces/\(spaceId)/profiles", method: "POST", body: body)
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw NSError(domain: "MemoriaAPIClient", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Failed to create profile"])
+        }
+        struct Envelope: Decodable { let success: Bool; let data: SpaceProfileDTO }
+        return try JSONDecoder().decode(Envelope.self, from: data).data
+    }
+
+    public func fetchCollections(spaceId: String) async throws -> [CollectionDTO] {
+        let (data, httpResponse) = try await performAuthenticatedData(path: "spaces/\(spaceId)/collections", method: "GET")
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw NSError(domain: "MemoriaAPIClient", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Failed to fetch collections"])
+        }
+        struct Envelope: Decodable { let success: Bool; let data: [CollectionDTO] }
+        return try JSONDecoder().decode(Envelope.self, from: data).data
+    }
+
+    public func createCollection(spaceId: String, title: String, description: String? = nil) async throws -> CollectionDTO {
+        var payload: [String: Any] = ["title": title]
+        if let description, !description.isEmpty { payload["description"] = description }
+        let body = try JSONSerialization.data(withJSONObject: payload)
+        let (data, httpResponse) = try await performAuthenticatedData(path: "spaces/\(spaceId)/collections", method: "POST", body: body)
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw NSError(domain: "MemoriaAPIClient", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Failed to create collection"])
+        }
+        struct Envelope: Decodable { let success: Bool; let data: CollectionDTO }
+        return try JSONDecoder().decode(Envelope.self, from: data).data
+    }
+
+    public func fetchComments(memoryId: String) async throws -> [MemoryCommentDTO] {
+        let (data, httpResponse) = try await performAuthenticatedData(path: "memories/\(memoryId)/comments", method: "GET")
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw NSError(domain: "MemoriaAPIClient", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Failed to fetch comments"])
+        }
+        struct Envelope: Decodable { let success: Bool; let data: [MemoryCommentDTO] }
+        return try JSONDecoder().decode(Envelope.self, from: data).data
+    }
+
+    public func addComment(memoryId: String, body commentBody: String, authorName: String? = nil) async throws -> MemoryCommentDTO {
+        var payload: [String: Any] = ["body": commentBody]
+        if let authorName, !authorName.isEmpty { payload["authorName"] = authorName }
+        let body = try JSONSerialization.data(withJSONObject: payload)
+        let (data, httpResponse) = try await performAuthenticatedData(path: "memories/\(memoryId)/comments", method: "POST", body: body)
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw NSError(domain: "MemoriaAPIClient", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Failed to add comment"])
+        }
+        struct Envelope: Decodable { let success: Bool; let data: MemoryCommentDTO }
+        return try JSONDecoder().decode(Envelope.self, from: data).data
+    }
+
+    public func fetchTrashMemories(spaceId: String) async throws -> [Memory] {
+        let (data, httpResponse) = try await performAuthenticatedData(path: "spaces/\(spaceId)/memories/trash", method: "GET")
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw NSError(domain: "MemoriaAPIClient", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Failed to fetch trash"])
+        }
+        struct Envelope: Decodable { let success: Bool; let data: [Memory] }
+        return try JSONDecoder().decode(Envelope.self, from: data).data
+    }
+
+    public func restoreMemory(memoryId: String) async throws -> Memory {
+        let (data, httpResponse) = try await performAuthenticatedData(path: "memories/\(memoryId)/restore", method: "POST", body: Data("{}".utf8))
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw NSError(domain: "MemoriaAPIClient", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Failed to restore memory"])
+        }
+        struct Envelope: Decodable { let success: Bool; let data: Memory }
+        return try JSONDecoder().decode(Envelope.self, from: data).data
+    }
+
+    public func markNotificationRead(id: String) async throws {
+        let (_, httpResponse) = try await performAuthenticatedData(path: "notifications/\(id)/read", method: "POST", body: Data("{}".utf8))
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw NSError(domain: "MemoriaAPIClient", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Failed to mark notification read"])
+        }
+    }
+
+    public func markAllNotificationsRead() async throws {
+        let (_, httpResponse) = try await performAuthenticatedData(path: "notifications/read-all", method: "POST", body: Data("{}".utf8))
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw NSError(domain: "MemoriaAPIClient", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Failed to mark notifications read"])
+        }
+    }
+
+    public func fetchBookCatalog() async throws -> PrintCatalogDTO {
+        let request = createRequest(path: "books/catalog", method: "GET")
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode) else {
+            throw NSError(domain: "MemoriaAPIClient", code: (response as? HTTPURLResponse)?.statusCode ?? 500, userInfo: [NSLocalizedDescriptionKey: "Failed to load catalog"])
+        }
+        struct Envelope: Decodable { let success: Bool; let data: PrintCatalogDTO }
+        return try JSONDecoder().decode(Envelope.self, from: data).data
+    }
+
+    public func fetchMyOrders() async throws -> [PrintOrderDTO] {
+        let (data, httpResponse) = try await performAuthenticatedData(path: "orders/me", method: "GET")
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw NSError(domain: "MemoriaAPIClient", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Failed to load orders"])
+        }
+        struct Envelope: Decodable { let success: Bool; let data: [PrintOrderDTO] }
+        return try JSONDecoder().decode(Envelope.self, from: data).data
     }
 }

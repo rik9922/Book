@@ -54,6 +54,16 @@ public struct BookshelfView: View {
                 }
             }
             .navigationTitle("Bookshelf")
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    NavigationLink {
+                        PrintOrdersView()
+                    } label: {
+                        Label("Print Orders", systemImage: "printer")
+                            .foregroundStyle(MemoriaTheme.plum)
+                    }
+                }
+            }
             .onAppear {
                 reloadPersistedConfigurations()
             }

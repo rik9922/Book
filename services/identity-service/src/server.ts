@@ -3,6 +3,7 @@ import cors from "@fastify/cors";
 import fastifyJwt from "@fastify/jwt";
 import crypto from "node:crypto";
 import { promisify } from "node:util";
+import { z } from "zod";
 import { createServiceLogger, Logger } from "@memory-capsule/logger";
 import {
   BaseServiceConfigSchema,
@@ -80,6 +81,26 @@ class InMemoryUserTestRepository implements UserRepository {
     return record;
   }
 
+  async updateProfile(
+    userId: string,
+    updates: { fullName?: string; avatarUrl?: string | null }
+  ): Promise<UserRecord | null> {
+    const user = this.users.get(userId);
+    if (!user) return null;
+    const updated: UserRecord = {
+      ...user,
+      fullName: updates.fullName !== undefined ? updates.fullName : user.fullName,
+      avatarUrl: updates.avatarUrl !== undefined ? updates.avatarUrl : user.avatarUrl,
+      updatedAt: new Date().toISOString(),
+    };
+    this.users.set(userId, updated);
+    return updated;
+  }
+
+  async deleteUser(userId: string): Promise<boolean> {
+    return this.users.delete(userId);
+  }
+
   async updatePassword(userId: string, passwordHash: string): Promise<void> {
     const user = this.users.get(userId);
     if (user) {
@@ -110,6 +131,20 @@ class InMemoryUserTestRepository implements UserRepository {
 
   async deleteSession(id: string): Promise<void> {
     this.sessions.delete(id);
+  }
+
+  async listSessionsForUser(userId: string): Promise<UserSessionRecord[]> {
+    const now = Date.now();
+    return Array.from(this.sessions.values()).filter(
+      (s) => s.userId === userId && !s.revokedAt && new Date(s.expiresAt).getTime() > now
+    );
+  }
+
+  async revokeSessionById(sessionId: string, userId: string): Promise<boolean> {
+    const s = this.sessions.get(sessionId);
+    if (!s || s.userId !== userId || s.revokedAt) return false;
+    this.sessions.set(sessionId, { ...s, revokedAt: new Date().toISOString() });
+    return true;
   }
 
   async revokeSessionByTokenHash(hash: string): Promise<boolean> {
@@ -211,7 +246,7 @@ export async function buildIdentityService(): Promise<FastifyInstance> {
 
   await app.register(cors, {
     origin: (origin, cb) => {
-      if (!origin || allowedOrigins.includes(origin) || origin.startsWith("http://localhost:")) {
+      if (!origin || allowedOrigins.includes(origin) || origin.startsWith("http://localhost:") || origin.startsWith("http://127.0.0.1:")) {
         cb(null, true);
         return;
       }
@@ -598,6 +633,124 @@ export async function buildIdentityService(): Promise<FastifyInstance> {
     } catch {
       return reply.status(401).send(createErrorResponse("UNAUTHORIZED", "Missing or invalid session credentials", correlationId));
     }
+  });
+
+  // Update Current User Profile
+  const UpdateProfileSchema = z.object({
+    fullName: z.string().min(1).max(120).optional(),
+    avatarUrl: z.string().url().nullable().optional(),
+  });
+
+  app.patch("/api/v1/auth/me", async (req: FastifyRequest, reply: FastifyReply) => {
+    const correlationId = (req.headers["x-correlation-id"] as string) || "corr-unknown";
+    let userId: string;
+    try {
+      const payload: any = await req.jwtVerify();
+      userId = payload.sub;
+    } catch {
+      return reply.status(401).send(createErrorResponse("UNAUTHORIZED", "Missing or invalid session credentials", correlationId));
+    }
+
+    const parseResult = UpdateProfileSchema.safeParse(req.body);
+    if (!parseResult.success) {
+      return reply.status(400).send(createErrorResponse("VALIDATION_ERROR", "Invalid profile update payload", correlationId));
+    }
+
+    if (!userRepo.updateProfile) {
+      return reply.status(501).send(createErrorResponse("NOT_IMPLEMENTED", "Profile updates unavailable", correlationId));
+    }
+    const updated = await userRepo.updateProfile(userId, parseResult.data);
+    if (!updated) {
+      return reply.status(404).send(createErrorResponse("USER_NOT_FOUND", "Profile could not be resolved", correlationId));
+    }
+
+    const userProfile: UserProfile = {
+      id: updated.id,
+      email: updated.email,
+      fullName: updated.fullName,
+      avatarUrl: updated.avatarUrl,
+      createdAt: updated.createdAt,
+      updatedAt: updated.updatedAt,
+    };
+    return reply.status(200).send(createSuccessResponse({ user: userProfile }, correlationId));
+  });
+
+  // List & Revoke Active Sessions
+  app.get("/api/v1/auth/sessions", async (req: FastifyRequest, reply: FastifyReply) => {
+    const correlationId = (req.headers["x-correlation-id"] as string) || "corr-unknown";
+    let userId: string;
+    try {
+      const payload: any = await req.jwtVerify();
+      userId = payload.sub;
+    } catch {
+      return reply.status(401).send(createErrorResponse("UNAUTHORIZED", "Missing or invalid session credentials", correlationId));
+    }
+    const sessions = userRepo.listSessionsForUser ? await userRepo.listSessionsForUser(userId) : [];
+    return reply.status(200).send(
+      createSuccessResponse(
+        sessions.map((s) => ({
+          id: s.id,
+          userAgent: s.userAgent || "Unknown Device",
+          ipAddress: s.ipAddress || "local",
+          expiresAt: s.expiresAt,
+          createdAt: s.createdAt,
+        })),
+        correlationId
+      )
+    );
+  });
+
+  app.delete(
+    "/api/v1/auth/sessions/:sessionId",
+    async (req: FastifyRequest<{ Params: { sessionId: string } }>, reply: FastifyReply) => {
+      const correlationId = (req.headers["x-correlation-id"] as string) || "corr-unknown";
+      let userId: string;
+      try {
+        const payload: any = await req.jwtVerify();
+        userId = payload.sub;
+      } catch {
+        return reply.status(401).send(createErrorResponse("UNAUTHORIZED", "Missing or invalid session credentials", correlationId));
+      }
+      const revoked = userRepo.revokeSessionById
+        ? await userRepo.revokeSessionById(req.params.sessionId, userId)
+        : false;
+      if (!revoked) {
+        return reply.status(404).send(createErrorResponse("SESSION_NOT_FOUND", "Active session not found", correlationId));
+      }
+      return reply.status(200).send(createSuccessResponse({ revoked: true, sessionId: req.params.sessionId }, correlationId));
+    }
+  );
+
+  // Permanent Account Deletion (requires current password confirmation)
+  app.post("/api/v1/auth/account/delete", async (req: FastifyRequest, reply: FastifyReply) => {
+    const correlationId = (req.headers["x-correlation-id"] as string) || "corr-unknown";
+    let userId: string;
+    try {
+      const payload: any = await req.jwtVerify();
+      userId = payload.sub;
+    } catch {
+      return reply.status(401).send(createErrorResponse("UNAUTHORIZED", "Missing or invalid session credentials", correlationId));
+    }
+    const body = (req.body as { password?: string }) || {};
+    if (!body.password || typeof body.password !== "string") {
+      return reply.status(400).send(createErrorResponse("VALIDATION_ERROR", "Current password is required to delete account", correlationId));
+    }
+    const user = await userRepo.findById(userId);
+    if (!user) {
+      return reply.status(404).send(createErrorResponse("USER_NOT_FOUND", "User not found", correlationId));
+    }
+    const valid = await verifyPassword(body.password, user.passwordHash);
+    if (!valid) {
+      return reply.status(401).send(createErrorResponse("INVALID_CREDENTIALS", "Password confirmation failed", correlationId));
+    }
+    if (userRepo.revokeAllSessionsForUser) {
+      await userRepo.revokeAllSessionsForUser(userId);
+    }
+    if (userRepo.deleteUser) {
+      await userRepo.deleteUser(userId);
+    }
+    await publishDomainEvent("identity.account.deleted", "account.deleted", userId, { userId });
+    return reply.status(200).send(createSuccessResponse({ deleted: true }, correlationId));
   });
 
   return app;

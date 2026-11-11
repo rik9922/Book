@@ -8,7 +8,10 @@ import { createDatabaseClient } from "@memory-capsule/database";
 
 const execFileAsync = promisify(execFile);
 
-const BACKUPS_ROOT = path.resolve(process.cwd(), "backups");
+const BACKUPS_ROOT = path.resolve(
+  process.cwd(),
+  process.env.MEMORIA_BACKUP_ROOT || "backups"
+);
 const STORAGE_LOCAL = path.resolve(
   process.cwd(),
   process.env.LOCAL_STORAGE_PATH || "storage_data"

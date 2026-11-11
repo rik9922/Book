@@ -11,12 +11,14 @@ import {
   getStoredSession,
   MemorySpaceDTO,
   saveStoredSession,
+  updateUserProfile,
 } from "@/lib/api";
 
 const REDUCED_MOTION_KEY = "memoria_reduced_motion";
 
 export default function SettingsPage() {
   const [user, setUser] = useState<AuthUser | null>(null);
+  const [fullNameInput, setFullNameInput] = useState("");
   const [reducedMotion, setReducedMotion] = useState(false);
   const [spaces, setSpaces] = useState<MemorySpaceDTO[]>([]);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
@@ -26,6 +28,7 @@ export default function SettingsPage() {
   useEffect(() => {
     const session = getStoredSession();
     setUser(session.user);
+    setFullNameInput(session.user?.fullName || "");
     if (typeof window !== "undefined") {
       setReducedMotion(localStorage.getItem(REDUCED_MOTION_KEY) === "true");
     }
@@ -99,6 +102,23 @@ export default function SettingsPage() {
       clearStoredSession();
       setUser(null);
       setStatusMessage("Signed out and revoked local session credentials.");
+    }
+  };
+
+  const handleSaveProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!fullNameInput.trim()) return;
+    setError(null);
+    try {
+      const updated = await updateUserProfile({ fullName: fullNameInput.trim() });
+      const session = getStoredSession();
+      if (session.accessToken && session.refreshToken) {
+        saveStoredSession(session.accessToken, session.refreshToken, updated);
+      }
+      setUser(updated);
+      setStatusMessage("Profile display name updated.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update profile.");
     }
   };
 
@@ -189,7 +209,32 @@ export default function SettingsPage() {
                   <LogOut className="w-3.5 h-3.5" aria-hidden="true" />
                   Sign Out & Revoke Session
                 </button>
+                <Link
+                  href="/export"
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#FFFFFF] border border-[#E7E2DA] text-xs font-medium text-[#20242C]"
+                >
+                  Sessions &amp; Account Deletion
+                </Link>
               </div>
+              <form onSubmit={handleSaveProfile} className="pt-3 border-t border-[#F0ECE1] flex flex-wrap gap-2">
+                <label htmlFor="settings-fullname" className="sr-only">
+                  Display Name
+                </label>
+                <input
+                  id="settings-fullname"
+                  type="text"
+                  required
+                  value={fullNameInput}
+                  onChange={(e) => setFullNameInput(e.target.value)}
+                  className="flex-1 min-w-[200px] px-3 py-2 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] text-xs"
+                />
+                <button
+                  type="submit"
+                  className="px-4 py-2 rounded-xl bg-[#76556F] text-white text-xs font-semibold"
+                >
+                  Save Display Name
+                </button>
+              </form>
             </div>
           ) : (
             <div className="flex items-center justify-between">

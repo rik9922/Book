@@ -60,6 +60,17 @@ public struct FamilyCirclesView: View {
                     }
                 }
 
+                Section("Circle Tools") {
+                    if let firstSpaceId = spaces.first?.id {
+                        NavigationLink("People & Profiles Directory") {
+                            ProfilesDirectoryView(spaceId: firstSpaceId)
+                        }
+                    }
+                    NavigationLink("Notification Center") {
+                        NotificationsCenterView()
+                    }
+                }
+
                 Section("Recent Family Notifications") {
                     if notifications.isEmpty {
                         Text("No new circle updates or print notifications.")

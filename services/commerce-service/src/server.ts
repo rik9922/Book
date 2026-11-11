@@ -49,6 +49,9 @@ class InMemoryCommerceTestRepo implements CommerceRepository {
   async listOrders(spaceId: string): Promise<PrintOrderRecord[]> {
     return Array.from(this.orders.values()).filter((o) => o.spaceId === spaceId);
   }
+  async listOrdersByUser(userId: string): Promise<PrintOrderRecord[]> {
+    return Array.from(this.orders.values()).filter((o) => o.userId === userId);
+  }
   async updateOrderStatus(id: string, status: string): Promise<void> {
     const order = this.orders.get(id);
     if (order) {
@@ -259,6 +262,50 @@ export async function buildCommerceService(): Promise<FastifyInstance> {
     return reply.status(201).send(createSuccessResponse(order));
   });
 
+  // Shipping & Zero-Markup Pricing Calculator (PWA-72)
+  app.post("/api/v1/orders/quote", async (req: FastifyRequest, reply: FastifyReply) => {
+    await requireAuthUser(req);
+    const body = (req.body as {
+      format?: string;
+      binding?: string;
+      paperWeight?: string;
+      quantity?: number;
+      country?: string;
+    }) || {};
+    const quantity = Math.min(Math.max(Number(body.quantity || 1), 1), 20);
+    const baseCents =
+      body.format === "hardcover_grand_12x12"
+        ? 6800
+        : body.format === "hardcover_square_8x8"
+        ? 4200
+        : 4800;
+    const bindingSurcharge = body.binding === "french_morocco" ? 2000 : 0;
+    const paperSurcharge = body.paperWeight === "170gsm_lustre" ? 400 : 0;
+    const unitCents = baseCents + bindingSurcharge + paperSurcharge;
+    const subtotalCents = unitCents * quantity;
+    const isDomestic = !body.country || body.country.toUpperCase() === "US";
+    const shippingCents = isDomestic ? 900 : 2400;
+    return reply.status(200).send(
+      createSuccessResponse({
+        currency: "USD",
+        quantity,
+        unitCents,
+        subtotalCents,
+        shippingCents,
+        taxCents: 0,
+        totalCents: subtotalCents + shippingCents,
+        estimatedDays: isDomestic ? "5–7 business days" : "10–14 business days",
+      })
+    );
+  });
+
+  // List Authenticated User's Orders Across All Spaces (PWA-75 / PWA-76)
+  app.get("/api/v1/orders/me", async (req: FastifyRequest, reply: FastifyReply) => {
+    const userId = await requireAuthUser(req);
+    const orders = commerceRepo.listOrdersByUser ? await commerceRepo.listOrdersByUser(userId) : [];
+    return reply.status(200).send(createSuccessResponse(orders));
+  });
+
   app.get(
     "/api/v1/orders/:orderId",
     async (req: FastifyRequest<{ Params: { orderId: string } }>, reply: FastifyReply) => {
@@ -269,6 +316,33 @@ export async function buildCommerceService(): Promise<FastifyInstance> {
       }
       await assertSpaceAccess(order.spaceId, userId, false);
       return reply.status(200).send(createSuccessResponse(order));
+    }
+  );
+
+  // Printable Proof Receipt (PWA-74)
+  app.get(
+    "/api/v1/orders/:orderId/receipt",
+    async (req: FastifyRequest<{ Params: { orderId: string } }>, reply: FastifyReply) => {
+      const userId = await requireAuthUser(req);
+      const order = await commerceRepo.getOrderById(req.params.orderId);
+      if (!order) {
+        return reply.status(404).send(createErrorResponse("ORDER_NOT_FOUND", "Print order not found"));
+      }
+      await assertSpaceAccess(order.spaceId, userId, false);
+      return reply.status(200).send(
+        createSuccessResponse({
+          receiptNumber: `MEM-${order.id.slice(0, 8).toUpperCase()}`,
+          orderId: order.id,
+          bookId: order.bookId,
+          status: order.status,
+          currency: order.currency,
+          totalCents: order.totalCents,
+          shippingAddress: order.shippingAddress,
+          printSpec: order.printSpec,
+          issuedAt: order.createdAt,
+          policyNote: "Zero-markup archival press fulfillment",
+        })
+      );
     }
   );
 

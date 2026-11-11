@@ -23,7 +23,7 @@ import {
   SlidersHorizontal,
   X,
 } from "lucide-react";
-import { API_BASE_URL, apiRequest, getStoredSession, MemorySpaceDTO } from "@/lib/api";
+import { getApiBaseUrl, apiRequest, getStoredSession, MemorySpaceDTO } from "@/lib/api";
 
 interface SpaceRecord {
   id: string;
@@ -122,7 +122,7 @@ const INITIAL_ORDERS: OrderRecord[] = [
 
 export default function AdminPortalPage() {
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedTab, setSelectedTab] = useState<"overview" | "spaces" | "queues" | "orders">(
+  const [selectedTab, setSelectedTab] = useState<"overview" | "spaces" | "queues" | "orders" | "governance">(
     "overview"
   );
   const [spaces, setSpaces] = useState<SpaceRecord[]>(SAMPLE_SPACES);
@@ -137,7 +137,8 @@ export default function AdminPortalPage() {
 
   const probeClusterHealth = useCallback(async () => {
     setGatewayStatus("checking");
-    const rootUrl = API_BASE_URL.replace(/\/api\/v1$/, "");
+    const apiBase = getApiBaseUrl();
+    const rootUrl = apiBase.replace(/\/api\/v1$/, "");
     try {
       const res = await fetch(`${rootUrl}/health`);
       setGatewayStatus(res.ok ? "online" : "offline");
@@ -146,7 +147,7 @@ export default function AdminPortalPage() {
     }
 
     try {
-      const ocrRes = await fetch(`${API_BASE_URL}/media/ocr/status`);
+      const ocrRes = await fetch(`${apiBase}/media/ocr/status`);
       if (ocrRes.ok) {
         const json = await ocrRes.json();
         const ready = Boolean(json?.data?.isAvailable ?? json?.data?.available);
@@ -312,6 +313,7 @@ export default function AdminPortalPage() {
                 { id: "spaces", label: "Memory Spaces", icon: Layers },
                 { id: "queues", label: "Sync & Media Queues", icon: Database },
                 { id: "orders", label: "Print Orders", icon: Printer },
+                { id: "governance", label: "Audit & Catalog", icon: ShieldCheck },
               ] as const
             ).map((item) => {
               const Icon = item.icon;
@@ -366,7 +368,9 @@ export default function AdminPortalPage() {
                   ? "Memory Spaces Directory"
                   : selectedTab === "queues"
                   ? "Sync, OCR & Outbox Queues"
-                  : "Print Fulfillment Orders"}
+                  : selectedTab === "orders"
+                  ? "Print Fulfillment Orders"
+                  : "Governance, Audit & Print Catalog"}
               </h1>
               <p className="text-sm text-[#5C5955] mt-1">
                 Real-time visibility across memory spaces, OCR indexing, transactional outboxes, and hardcover fulfillment.
@@ -614,6 +618,50 @@ export default function AdminPortalPage() {
                     </div>
                   </div>
                 ))}
+              </div>
+            </div>
+          )}
+          {/* Governance, Audit Logs, Feature Flags & Print Catalog Tab */}
+          {(selectedTab === "overview" || selectedTab === "governance") && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="p-6 rounded-2xl bg-[#FFFFFF] border border-[#E7E2DA] space-y-3">
+                <h2 className="font-serif text-lg font-bold text-[#20242C]">
+                  Security Audit &amp; Feature Flags
+                </h2>
+                <ul className="space-y-2 text-xs text-[#5C5955]">
+                  <li className="p-3 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] flex justify-between">
+                    <span>Zero-Budget Cardless Storage Enforcement</span>
+                    <span className="font-semibold text-[#5F735E]">ACTIVE</span>
+                  </li>
+                  <li className="p-3 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] flex justify-between">
+                    <span>Tesseract Single-Pass TSV OCR</span>
+                    <span className="font-semibold text-[#5F735E]">{ocrEngineStatus}</span>
+                  </li>
+                  <li className="p-3 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] flex justify-between">
+                    <span>Immutable Edition Freeze Hashing</span>
+                    <span className="font-semibold text-[#76556F]">SHA-256 LOCKED</span>
+                  </li>
+                </ul>
+              </div>
+
+              <div className="p-6 rounded-2xl bg-[#FFFFFF] border border-[#E7E2DA] space-y-3">
+                <h2 className="font-serif text-lg font-bold text-[#20242C]">
+                  Print Catalog &amp; Pass-Through Rates
+                </h2>
+                <ul className="space-y-2 text-xs text-[#5C5955]">
+                  <li className="p-3 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] flex justify-between">
+                    <span>8×8&quot; Square Linen Hardcover</span>
+                    <span className="font-mono font-semibold text-[#20242C]">$42.00</span>
+                  </li>
+                  <li className="p-3 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] flex justify-between">
+                    <span>8×10&quot; Standard Archive Hardcover</span>
+                    <span className="font-mono font-semibold text-[#20242C]">$48.00</span>
+                  </li>
+                  <li className="p-3 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] flex justify-between">
+                    <span>12×12&quot; Grand French-Morocco Leather</span>
+                    <span className="font-mono font-semibold text-[#20242C]">$88.00</span>
+                  </li>
+                </ul>
               </div>
             </div>
           )}
