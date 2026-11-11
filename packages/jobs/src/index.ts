@@ -4,18 +4,41 @@ import { createServiceLogger, Logger } from "@memory-capsule/logger";
 
 const logger: Logger = createServiceLogger("job-manager");
 
+export interface QueueTelemetryStats {
+  name: string;
+  active: number;
+  waiting: number;
+  completed: number;
+  failed: number;
+}
+
+export interface DeadLetterJobSummary {
+  queueName: string;
+  jobId: string;
+  jobName: string;
+  failedReason: string;
+  attemptsMade: number;
+}
+
 export interface JobManager {
   addJob<T = any>(queueName: string, jobName: string, data: T, opts?: any): Promise<void>;
   registerWorker<T = any>(
     queueName: string,
     processor: (job: { name: string; data: T; id?: string }) => Promise<any>
   ): void;
+  getQueueTelemetry?(queueNames: string[]): Promise<{
+    queues: QueueTelemetryStats[];
+    deadLetterJobs: DeadLetterJobSummary[];
+  }>;
+  retryFailedJob?(queueName: string, jobId?: string): Promise<{ retriedCount: number }>;
   close(): Promise<void>;
 }
 
 class InMemoryJobManager implements JobManager {
   private workers = new Map<string, Array<(job: any) => Promise<any>>>();
   private timers = new Set<NodeJS.Timeout>();
+  private completedCounts = new Map<string, number>();
+  private failedJobs = new Map<string, DeadLetterJobSummary[]>();
   private closed = false;
 
   async addJob<T>(queueName: string, jobName: string, data: T): Promise<void> {
@@ -27,10 +50,21 @@ class InMemoryJobManager implements JobManager {
       if (this.closed) return;
       for (const worker of registered) {
         if (this.closed) break;
+        const jobId = `job-${Date.now()}`;
         try {
-          await worker({ name: jobName, data, id: `job-${Date.now()}` });
+          await worker({ name: jobName, data, id: jobId });
+          this.completedCounts.set(queueName, (this.completedCounts.get(queueName) || 0) + 1);
         } catch (err) {
           logger.error({ err, queueName, jobName }, "[InMemoryJobManager] Job execution failure");
+          const list = this.failedJobs.get(queueName) || [];
+          list.push({
+            queueName,
+            jobId,
+            jobName,
+            failedReason: err instanceof Error ? err.message : String(err),
+            attemptsMade: 1,
+          });
+          this.failedJobs.set(queueName, list);
         }
       }
     }, 10);
@@ -42,6 +76,30 @@ class InMemoryJobManager implements JobManager {
     list.push(processor);
     this.workers.set(queueName, list);
     logger.debug({ queueName }, "[InMemoryJobManager] Registered worker");
+  }
+
+  async getQueueTelemetry(queueNames: string[]) {
+    const queues: QueueTelemetryStats[] = queueNames.map((name) => ({
+      name,
+      active: 0,
+      waiting: 0,
+      completed: this.completedCounts.get(name) || 0,
+      failed: (this.failedJobs.get(name) || []).length,
+    }));
+    const deadLetterJobs: DeadLetterJobSummary[] = queueNames.flatMap((name) => this.failedJobs.get(name) || []);
+    return { queues, deadLetterJobs };
+  }
+
+  async retryFailedJob(queueName: string, jobId?: string) {
+    const list = this.failedJobs.get(queueName) || [];
+    if (!jobId || jobId === "latest") {
+      const count = list.length;
+      this.failedJobs.set(queueName, []);
+      return { retriedCount: count };
+    }
+    const next = list.filter((j) => j.jobId !== jobId);
+    this.failedJobs.set(queueName, next);
+    return { retriedCount: list.length - next.length };
   }
 
   async close(): Promise<void> {
@@ -115,6 +173,54 @@ class BullMQJobManager implements JobManager {
     });
 
     this.activeWorkers.push(worker);
+  }
+
+  async getQueueTelemetry(queueNames: string[]) {
+    const queues: QueueTelemetryStats[] = [];
+    const deadLetterJobs: DeadLetterJobSummary[] = [];
+
+    for (const name of queueNames) {
+      const q = this.getQueue(name);
+      const [counts, failed] = await Promise.all([
+        q.getJobCounts("active", "waiting", "completed", "failed"),
+        q.getFailed(0, 24),
+      ]);
+      queues.push({
+        name,
+        active: counts.active || 0,
+        waiting: counts.waiting || 0,
+        completed: counts.completed || 0,
+        failed: counts.failed || 0,
+      });
+      for (const job of failed) {
+        deadLetterJobs.push({
+          queueName: name,
+          jobId: String(job.id ?? ""),
+          jobName: job.name,
+          failedReason: job.failedReason || "Job failed",
+          attemptsMade: job.attemptsMade || 1,
+        });
+      }
+    }
+
+    return { queues, deadLetterJobs };
+  }
+
+  async retryFailedJob(queueName: string, jobId?: string) {
+    const q = this.getQueue(queueName);
+    if (!jobId || jobId === "latest") {
+      const failed = await q.getFailed(0, 10);
+      let retriedCount = 0;
+      for (const job of failed) {
+        await job.retry();
+        retriedCount++;
+      }
+      return { retriedCount };
+    }
+    const job = await q.getJob(jobId);
+    if (!job) return { retriedCount: 0 };
+    await job.retry();
+    return { retriedCount: 1 };
   }
 
   async close(): Promise<void> {

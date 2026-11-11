@@ -8,6 +8,8 @@ import { AppShell } from "@/components/AppShell";
 import {
   addMemoryComment,
   apiRequest,
+  getMediaAsset,
+  getMediaOcr,
   getMemoryHistory,
   getStoredSession,
   listMemoryComments,
@@ -20,6 +22,8 @@ export default function MemoryDetailPage() {
   const memoryId = params?.memoryId || "";
 
   const [memory, setMemory] = useState<MemoryDTO | null>(null);
+  const [mediaAsset, setMediaAsset] = useState<{ mimeType: string; publicUrl?: string; originalName: string } | null>(null);
+  const [ocrRows, setOcrRows] = useState<Array<{ id: string; extractedText: string }>>([]);
   const [comments, setComments] = useState<MemoryCommentDTO[]>([]);
   const [history, setHistory] = useState<Array<{ id: string; title: string; changeSummary: string; createdAt: string }>>([]);
   const [commentBody, setCommentBody] = useState("");
@@ -32,8 +36,15 @@ export default function MemoryDetailPage() {
       listMemoryComments(memoryId),
       getMemoryHistory(memoryId),
     ]).then(([memRes, cmtRes, histRes]) => {
-      if (memRes.status === "fulfilled") setMemory(memRes.value);
-      else setError("Unable to load memory.");
+      if (memRes.status === "fulfilled") {
+        setMemory(memRes.value);
+        if (memRes.value.mediaIds?.length > 0) {
+          getMediaAsset(memRes.value.mediaIds[0]).then(setMediaAsset).catch(() => undefined);
+          getMediaOcr(memRes.value.mediaIds[0]).then(setOcrRows).catch(() => undefined);
+        }
+      } else {
+        setError("Unable to load memory.");
+      }
       if (cmtRes.status === "fulfilled") setComments(cmtRes.value || []);
       if (histRes.status === "fulfilled") setHistory(histRes.value || []);
     });
@@ -90,6 +101,25 @@ export default function MemoryDetailPage() {
               <p className="text-sm text-[#28272A] leading-relaxed whitespace-pre-wrap">
                 {memory.content || "No narrative text attached."}
               </p>
+              {mediaAsset?.publicUrl && (
+                <div className="pt-2 space-y-3">
+                  {mediaAsset.mimeType.startsWith("video/") ? (
+                    <video controls src={mediaAsset.publicUrl} className="w-full rounded-xl bg-black max-h-80" />
+                  ) : mediaAsset.mimeType.startsWith("audio/") ? (
+                    <audio controls src={mediaAsset.publicUrl} className="w-full" />
+                  ) : mediaAsset.mimeType === "application/pdf" ? (
+                    <iframe src={mediaAsset.publicUrl} title={memory.title} className="w-full h-72 rounded-xl border border-[#E7E2DA]" />
+                  ) : (
+                    <img src={mediaAsset.publicUrl} alt={memory.title} className="w-full max-h-96 object-contain rounded-xl bg-[#F7F4EE]" />
+                  )}
+                </div>
+              )}
+              {ocrRows.length > 0 && (
+                <div className="p-4 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] text-xs space-y-1">
+                  <p className="font-semibold text-[#76556F]">OCR Extracted Transcript</p>
+                  <p className="text-[#28272A] whitespace-pre-wrap">{ocrRows[0].extractedText}</p>
+                </div>
+              )}
             </article>
 
             <aside className="lg:col-span-5 space-y-6">

@@ -845,21 +845,37 @@ export async function buildMemoryService(): Promise<FastifyInstance> {
         location: parseResult.data.location === null ? undefined : parseResult.data.location,
       });
 
-      if (dbUrl && updated) {
-        await db.query(
-          `INSERT INTO memory_revisions (id, memory_id, space_id, editor_id, title, content, captured_at, change_summary)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-          [
-            crypto.randomUUID(),
-            memory.id,
-            memory.spaceId,
-            userId,
-            updated.title,
-            updated.content || null,
-            updated.capturedAt || null,
-            `Updated fields: ${Object.keys(parseResult.data).join(", ")}`,
-          ]
-        ).catch((err) => logger.warn({ err }, "[Memory] Non-fatal revision insert warning"));
+      if (updated) {
+        const changeSummary = `Updated fields: ${Object.keys(parseResult.data).join(", ")}`;
+        if (dbUrl) {
+          await db.query(
+            `INSERT INTO memory_revisions (id, memory_id, space_id, editor_id, title, content, captured_at, change_summary)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+            [
+              crypto.randomUUID(),
+              memory.id,
+              memory.spaceId,
+              userId,
+              updated.title,
+              updated.content || null,
+              updated.capturedAt || null,
+              changeSummary,
+            ]
+          ).catch((err) => logger.warn({ err }, "[Memory] Non-fatal revision insert warning"));
+        } else {
+          const list = memRevisions.get(memory.id) || [];
+          list.unshift({
+            id: crypto.randomUUID(),
+            memoryId: memory.id,
+            editorId: userId,
+            title: updated.title,
+            content: updated.content || "",
+            capturedAt: updated.capturedAt,
+            changeSummary,
+            createdAt: new Date().toISOString(),
+          });
+          memRevisions.set(memory.id, list);
+        }
       }
 
       return reply.status(200).send(createSuccessResponse(updated));
@@ -1370,6 +1386,38 @@ export async function buildMemoryService(): Promise<FastifyInstance> {
     }
   );
 
+  app.post(
+    "/api/v1/memories/:memoryId/flag",
+    async (req: FastifyRequest<{ Params: { memoryId: string }; Body: { reason?: string } }>, reply) => {
+      const userId = await requireAuthUser(req);
+      const mem = await memoryRepo.findMemoryById(req.params.memoryId);
+      if (!mem) {
+        return reply.status(404).send(createErrorResponse("MEMORY_NOT_FOUND", "Memory not found"));
+      }
+      await assertSpaceAccess(mem.spaceId, userId, false);
+      const reason = req.body?.reason?.trim() || "Flagged for archival review";
+      const flag = {
+        id: crypto.randomUUID(),
+        spaceId: mem.spaceId,
+        memoryId: mem.id,
+        mediaId: mem.mediaIds?.[0] || null,
+        reason,
+        status: "pending",
+        createdAt: new Date().toISOString(),
+      };
+      if (dbUrl) {
+        await db.query(
+          `INSERT INTO moderation_flags (id, space_id, memory_id, media_id, reason, status)
+           VALUES ($1, $2, $3, $4, $5, 'pending')`,
+          [flag.id, flag.spaceId, flag.memoryId, flag.mediaId, flag.reason]
+        );
+      } else {
+        memModerationFlags.unshift(flag);
+      }
+      return reply.status(201).send(createSuccessResponse(flag));
+    }
+  );
+
   // ==========================================
   // ADMIN SPACES & CONTENT MODERATION (ADMIN-04 / ADMIN-06)
   // ==========================================
@@ -1408,6 +1456,12 @@ export async function buildMemoryService(): Promise<FastifyInstance> {
           return reply.status(404).send(createErrorResponse("FLAG_NOT_FOUND", "Moderation flag not found"));
         }
         return reply.status(200).send(createSuccessResponse(res.rows[0]));
+      }
+      const flag = memModerationFlags.find((f) => f.id === req.params.flagId);
+      if (flag) {
+        flag.status = decision;
+        flag.resolvedBy = adminId;
+        flag.resolvedAt = new Date().toISOString();
       }
       return reply.status(200).send(createSuccessResponse({ id: req.params.flagId, status: decision, resolvedBy: adminId }));
     }

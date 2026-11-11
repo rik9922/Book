@@ -5,6 +5,8 @@ import rateLimit from "@fastify/rate-limit";
 import httpProxy from "@fastify/http-proxy";
 import crypto from "node:crypto";
 import { createServiceLogger, Logger } from "@memory-capsule/logger";
+import { createDatabaseClient } from "@memory-capsule/database";
+import { createJobManager } from "@memory-capsule/jobs";
 import {
   BaseServiceConfigSchema,
   validateServiceConfig,
@@ -39,12 +41,16 @@ export interface GatewayOptions {
 }
 
 export function buildGateway(options?: GatewayOptions): FastifyInstance {
-  validateServiceConfig(BaseServiceConfigSchema);
+  const gwCfg = validateServiceConfig(BaseServiceConfigSchema);
   const app = Fastify({
     logger: false,
     trustProxy: true,
   });
   app.setErrorHandler(createFastifyErrorHandler(logger));
+
+  const identityDbUrl = gwCfg.IDENTITY_DATABASE_URL || gwCfg.DATABASE_URL;
+  const db = createDatabaseClient(identityDbUrl);
+  const jobManager = createJobManager(gwCfg.REDIS_URL);
 
   const identityGrpcAddress =
     options?.identityGrpcAddress || process.env.IDENTITY_GRPC_ADDRESS || "localhost:50051";
@@ -57,6 +63,8 @@ export function buildGateway(options?: GatewayOptions): FastifyInstance {
 
   app.addHook("onClose", async () => {
     closeAllGrpcClients();
+    await jobManager.close().catch((err) => logger.warn({ err }, "[Gateway] JobManager close warning"));
+    await db.close().catch((err) => logger.warn({ err }, "[Gateway] DB close warning"));
   });
 
   // 1. Correlation ID Middleware
@@ -210,6 +218,20 @@ export function buildGateway(options?: GatewayOptions): FastifyInstance {
       const session = await authenticateViaIdentityGrpc(req, reply);
       if (!session) return;
 
+      let role = "member";
+      const token = req.headers.authorization?.slice(7);
+      if (token) {
+        const parts = token.split(".");
+        if (parts.length === 3) {
+          try {
+            const payload = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8"));
+            if (typeof payload.role === "string") role = payload.role;
+          } catch (err) {
+            logger.warn({ err }, "[Gateway] Failed to decode optional role claim from JWT");
+          }
+        }
+      }
+
       return reply.status(200).send(
         createSuccessResponse(
           {
@@ -217,6 +239,7 @@ export function buildGateway(options?: GatewayOptions): FastifyInstance {
               id: session.userId,
               email: session.email,
               fullName: session.fullName,
+              role,
               isVerified: session.isVerified,
             },
           },
@@ -482,9 +505,8 @@ export function buildGateway(options?: GatewayOptions): FastifyInstance {
   });
 
   // Admin Portal Routing & Gateway Telemetry
-  const gwCfg = validateServiceConfig(BaseServiceConfigSchema);
   const ADMIN_ROLES = new Set(["superadmin", "admin", "ops_admin", "compliance_officer", "support_agent"]);
-  const featureFlags = new Map<string, { flagKey: string; description: string; enabled: boolean; rolloutPercentage: number }>([
+  const memFeatureFlags = new Map<string, { flagKey: string; description: string; enabled: boolean; rolloutPercentage: number }>([
     ["webgl_3d_reader", { flagKey: "webgl_3d_reader", description: "Enable interactive Three.js 3D heirloom book reader", enabled: true, rolloutPercentage: 100 }],
     ["tesseract_ocr_pipeline", { flagKey: "tesseract_ocr_pipeline", description: "Enable local Tesseract single-pass TSV OCR indexing", enabled: true, rolloutPercentage: 100 }],
     ["offline_sync_queue", { flagKey: "offline_sync_queue", description: "Enable browser offline mutation queue and Service Worker caching", enabled: true, rolloutPercentage: 100 }],
@@ -530,6 +552,7 @@ export function buildGateway(options?: GatewayOptions): FastifyInstance {
   }
 
   async function forwardAdminToUpstream(req: FastifyRequest, reply: FastifyReply, upstreamBaseUrl: string) {
+    if (!verifyAdminJwt(req, reply)) return;
     const correlationId = req.headers["x-correlation-id"] as string;
     const headers: Record<string, string> = {};
     if (req.headers.authorization) headers.authorization = req.headers.authorization;
@@ -540,15 +563,23 @@ export function buildGateway(options?: GatewayOptions): FastifyInstance {
     const body = hasBody ? (typeof req.body === "string" ? req.body : JSON.stringify(req.body)) : undefined;
     if (body && !headers["content-type"]) headers["content-type"] = "application/json";
 
-    const upstreamRes = await fetch(`${upstreamBaseUrl}${req.url}`, {
-      method: req.method,
-      headers,
-      ...(body !== undefined ? { body } : {}),
-    });
-    const bodyText = await upstreamRes.text();
-    const ct = upstreamRes.headers.get("content-type");
-    if (ct) reply.header("content-type", ct);
-    return reply.status(upstreamRes.status).send(bodyText);
+    try {
+      const upstreamRes = await fetch(`${upstreamBaseUrl}${req.url}`, {
+        method: req.method,
+        headers,
+        signal: AbortSignal.timeout(8000),
+        ...(body !== undefined ? { body } : {}),
+      });
+      const bodyText = await upstreamRes.text();
+      const ct = upstreamRes.headers.get("content-type");
+      if (ct) reply.header("content-type", ct);
+      return reply.status(upstreamRes.status).send(bodyText);
+    } catch (err) {
+      logger.warn({ err, url: req.url, upstreamBaseUrl }, "[Gateway] Admin upstream request failed");
+      return reply
+        .status(502)
+        .send(createErrorResponse("BAD_GATEWAY", "Upstream service temporarily unavailable", correlationId));
+    }
   }
 
   app.get("/api/v1/admin/services/health", async (req, reply) => {
@@ -584,10 +615,10 @@ export function buildGateway(options?: GatewayOptions): FastifyInstance {
     if (!verifyAdminJwt(req, reply)) return;
     const authHeaders = { authorization: req.headers.authorization || "" };
     const [usersRes, spacesRes, storageRes, ordersRes] = await Promise.allSettled([
-      fetch(`${identityUrl}/api/v1/admin/users`, { headers: authHeaders }).then((r) => r.json()),
-      fetch(`${memoryUrl}/api/v1/admin/spaces`, { headers: authHeaders }).then((r) => r.json()),
-      fetch(`${mediaUrl}/api/v1/admin/storage/stats`, { headers: authHeaders }).then((r) => r.json()),
-      fetch(`${commerceUrl}/api/v1/admin/orders`, { headers: authHeaders }).then((r) => r.json()),
+      fetch(`${identityUrl}/api/v1/admin/users`, { headers: authHeaders, signal: AbortSignal.timeout(4000) }).then((r) => r.json()),
+      fetch(`${memoryUrl}/api/v1/admin/spaces`, { headers: authHeaders, signal: AbortSignal.timeout(4000) }).then((r) => r.json()),
+      fetch(`${mediaUrl}/api/v1/admin/storage/stats`, { headers: authHeaders, signal: AbortSignal.timeout(4000) }).then((r) => r.json()),
+      fetch(`${commerceUrl}/api/v1/admin/orders`, { headers: authHeaders, signal: AbortSignal.timeout(4000) }).then((r) => r.json()),
     ]);
     return reply.status(200).send(
       createSuccessResponse({
@@ -599,9 +630,27 @@ export function buildGateway(options?: GatewayOptions): FastifyInstance {
     );
   });
 
+  app.get("/api/v1/feature-flags", async (_req, reply) => {
+    if (identityDbUrl) {
+      const res = await db.query(
+        `SELECT flag_key as "flagKey", description, enabled, rollout_percentage as "rolloutPercentage"
+         FROM feature_flags ORDER BY flag_key ASC`
+      );
+      return reply.status(200).send(createSuccessResponse(res.rows));
+    }
+    return reply.status(200).send(createSuccessResponse(Array.from(memFeatureFlags.values())));
+  });
+
   app.get("/api/v1/admin/feature-flags", async (req, reply) => {
     if (!verifyAdminJwt(req, reply)) return;
-    return reply.status(200).send(createSuccessResponse(Array.from(featureFlags.values())));
+    if (identityDbUrl) {
+      const res = await db.query(
+        `SELECT flag_key as "flagKey", description, enabled, rollout_percentage as "rolloutPercentage"
+         FROM feature_flags ORDER BY flag_key ASC`
+      );
+      return reply.status(200).send(createSuccessResponse(res.rows));
+    }
+    return reply.status(200).send(createSuccessResponse(Array.from(memFeatureFlags.values())));
   });
 
   app.patch(
@@ -611,7 +660,29 @@ export function buildGateway(options?: GatewayOptions): FastifyInstance {
       reply
     ) => {
       if (!verifyAdminJwt(req, reply)) return;
-      const existing = featureFlags.get(req.params.flagKey);
+      const { flagKey } = req.params;
+      if (identityDbUrl) {
+        const res = await db.query(
+          `UPDATE feature_flags
+           SET enabled = COALESCE($1, enabled),
+               rollout_percentage = COALESCE($2, rollout_percentage),
+               updated_at = NOW()
+           WHERE flag_key = $3
+           RETURNING flag_key as "flagKey", description, enabled, rollout_percentage as "rolloutPercentage"`,
+          [
+            typeof req.body?.enabled === "boolean" ? req.body.enabled : null,
+            typeof req.body?.rolloutPercentage === "number"
+              ? Math.min(Math.max(req.body.rolloutPercentage, 0), 100)
+              : null,
+            flagKey,
+          ]
+        );
+        if (!res.rows[0]) {
+          return reply.status(404).send(createErrorResponse("FLAG_NOT_FOUND", "Feature flag not found"));
+        }
+        return reply.status(200).send(createSuccessResponse(res.rows[0]));
+      }
+      const existing = memFeatureFlags.get(flagKey);
       if (!existing) {
         return reply.status(404).send(createErrorResponse("FLAG_NOT_FOUND", "Feature flag not found"));
       }
@@ -622,29 +693,27 @@ export function buildGateway(options?: GatewayOptions): FastifyInstance {
           ? { rolloutPercentage: Math.min(Math.max(req.body.rolloutPercentage, 0), 100) }
           : {}),
       };
-      featureFlags.set(req.params.flagKey, next);
+      memFeatureFlags.set(flagKey, next);
       return reply.status(200).send(createSuccessResponse(next));
     }
   );
 
   app.get("/api/v1/admin/queues/telemetry", async (req, reply) => {
     if (!verifyAdminJwt(req, reply)) return;
-    return reply.status(200).send(
-      createSuccessResponse({
-        queues: [
-          { name: "media-processing", active: 0, waiting: 0, completed: 12, failed: 0 },
-          { name: "media-ocr", active: 0, waiting: 0, completed: 8, failed: 0 },
-          { name: "outbox-relay", active: 1, waiting: 0, completed: 42, failed: 0 },
-        ],
-        deadLetterJobs: [],
-      })
-    );
+    const queueNames = ["media-processing", "media-ocr"];
+    const telemetry = jobManager.getQueueTelemetry
+      ? await jobManager.getQueueTelemetry(queueNames)
+      : { queues: [], deadLetterJobs: [] };
+    return reply.status(200).send(createSuccessResponse(telemetry));
   });
 
   app.post("/api/v1/admin/queues/:queueName/jobs/:jobId/retry", async (req, reply) => {
     if (!verifyAdminJwt(req, reply)) return;
     const { queueName, jobId } = req.params as { queueName: string; jobId: string };
-    return reply.status(200).send(createSuccessResponse({ retried: true, queueName, jobId }));
+    const result = jobManager.retryFailedJob
+      ? await jobManager.retryFailedJob(queueName, jobId)
+      : { retriedCount: 0 };
+    return reply.status(200).send(createSuccessResponse({ retried: true, queueName, jobId, ...result }));
   });
 
   app.all("/api/v1/admin/users*", (req, reply) => forwardAdminToUpstream(req, reply, identityUrl));

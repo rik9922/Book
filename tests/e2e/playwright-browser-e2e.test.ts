@@ -482,12 +482,17 @@ describe("Interactive Chrome / Playwright DOM, WebGL, SW Offline & 401 Refresh E
       { apiUrl: gatewayUrl, token: adminToken, uid: superAdminId }
     );
 
-    // 1. Live /help support ticket submission
+    // 1. Live /help support ticket submission & create a space for share link testing
     await page.goto(`${WEB_BASE}/help`, { waitUntil: "networkidle" });
     await page.fill("#help-subject", "Chrome E2E Foil Inquiry");
     await page.fill("#help-message", "Checking live ticket creation from /help.");
     await page.click('button:has-text("Submit Support Note")');
     await page.getByText("Chrome E2E Foil Inquiry").first().waitFor({ state: "visible", timeout: 10000 });
+
+    await page.goto(`${WEB_BASE}/spaces`, { waitUntil: "networkidle" });
+    await page.fill("#space-name-input", "Admin Heirloom Space");
+    await page.click('button:has-text("Create Memory Space")');
+    await page.getByText("Admin Heirloom Space").first().waitFor({ state: "visible", timeout: 10000 });
 
     // 2. Archive views (timeline, calendar, search, favorites) & /settings storage panel
     await page.goto(`${WEB_BASE}/archive/timeline`, { waitUntil: "networkidle" });
@@ -497,13 +502,49 @@ describe("Interactive Chrome / Playwright DOM, WebGL, SW Offline & 401 Refresh E
     await page.goto(`${WEB_BASE}/settings`, { waitUntil: "networkidle" });
     await page.getByText("Local Disk Storage").first().waitFor({ state: "visible", timeout: 10000 });
 
-    // 3. Full Admin Portal multi-console navigation
+    // 2b. Share link creation in /circles -> passphrase unlock in /share/[token]
+    await page.goto(`${WEB_BASE}/circles`, { waitUntil: "networkidle" });
+    await page.fill('input[placeholder*="passphrase" i]', "family-secret-99");
+    await page.click('button:has-text("Generate Share Link")');
+    const statusLocator = page.locator('[role="status"]').first();
+    await statusLocator.waitFor({ state: "visible", timeout: 10000 });
+    const shareNotice = await statusLocator.textContent();
+    const tokenMatch = shareNotice?.match(/\/share\/([a-f0-9]+)/i);
+    assert.ok(tokenMatch?.[1], `Expected share token in notice: ${shareNotice}`);
+    await page.goto(`${WEB_BASE}/share/${tokenMatch[1]}`, { waitUntil: "networkidle" });
+    await page.fill("#share-passphrase", "family-secret-99");
+    await page.click('button:has-text("Unlock Shared Archive")');
+    await page.getByText("Shared Family Stories").first().waitFor({ state: "visible", timeout: 10000 });
+
+    // 3. Full Admin Portal multi-console navigation & interactive actions
     await page.goto(`${WEB_BASE}/admin`, { waitUntil: "networkidle" });
     await page.getByText("System Overview (01/13)").first().waitFor({ state: "visible", timeout: 10000 });
     await page.click('button:has-text("Storage & Media")');
     await page.getByText("LocalDiskStorageDriver").first().waitFor({ state: "visible", timeout: 10000 });
+
     await page.click('button:has-text("Templates, Flags & Audit")');
     await page.getByText("webgl_3d_reader").first().waitFor({ state: "visible", timeout: 10000 });
+    await page.click('button:has-text("Save Template")');
+    await page.getByText(/Saved template/i).first().waitFor({ state: "visible", timeout: 10000 });
+    await page.getByText(/Recent Audit Ledger/i).first().waitFor({ state: "visible", timeout: 10000 });
+
+    await page.click('button:has-text("Support Desk")');
+    await page.getByText("Chrome E2E Foil Inquiry").first().waitFor({ state: "visible", timeout: 10000 });
+    await page.fill('input[placeholder="Write reply..."]', "Use 300 DPI PNG with archival gold foil.");
+    await page.click('button:has-text("Send & Resolve")');
+    await page.getByText(/Replied to ticket/i).first().waitFor({ state: "visible", timeout: 10000 });
+
+    await page.click('button:has-text("Admin 2FA & Keys")');
+    await page.fill('input[placeholder*="YubiKey" i]', "YubiKey 5C Test");
+    await page.click('button:has-text("Register Security Key")');
+    await page.getByText("YubiKey 5C Test").first().waitFor({ state: "visible", timeout: 10000 });
+    await page.click('button:has-text("Remove")');
+    await page.getByText(/Removed security key/i).first().waitFor({ state: "visible", timeout: 10000 });
+
+    await page.click('button:has-text("Catalog & Pricing")');
+    await page.getByText("Shipping Rate Matrix").first().waitFor({ state: "visible", timeout: 10000 });
+    await page.click('button:has-text("Update Rate")');
+    await page.getByText(/Updated .* shipping rate/i).first().waitFor({ state: "visible", timeout: 10000 });
 
     assert.equal(pageErrors.length, 0, `Unexpected page errors: ${pageErrors.join("; ")}`);
     await context.close();

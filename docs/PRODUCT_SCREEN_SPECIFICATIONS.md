@@ -3,7 +3,7 @@
 **Official Product Name**: **Memoria**  
 **Official Product Tagline**: *Your memories, made timeless.*  
 **Document Version**: 2.0.0 (Production Master Reference)  
-**Generated Timestamp**: 2026-11-11T10:06:21.257Z  
+**Generated Timestamp**: 2026-11-11T10:35:37.751Z  
 **Total Canonical Screens**: **164 Screens** (82 Web/PWA, 56 Native iOS, 26 Admin Portal)  
 **Architectural Governance**: Sections 2 and 10 of the Memoria Master Engineering Directive  
 
@@ -14504,7 +14504,7 @@ Overriding preflight warnings prompts: 'Approve book with low-resolution warning
 ### ADMIN-17 — Product Pricing Matrix, Shipping Zones & Tax Rate Manager
 
 **Category**: Admin Portal — Physical Print & Commerce Operations  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Configure retail book prices, base costs, additional page fees, international shipping rates, and regional sales tax rules.
@@ -14990,7 +14990,7 @@ Processing refund prompts double confirmation: 'Issue refund of [amount] for ord
 ### ADMIN-22 — System Notification & Email Template Architecture Studio
 
 **Category**: Admin Portal — System Governance, Security & Audit  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Author, preview, and test system transactional emails (Welcome, Invite, Memory Prompt, Order Receipt, Shipping Notification) in responsive HTML.
@@ -15178,7 +15178,7 @@ Toggling a critical flag prompts: 'Update feature flag [flagKey] rollout to [per
 ### ADMIN-24 — Immutable Security Audit Logs & Access Forensics Console
 
 **Category**: Admin Portal — System Governance, Security & Audit  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Review tamper-evident, append-only security audit logs covering all administrative actions, logins, permission escalations, and support sessions.
@@ -15369,7 +15369,7 @@ Toggling a critical flag prompts: 'Update feature flag [flagKey] rollout to [per
 ### ADMIN-26 — Admin Personal Profile, Hardware 2FA & FIDO2 Security Keys
 
 **Category**: Admin Portal — System Governance, Security & Audit  
-**Verified Status**: `Implemented (UI/Route Scaffolded)`
+**Verified Status**: `Implemented & Verified`
 
 #### 1. Core Intent & User Story
 - **User Goal**: Manage administrative credentials, enroll physical FIDO2 / WebAuthn hardware security keys (YubiKey), configure TOTP 2FA, and inspect personal admin session history.
@@ -15621,16 +15621,16 @@ The following traceability matrix establishes the direct mapping between each sc
 | `ADMIN-14` | As a publishing engineer, I want to track PDF compilation jobs and 3D GLTF asset compression to ensure books compile in under 30 seconds. | CompilationTable, StageProgressBar, OutputArtifactCard, EngineTelemetryBox (+1) | GET /api/admin/books/rendering/jobs | book-service | books, book_spreads | Events: admin.book_rendering_monitored; Jobs: generate-print-cmyk-pdf, generate-book-3d-model | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
 | `ADMIN-15` | As a prepress quality engineer, I want to review preflight audit logs across customer books to catch print defects before physical printing. | PreflightAuditTable, MarginOverlayPreview, PreflightMetricCard, OverrideModal (+1) | POST /api/admin/preflight/:bookId/override | book-service | books, book_spreads, outbox_events | Events: preflight.warning_overridden | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
 | `ADMIN-16` | As a product manager, I want to manage physical specifications, toggle available linen fabrics, and configure foil stamping options. | FormatCard, MaterialSwatchGrid, DimensionSchematicBox, PageLimitStepper (+1) | PUT /api/admin/catalog/formats/:formatId | commerce-service | print_catalog_formats, outbox_events | Events: catalog.format_updated | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
-| `ADMIN-17` | As an operations lead, I want to adjust base book prices and configure flat-rate domestic shipping tiers to maintain sustainable margins. | PricingTable, CurrencyInputField, ShippingZoneCard, MarginSummaryBox (+1) | POST /api/admin/pricing/matrix | commerce-service | pricing_matrix, shipping_rates, outbox_events | Events: pricing.matrix_updated | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
+| `ADMIN-17` | As an operations lead, I want to adjust base book prices and configure flat-rate domestic shipping tiers to maintain sustainable margins. | PricingTable, CurrencyInputField, ShippingZoneCard, MarginSummaryBox (+1) | POST /api/admin/pricing/matrix | commerce-service | pricing_matrix, shipping_rates, outbox_events | Events: pricing.matrix_updated | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `ADMIN-18` | As a print fulfillment operator, I want to view all submitted book orders and advance them to 'In Production' after prepress approval. | OrdersTable, StageFilterTabGroup, BatchActionBar, SearchInput (+1) | GET /api/admin/orders | commerce-service | print_orders, books, users | Events: admin.orders_viewed | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `ADMIN-19` | As a fulfillment specialist, I want to input the courier tracking number and mark an order as shipped so the customer receives their tracking link. | OrderDetailCard, ShippingAddressBox, CarrierTrackingForm, ProductionTimeline (+1) | POST /api/admin/orders/:orderId/ship | commerce-service | print_orders, outbox_events | Events: order.shipped; Jobs: send-shipping-notification-email | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
 | `ADMIN-20` | As a customer support manager, I want to review a damaged book report, authorize a free reprint remake, or issue a full refund. | RefundsTable, DamageEvidencePreview, RefundDecisionModal, AmountInputField (+1) | POST /api/admin/orders/:orderId/refund | commerce-service | print_orders, order_refunds, outbox_events | Events: order.refunded, order.remake_authorized; Jobs: send-refund-notification-email | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
 | `ADMIN-21` | As a finance engineer, I want to review payment webhook logs and transaction settlement statuses to reconcile daily commerce revenue. | TransactionLedgerTable, WebhookInspectorDrawer, VolumeSummaryCard, SearchInput (+1) | GET /api/admin/transactions | commerce-service | payment_transactions, print_orders | Events: admin.transactions_viewed | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
-| `ADMIN-22` | As a communications manager, I want to edit transactional email templates with brand typography (Cormorant Garamond) and test rendered previews. | TemplateSidebar, MonacoCodeEditor, LiveEmailPreviewFrame, VariableJsonEditor (+1) | PUT /api/admin/templates/:templateKey | identity-service | email_templates, outbox_events | Events: template.updated; Jobs: send-test-email | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
+| `ADMIN-22` | As a communications manager, I want to edit transactional email templates with brand typography (Cormorant Garamond) and test rendered previews. | TemplateSidebar, MonacoCodeEditor, LiveEmailPreviewFrame, VariableJsonEditor (+1) | PUT /api/admin/templates/:templateKey | identity-service | email_templates, outbox_events | Events: template.updated; Jobs: send-test-email | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `ADMIN-23` | As an engineering lead, I want to toggle feature flags dynamically with percentage rollouts without redeploying microservices. | FeatureFlagsTable, ToggleSwitch, RolloutSlider, TargetGroupDropdown (+1) | PATCH /api/admin/feature-flags/:flagKey | api-gateway | feature_flags, outbox_events | Events: feature_flag.updated | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
-| `ADMIN-24` | As an auditor or security officer, I want to search immutable audit logs by admin ID, action type, and date to verify full accountability. | AuditLogsTable, RecordDiffInspector, HashChainBadge, DateRangePicker (+1) | GET /api/admin/audit-logs | identity-service | audit_logs | Events: admin.audit_logs_exported; Jobs: verify-audit-log-cryptographic-chain | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
+| `ADMIN-24` | As an auditor or security officer, I want to search immutable audit logs by admin ID, action type, and date to verify full accountability. | AuditLogsTable, RecordDiffInspector, HashChainBadge, DateRangePicker (+1) | GET /api/admin/audit-logs | identity-service | audit_logs | Events: admin.audit_logs_exported; Jobs: verify-audit-log-cryptographic-chain | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 | `ADMIN-25` | As an archival support specialist, I want to review incoming customer tickets, read diagnostic logs, and send helpful guidance. | TicketsTable, ConversationThreadView, CannedMacroPicker, ReplyEditorBox (+1) | POST /api/admin/tickets/:ticketId/reply | identity-service | support_tickets, support_replies, outbox_events | Events: support.reply_sent; Jobs: send-support-reply-email | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
-| `ADMIN-26` | As an administrator, I want to register my hardware YubiKey and configure biometric passkeys to satisfy dual-custody security standards. | AdminProfileCard, FIDO2KeyList, WebAuthnPromptModal, TOTPConfigBox (+1) | POST /api/admin/profile/webauthn/register | identity-service | admin_users, admin_security_keys, audit_logs | Events: admin.security_key_registered | Unit: 2, Int: 1, E2E: 1 | Implemented (UI/Route Scaffolded) |
+| `ADMIN-26` | As an administrator, I want to register my hardware YubiKey and configure biometric passkeys to satisfy dual-custody security standards. | AdminProfileCard, FIDO2KeyList, WebAuthnPromptModal, TOTPConfigBox (+1) | POST /api/admin/profile/webauthn/register | identity-service | admin_users, admin_security_keys, audit_logs | Events: admin.security_key_registered | Unit: 2, Int: 1, E2E: 1 | Implemented & Verified |
 
 ---
 

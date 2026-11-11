@@ -112,6 +112,10 @@ export interface PrintPricingInput {
   paperWeight?: "140gsm_matte" | "170gsm_lustre" | string;
   quantity?: number;
   country?: string;
+  shippingSpeed?: "standard" | "priority" | string;
+  formatBaseCentsOverride?: number;
+  shippingRateCentsOverride?: number;
+  estimatedDaysOverride?: string;
 }
 
 export interface PrintPricingQuote {
@@ -119,6 +123,7 @@ export interface PrintPricingQuote {
   format: "hardcover_square_8x8" | "hardcover_standard_8x10" | "hardcover_grand_12x12";
   binding: "hardcover_linen" | "french_morocco";
   paperWeight: "140gsm_matte" | "170gsm_lustre";
+  shippingSpeed: "standard" | "priority";
   quantity: number;
   unitCents: number;
   subtotalCents: number;
@@ -135,29 +140,48 @@ export function calculatePrintOrderPricing(input: PrintPricingInput): PrintPrici
       : "hardcover_standard_8x10";
   const binding = input.binding === "french_morocco" ? "french_morocco" : "hardcover_linen";
   const paperWeight = input.paperWeight === "170gsm_lustre" ? "170gsm_lustre" : "140gsm_matte";
+  const shippingSpeed = input.shippingSpeed === "priority" ? "priority" : "standard";
   const quantity = Math.min(Math.max(Number(input.quantity || 1), 1), 20);
-  const baseCents =
+  const defaultBaseCents =
     format === "hardcover_grand_12x12" ? 6800 : format === "hardcover_square_8x8" ? 4200 : 4800;
+  const baseCents =
+    typeof input.formatBaseCentsOverride === "number" && input.formatBaseCentsOverride >= 0
+      ? input.formatBaseCentsOverride
+      : defaultBaseCents;
   const bindingSurcharge = binding === "french_morocco" ? 2000 : 0;
   const paperSurcharge = paperWeight === "170gsm_lustre" ? 400 : 0;
   const unitCents = baseCents + bindingSurcharge + paperSurcharge;
   const subtotalCents = unitCents * quantity;
   const normalizedCountry = (input.country || "US").trim().toUpperCase();
   const isDomestic = normalizedCountry === "US";
-  const shippingCents = isDomestic ? 900 : 2400;
+  const baseShippingCents =
+    typeof input.shippingRateCentsOverride === "number" && input.shippingRateCentsOverride >= 0
+      ? input.shippingRateCentsOverride
+      : isDomestic
+      ? 900
+      : 2400;
+  const prioritySurcharge = shippingSpeed === "priority" ? (isDomestic ? 1200 : 1800) : 0;
+  const shippingCents = baseShippingCents + prioritySurcharge;
+  const defaultEstimatedDays =
+    shippingSpeed === "priority"
+      ? isDomestic
+        ? "2–3 business days"
+        : "4–6 business days"
+      : input.estimatedDaysOverride || (isDomestic ? "5–7 business days" : "10–14 business days");
 
   return {
     currency: "USD",
     format,
     binding,
     paperWeight,
+    shippingSpeed,
     quantity,
     unitCents,
     subtotalCents,
     shippingCents,
     taxCents: 0,
     totalCents: subtotalCents + shippingCents,
-    estimatedDays: isDomestic ? "5–7 business days" : "10–14 business days",
+    estimatedDays: defaultEstimatedDays,
   };
 }
 

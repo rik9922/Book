@@ -55,6 +55,10 @@ export default function BookStudioPage() {
   const [spreadCaption, setSpreadCaption] = useState("");
   const [preflight, setPreflight] = useState<PreflightReportDTO | null>(null);
   const [spaceMemories, setSpaceMemories] = useState<MemoryDTO[]>([]);
+  const [spaceProfiles, setSpaceProfiles] = useState<Array<{ id: string; name: string }>>([]);
+  const [sourceProfileId, setSourceProfileId] = useState<string>("");
+  const [templateLayout, setTemplateLayout] = useState<"editorial_classic" | "photo_journal" | "fine_art_spread">("editorial_classic");
+  const [focalPreset, setFocalPreset] = useState<"50% 50%" | "50% 20%" | "50% 80%">("50% 50%");
   const [selectedMemoryIds, setSelectedMemoryIds] = useState<string[]>([]);
   const [chapters, setChapters] = useState<Array<{ id?: string; title: string; subtitle?: string }>>([]);
   const [newChapterTitle, setNewChapterTitle] = useState("");
@@ -87,7 +91,7 @@ export default function BookStudioPage() {
     async (targetSpaceId: string) => {
       if (!targetSpaceId) return;
       try {
-        const [booksRes, ordersRes, memRes] = await Promise.allSettled([
+        const [booksRes, ordersRes, memRes, profRes] = await Promise.allSettled([
           apiRequest<{ books?: BookDTO[]; items?: BookDTO[] } | BookDTO[]>(
             `/spaces/${targetSpaceId}/books`
           ),
@@ -95,6 +99,9 @@ export default function BookStudioPage() {
             `/orders/spaces/${targetSpaceId}`
           ),
           apiRequest<{ items?: MemoryDTO[] } | MemoryDTO[]>(`/spaces/${targetSpaceId}/memories?limit=50`),
+          apiRequest<{ profiles?: Array<{ id: string; name: string }>; items?: Array<{ id: string; name: string }> } | Array<{ id: string; name: string }>>(
+            `/spaces/${targetSpaceId}/profiles`
+          ),
         ]);
 
         if (booksRes.status === "fulfilled") {
@@ -110,6 +117,10 @@ export default function BookStudioPage() {
         if (memRes.status === "fulfilled") {
           const val = memRes.value;
           setSpaceMemories(Array.isArray(val) ? val : val.items || []);
+        }
+        if (profRes.status === "fulfilled") {
+          const val = profRes.value;
+          setSpaceProfiles(Array.isArray(val) ? val : val.profiles || val.items || []);
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to load book studio.");
@@ -255,7 +266,7 @@ export default function BookStudioPage() {
                   rotation: 0,
                   zIndex: 2,
                   content: spreadCaption.trim(),
-                  style: { fontFamily: "sans-serif", fontSize: 16, color: "#5C5955" },
+                  style: { fontFamily: "sans-serif", fontSize: 16, color: "#5C5955", focalPoint: focalPreset },
                 },
               ],
             },
@@ -325,6 +336,7 @@ export default function BookStudioPage() {
         body: JSON.stringify({
           spaceId,
           bookId: selectedBook.id,
+          format: selectedBook.format,
           quantity: 1,
           shippingAddress: {
             recipientName: recipientName.trim(),
@@ -334,6 +346,7 @@ export default function BookStudioPage() {
             country: "US",
           },
           printSpec: {
+            format: selectedBook.format,
             paperWeight: "170gsm_lustre",
             binding: "hardcover_linen",
             editionHash: selectedBook.frozenEditionHash,
@@ -356,7 +369,8 @@ export default function BookStudioPage() {
       const chosen = spaceMemories.filter((m) => selectedMemoryIds.includes(m.id));
       const updated = await curateBookMemories(
         selectedBook.id,
-        chosen.map((m) => ({ id: m.id, title: m.title, content: m.content, capturedAt: m.capturedAt }))
+        chosen.map((m) => ({ id: m.id, title: m.title, content: m.content, capturedAt: m.capturedAt })),
+        templateLayout
       );
       setBooks((prev) => prev.map((b) => (b.id === updated.id ? updated : b)));
       syncSelectedBook(updated);
@@ -698,6 +712,22 @@ export default function BookStudioPage() {
                           className="w-full px-3 py-2 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] text-xs disabled:opacity-60"
                         />
                       </div>
+                      <div>
+                        <label htmlFor="spread-focal" className="block text-xs font-semibold text-[#20242C] mb-1">
+                          Image Box Focal Point (PWA-66)
+                        </label>
+                        <select
+                          id="spread-focal"
+                          disabled={selectedBook.isFrozenForPrint}
+                          value={focalPreset}
+                          onChange={(e) => setFocalPreset(e.target.value as "50% 50%" | "50% 20%" | "50% 80%")}
+                          className="w-full px-3 py-2 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] text-xs disabled:opacity-60"
+                        >
+                          <option value="50% 50%">Centered Portrait (50% 50%)</option>
+                          <option value="50% 20%">Upper Face / Hat Clearance (50% 20%)</option>
+                          <option value="50% 80%">Lower Horizon Anchor (50% 80%)</option>
+                        </select>
+                      </div>
                       <div className="flex flex-wrap gap-2">
                         <button
                           type="submit"
@@ -816,7 +846,7 @@ export default function BookStudioPage() {
                         className="w-full py-2.5 rounded-xl bg-[#5F735E] text-[#FFFFFF] text-xs font-medium disabled:opacity-40"
                       >
                         {selectedBook.isFrozenForPrint
-                          ? "Place Zero-Markup Print Order ($48.00)"
+                          ? "Place Zero-Markup Print Order"
                           : "Freeze Edition Above Before Ordering"}
                       </button>
                     </form>
@@ -850,24 +880,63 @@ export default function BookStudioPage() {
                   <Layers className="w-4 h-4 text-[#76556F]" aria-hidden="true" />
                   Memory Curation &amp; Chapter Organizer
                 </h2>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                  <div>
+                    <label htmlFor="curate-profile" className="block font-semibold text-[#20242C] mb-1">
+                      Source Profile Filter (PWA-59)
+                    </label>
+                    <select
+                      id="curate-profile"
+                      value={sourceProfileId}
+                      onChange={(e) => setSourceProfileId(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA]"
+                    >
+                      <option value="">All Space Members &amp; Profiles</option>
+                      {spaceProfiles.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label htmlFor="curate-template" className="block font-semibold text-[#20242C] mb-1">
+                      Template Layout (PWA-62)
+                    </label>
+                    <select
+                      id="curate-template"
+                      value={templateLayout}
+                      onChange={(e) =>
+                        setTemplateLayout(e.target.value as "editorial_classic" | "photo_journal" | "fine_art_spread")
+                      }
+                      className="w-full px-3 py-2 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA]"
+                    >
+                      <option value="editorial_classic">Editorial Classic</option>
+                      <option value="photo_journal">Photo-Journal</option>
+                      <option value="fine_art_spread">Fine-Art Spread</option>
+                    </select>
+                  </div>
+                </div>
                 <div className="space-y-2 max-h-40 overflow-y-auto">
-                  {spaceMemories.length === 0 ? (
-                    <p className="text-xs text-[#5C5955]">No space memories yet. Add memories in /archive.</p>
+                  {spaceMemories.filter((m) => !sourceProfileId || m.associatedProfileIds?.includes(sourceProfileId)).length === 0 ? (
+                    <p className="text-xs text-[#5C5955]">No matching space memories yet. Add memories in /archive.</p>
                   ) : (
-                    spaceMemories.map((m) => (
-                      <label key={m.id} className="flex items-center gap-2 p-2 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] text-xs">
-                        <input
-                          type="checkbox"
-                          checked={selectedMemoryIds.includes(m.id)}
-                          onChange={(e) =>
-                            setSelectedMemoryIds((prev) =>
-                              e.target.checked ? [...prev, m.id] : prev.filter((id) => id !== m.id)
-                            )
-                          }
-                        />
-                        <span className="font-semibold text-[#20242C] truncate">{m.title}</span>
-                      </label>
-                    ))
+                    spaceMemories
+                      .filter((m) => !sourceProfileId || m.associatedProfileIds?.includes(sourceProfileId))
+                      .map((m) => (
+                        <label key={m.id} className="flex items-center gap-2 p-2 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] text-xs">
+                          <input
+                            type="checkbox"
+                            checked={selectedMemoryIds.includes(m.id)}
+                            onChange={(e) =>
+                              setSelectedMemoryIds((prev) =>
+                                e.target.checked ? [...prev, m.id] : prev.filter((id) => id !== m.id)
+                              )
+                            }
+                          />
+                          <span className="font-semibold text-[#20242C] truncate">{m.title}</span>
+                        </label>
+                      ))
                   )}
                 </div>
                 <button

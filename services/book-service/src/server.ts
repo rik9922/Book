@@ -773,6 +773,21 @@ export async function buildBookService(): Promise<FastifyInstance> {
     const editionHash = crypto.createHash("sha256").update(JSON.stringify(book)).digest("hex");
     await bookRepo.freezeEdition(book.id, editionHash);
 
+    if (dbUrl) {
+      await db.query(
+        `INSERT INTO book_editions (id, book_id, edition_number, edition_hash, snapshot_json, frozen_by)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [
+          crypto.randomUUID(),
+          book.id,
+          book.version,
+          editionHash,
+          JSON.stringify({ title: book.title, format: book.format, spreadCount: book.spreads.length }),
+          userId,
+        ]
+      ).catch((err) => logger.warn({ err, bookId: book.id }, "[Book] Non-fatal book_editions insert warning"));
+    }
+
     const updated = await bookRepo.findBookById(book.id);
 
     await publishDomainEvent("book.edition_frozen", "book.edition_frozen", book.id, {
@@ -941,13 +956,20 @@ export async function buildBookService(): Promise<FastifyInstance> {
     }
   );
 
+  const memPreflightOverrides = new Map<string, { note: string; approvedBy: string; approvedAt: string }>();
+
   // Auto-Curate & Generate Initial Spreads from Selected Memories (PWA-60 / PWA-62 / IOS-46)
   app.post(
     "/api/v1/books/:id/curate",
     async (
       req: FastifyRequest<{
         Params: { id: string };
-        Body: { memories: Array<{ id: string; title: string; content?: string; capturedAt?: string }>; template?: string };
+        Body: {
+          memories?: Array<{ id: string; title: string; content?: string; capturedAt?: string; mediaIds?: string[] }>;
+          memoryIds?: string[];
+          template?: string;
+          theme?: string;
+        };
       }>,
       reply
     ) => {
@@ -958,7 +980,42 @@ export async function buildBookService(): Promise<FastifyInstance> {
       if (book.isFrozenForPrint) {
         return reply.status(409).send(createErrorResponse("BOOK_FROZEN", "Cannot curate into frozen edition"));
       }
-      const memories = Array.isArray(req.body?.memories) ? req.body.memories : [];
+
+      let memories = Array.isArray(req.body?.memories) ? req.body.memories : [];
+      if (memories.length === 0 && Array.isArray(req.body?.memoryIds) && req.body.memoryIds.length > 0) {
+        if (memoryDb) {
+          const mRes = await memoryDb.query(
+            `SELECT id, title, content, captured_at::text as "capturedAt"
+             FROM memories WHERE id = ANY($1) AND space_id = $2 AND deleted_at IS NULL`,
+            [req.body.memoryIds, book.spaceId]
+          );
+          memories = mRes.rows;
+        }
+        if (memories.length === 0) {
+          memories = req.body.memoryIds.map((id, i) => ({
+            id,
+            title: `Curated Memory ${i + 1}`,
+            content: "Preserved archival entry",
+            capturedAt: new Date().toISOString(),
+          }));
+        }
+      }
+
+      const templateName = req.body?.template || req.body?.theme || "editorial_classic";
+      const leftLayout =
+        templateName === "fine_art_spread"
+          ? ("full_bleed_single" as const)
+          : templateName === "photo_journal"
+          ? ("two_photo_grid" as const)
+          : ("photo_with_story" as const);
+      const rightLayout =
+        templateName === "fine_art_spread"
+          ? ("quote_spread" as const)
+          : templateName === "photo_journal"
+          ? ("photo_with_story" as const)
+          : ("quote_spread" as const);
+      const bgColor = templateName === "fine_art_spread" ? "#FBF9F5" : "#F7F4ED";
+
       const sorted = [...memories].sort(
         (a, b) => new Date(a.capturedAt || 0).getTime() - new Date(b.capturedAt || 0).getTime()
       );
@@ -972,8 +1029,8 @@ export async function buildBookService(): Promise<FastifyInstance> {
           leftPage: {
             id: crypto.randomUUID(),
             pageNumber: (baseIndex + i) * 2 + 1,
-            layoutType: "photo_with_story",
-            backgroundColor: "#F7F4ED",
+            layoutType: leftLayout,
+            backgroundColor: bgColor,
             elements: [
               {
                 id: crypto.randomUUID(),
@@ -985,15 +1042,31 @@ export async function buildBookService(): Promise<FastifyInstance> {
                 rotation: 0,
                 zIndex: 1,
                 content: m.title,
-                style: { fontFamily: "serif", fontSize: 24, color: "#20242C" },
+                style: { fontFamily: "serif", fontSize: 24, color: "#20242C", template: templateName },
               },
+              ...(m.mediaIds?.[0]
+                ? [
+                    {
+                      id: crypto.randomUUID(),
+                      type: "image" as const,
+                      x: 10,
+                      y: 38,
+                      width: 80,
+                      height: 50,
+                      rotation: 0,
+                      zIndex: 2,
+                      content: m.mediaIds[0],
+                      style: { objectPosition: "50% 50%", cropShape: "rect" },
+                    },
+                  ]
+                : []),
             ],
           },
           rightPage: {
             id: crypto.randomUUID(),
             pageNumber: (baseIndex + i) * 2 + 2,
-            layoutType: "quote_spread",
-            backgroundColor: "#F7F4ED",
+            layoutType: rightLayout,
+            backgroundColor: bgColor,
             elements: [
               {
                 id: crypto.randomUUID(),
@@ -1005,7 +1078,7 @@ export async function buildBookService(): Promise<FastifyInstance> {
                 rotation: 0,
                 zIndex: 1,
                 content: m.content || `Preserved memory (${m.capturedAt ? new Date(m.capturedAt).getFullYear() : "Archive"})`,
-                style: { fontFamily: "sans-serif", fontSize: 15, color: "#5C5955" },
+                style: { fontFamily: "sans-serif", fontSize: 15, color: "#5C5955", template: templateName },
               },
             ],
           },
@@ -1071,15 +1144,28 @@ export async function buildBookService(): Promise<FastifyInstance> {
     const book = await bookRepo.findBookById(req.params.id);
     if (!book) return reply.status(404).send(createErrorResponse("BOOK_NOT_FOUND", "Book does not exist"));
     await assertSpaceAccess(book.spaceId, userId, false);
-    const editions = [
-      {
-        editionNumber: book.version,
-        status: book.isFrozenForPrint ? "frozen_for_print" : "draft",
-        editionHash: book.frozenEditionHash || null,
-        spreadCount: book.spreads.length,
-        updatedAt: book.updatedAt,
-      },
-    ];
+    const persistedEditions = dbUrl
+      ? (
+          await db.query(
+            `SELECT edition_number as "editionNumber", edition_hash as "editionHash",
+                    COALESCE((snapshot_json->>'spreadCount')::int, 1) as "spreadCount",
+                    created_at::text as "updatedAt"
+             FROM book_editions WHERE book_id = $1 ORDER BY edition_number DESC`,
+            [book.id]
+          )
+        ).rows.map((r: any) => ({ ...r, status: "frozen_for_print" }))
+      : [];
+    const current = {
+      editionNumber: book.version,
+      status: book.isFrozenForPrint ? "frozen_for_print" : "draft",
+      editionHash: book.frozenEditionHash || null,
+      spreadCount: book.spreads.length,
+      updatedAt: book.updatedAt,
+    };
+    const editions =
+      persistedEditions.some((e: any) => e.editionNumber === current.editionNumber)
+        ? persistedEditions
+        : [current, ...persistedEditions];
     return reply.status(200).send(createSuccessResponse(editions));
   });
 
@@ -1106,22 +1192,26 @@ export async function buildBookService(): Promise<FastifyInstance> {
 
   // Admin Book Telemetry & Preflight Override (ADMIN-14 / ADMIN-15)
   const ADMIN_ROLES = new Set(["superadmin", "admin", "ops_admin", "compliance_officer", "support_agent"]);
-  async function requireAdmin(req: FastifyRequest) {
+  async function requireAdmin(req: FastifyRequest): Promise<string> {
     const claims: any = await req.jwtVerify().catch(() => {
       throw new UnauthorizedError("Valid admin token required");
     });
     if (!ADMIN_ROLES.has(claims?.role || "")) {
       throw new ForbiddenError("Administrative privileges required");
     }
+    return claims.sub || "admin";
   }
 
   app.get("/api/v1/admin/books/rendering/jobs", async (req, reply) => {
     await requireAdmin(req);
     if (dbUrl) {
       const res = await db.query(
-        `SELECT id, space_id as "spaceId", title, format, version, is_frozen_for_print as "isFrozenForPrint",
-                frozen_edition_hash as "frozenEditionHash", updated_at::text as "updatedAt"
-         FROM books ORDER BY updated_at DESC LIMIT 100`
+        `SELECT b.id, b.space_id as "spaceId", b.title, b.format, b.version,
+                b.is_frozen_for_print as "isFrozenForPrint",
+                b.frozen_edition_hash as "frozenEditionHash",
+                b.updated_at::text as "updatedAt",
+                EXISTS(SELECT 1 FROM audit_logs a WHERE a.entity_id = b.id AND a.action = 'admin.preflight.overridden') as "preflightOverridden"
+         FROM books b ORDER BY b.updated_at DESC LIMIT 100`
       );
       return reply.status(200).send(createSuccessResponse(res.rows));
     }
@@ -1131,15 +1221,26 @@ export async function buildBookService(): Promise<FastifyInstance> {
   app.post(
     "/api/v1/admin/preflight/:bookId/override",
     async (req: FastifyRequest<{ Params: { bookId: string }; Body?: { note?: string } }>, reply) => {
-      await requireAdmin(req);
+      const adminId = await requireAdmin(req);
       const book = await bookRepo.findBookById(req.params.bookId);
       if (!book) return reply.status(404).send(createErrorResponse("BOOK_NOT_FOUND", "Book does not exist"));
+      const note = req.body?.note?.trim() || "Prepress operator approved print tolerances";
+      const approvedAt = new Date().toISOString();
+      if (dbUrl) {
+        await db.query(
+          `INSERT INTO audit_logs (id, space_id, user_id, action, entity_type, entity_id, metadata)
+           VALUES ($1, $2, $3, 'admin.preflight.overridden', 'book', $4, $5)`,
+          [crypto.randomUUID(), book.spaceId, adminId, book.id, JSON.stringify({ note, approvedAt })]
+        ).catch((err) => logger.warn({ err, bookId: book.id }, "[Book] Non-fatal preflight override audit warning"));
+      } else {
+        memPreflightOverrides.set(book.id, { note, approvedBy: adminId, approvedAt });
+      }
       return reply.status(200).send(
         createSuccessResponse({
           bookId: book.id,
           overridden: true,
-          note: req.body?.note || "Prepress operator approved print tolerances",
-          approvedAt: new Date().toISOString(),
+          note,
+          approvedAt,
         })
       );
     }

@@ -638,6 +638,19 @@ export async function buildCollabService(): Promise<FastifyInstance> {
     }
   );
 
+  async function buildSharedPreview(spaceId: string) {
+    if (!memoryDb) return { space: null, memories: [] };
+    const [spRes, memRes] = await Promise.all([
+      memoryDb.query(`SELECT id, name, description, space_type as "type" FROM memory_spaces WHERE id = $1 AND deleted_at IS NULL LIMIT 1`, [spaceId]),
+      memoryDb.query(
+        `SELECT id, title, content, format, location, captured_at::text as "capturedAt"
+         FROM memories WHERE space_id = $1 AND deleted_at IS NULL ORDER BY captured_at DESC LIMIT 24`,
+        [spaceId]
+      ),
+    ]);
+    return { space: spRes.rows[0] || null, memories: memRes.rows || [] };
+  }
+
   app.post(
     "/api/v1/collab/share-links/:token/verify",
     async (req: FastifyRequest<{ Params: { token: string }; Body?: { passphrase?: string } }>, reply) => {
@@ -660,8 +673,15 @@ export async function buildCollabService(): Promise<FastifyInstance> {
           return reply.status(403).send(createErrorResponse("PASSPHRASE_REQUIRED", "Valid passphrase required"));
         }
         await db.query(`UPDATE space_share_links SET access_count = access_count + 1 WHERE id = $1`, [link.id]);
+        const preview = await buildSharedPreview(link.spaceId);
         return reply.status(200).send(
-          createSuccessResponse({ valid: true, spaceId: link.spaceId, allowDownloads: link.allowDownloads, expiresAt: link.expiresAt })
+          createSuccessResponse({
+            valid: true,
+            spaceId: link.spaceId,
+            allowDownloads: link.allowDownloads,
+            expiresAt: link.expiresAt,
+            ...preview,
+          })
         );
       }
       const link = memShareLinks.get(token);
@@ -673,7 +693,14 @@ export async function buildCollabService(): Promise<FastifyInstance> {
       }
       link.accessCount = (link.accessCount || 0) + 1;
       return reply.status(200).send(
-        createSuccessResponse({ valid: true, spaceId: link.spaceId, allowDownloads: link.allowDownloads, expiresAt: link.expiresAt })
+        createSuccessResponse({
+          valid: true,
+          spaceId: link.spaceId,
+          allowDownloads: link.allowDownloads,
+          expiresAt: link.expiresAt,
+          space: null,
+          memories: [],
+        })
       );
     }
   );

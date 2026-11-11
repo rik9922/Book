@@ -182,6 +182,36 @@ public struct BookPreflightCheckDTO: Identifiable, Decodable, Sendable {
     public let detail: String
 }
 
+public struct ActiveUploadSessionDTO: Identifiable, Decodable, Sendable {
+    public let id: String
+    public let spaceId: String?
+    public let originalName: String
+    public let mimeType: String
+    public let sizeBytes: Int
+    public let status: String
+}
+
+public struct MediaAssetDetailDTO: Identifiable, Decodable, Sendable {
+    public let id: String
+    public let spaceId: String
+    public let originalName: String
+    public let mimeType: String
+    public let sizeBytes: Int
+    public let status: String
+    public let publicUrl: String?
+}
+
+public struct MediaOcrTranscriptDTO: Identifiable, Decodable, Sendable {
+    public let id: String
+    public let mediaId: String
+    public let extractedText: String
+}
+
+public struct SyncBatchResultDTO: Decodable, Sendable {
+    public let syncedCount: Int
+    public let items: [Memory]
+}
+
 public struct BookPreflightReportDTO: Decodable, Sendable {
     public let bookId: String
     public let version: Int
@@ -654,7 +684,7 @@ public actor MemoriaAPIClient {
     }
 
     public func markNotificationRead(id: String) async throws {
-        let (_, httpResponse) = try await performAuthenticatedData(path: "notifications/\(id)/read", method: "POST", body: Data("{}".utf8))
+        let (_, httpResponse) = try await performAuthenticatedData(path: "notifications/\(id)/read", method: "PATCH", body: Data("{}".utf8))
         guard (200...299).contains(httpResponse.statusCode) else {
             throw NSError(domain: "MemoriaAPIClient", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Failed to mark notification read"])
         }
@@ -812,6 +842,63 @@ public actor MemoriaAPIClient {
             throw NSError(domain: "MemoriaAPIClient", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Preflight verification failed"])
         }
         struct Envelope: Decodable { let success: Bool; let data: BookPreflightReportDTO }
+        return try JSONDecoder().decode(Envelope.self, from: data).data
+    }
+
+    public func fetchActiveUploadSessions(spaceId: String? = nil) async throws -> [ActiveUploadSessionDTO] {
+        let queryItems = spaceId.map { [URLQueryItem(name: "spaceId", value: $0)] } ?? []
+        let (data, httpResponse) = try await performAuthenticatedData(
+            path: "media/upload-sessions/active",
+            queryItems: queryItems,
+            method: "GET"
+        )
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw NSError(domain: "MemoriaAPIClient", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Failed to load upload sessions"])
+        }
+        struct Envelope: Decodable { let success: Bool; let data: [ActiveUploadSessionDTO] }
+        return try JSONDecoder().decode(Envelope.self, from: data).data
+    }
+
+    public func retryUploadSession(mediaId: String) async throws {
+        let (_, httpResponse) = try await performAuthenticatedData(
+            path: "media/upload-sessions/\(mediaId)/retry",
+            method: "POST",
+            body: Data("{}".utf8)
+        )
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw NSError(domain: "MemoriaAPIClient", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Failed to retry upload session"])
+        }
+    }
+
+    public func syncOfflineBatch(mutations: [[String: String]]) async throws -> SyncBatchResultDTO {
+        let body = try JSONSerialization.data(withJSONObject: ["mutations": mutations])
+        let (data, httpResponse) = try await performAuthenticatedData(
+            path: "memories/sync/batch",
+            method: "POST",
+            body: body
+        )
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw NSError(domain: "MemoriaAPIClient", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Failed to sync offline batch"])
+        }
+        struct Envelope: Decodable { let success: Bool; let data: SyncBatchResultDTO }
+        return try JSONDecoder().decode(Envelope.self, from: data).data
+    }
+
+    public func fetchMediaAsset(mediaId: String) async throws -> MediaAssetDetailDTO {
+        let (data, httpResponse) = try await performAuthenticatedData(path: "media/\(mediaId)", method: "GET")
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw NSError(domain: "MemoriaAPIClient", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Failed to load media asset"])
+        }
+        struct Envelope: Decodable { let success: Bool; let data: MediaAssetDetailDTO }
+        return try JSONDecoder().decode(Envelope.self, from: data).data
+    }
+
+    public func fetchMediaOcr(mediaId: String) async throws -> [MediaOcrTranscriptDTO] {
+        let (data, httpResponse) = try await performAuthenticatedData(path: "media/\(mediaId)/ocr", method: "GET")
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw NSError(domain: "MemoriaAPIClient", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Failed to load OCR transcripts"])
+        }
+        struct Envelope: Decodable { let success: Bool; let data: [MediaOcrTranscriptDTO] }
         return try JSONDecoder().decode(Envelope.self, from: data).data
     }
 }

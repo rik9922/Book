@@ -1,9 +1,9 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { HelpCircle, Keyboard, LifeBuoy, Send } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
-import { submitSupportTicket } from "@/lib/api";
+import { getStoredSession, listMySupportTickets, submitSupportTicket } from "@/lib/api";
 
 const FAQS = [
   {
@@ -32,10 +32,27 @@ export default function HelpPage() {
   const [subject, setSubject] = useState("");
   const [message, setMessage] = useState("");
   const [submittedNotice, setSubmittedNotice] = useState<string | null>(null);
+  const [errorNotice, setErrorNotice] = useState<string | null>(null);
+  const [myTickets, setMyTickets] = useState<
+    Array<{
+      id: string;
+      subject: string;
+      status: string;
+      createdAt: string;
+      replies?: Array<{ id: string; authorName: string; message: string; createdAt: string }>;
+    }>
+  >([]);
+
+  useEffect(() => {
+    if (!getStoredSession().accessToken) return;
+    listMySupportTickets().then(setMyTickets).catch(() => undefined);
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!subject.trim() || !message.trim()) return;
+    setErrorNotice(null);
+    setSubmittedNotice(null);
     try {
       const ticket = await submitSupportTicket({
         subject: subject.trim(),
@@ -45,13 +62,14 @@ export default function HelpPage() {
       setSubmittedNotice(
         `Support ticket #${ticket.id.slice(0, 8)} ("${ticket.subject}") submitted to archival support.`
       );
-    } catch {
-      setSubmittedNotice(
-        `Support inquiry "${subject.trim()}" logged locally for archival governance review.`
-      );
+      setSubject("");
+      setMessage("");
+      if (getStoredSession().accessToken) {
+        listMySupportTickets().then(setMyTickets).catch(() => undefined);
+      }
+    } catch (err) {
+      setErrorNotice(err instanceof Error ? err.message : "Unable to submit support ticket. Please verify details (>= 5 chars).");
     }
-    setSubject("");
-    setMessage("");
   };
 
   return (
@@ -99,6 +117,11 @@ export default function HelpPage() {
             <LifeBuoy className="w-4 h-4 text-[#76556F]" aria-hidden="true" />
             Contact Archival Support
           </h2>
+          {errorNotice && (
+            <div role="alert" className="p-3.5 rounded-xl bg-[#FDF2F2] border border-[#F5C6C6] text-xs text-[#B6423E]">
+              {errorNotice}
+            </div>
+          )}
           {submittedNotice && (
             <div role="status" className="p-3.5 rounded-xl bg-[#EEF3EE] border border-[#C6D4C5] text-xs text-[#3C503B]">
               {submittedNotice}
@@ -141,6 +164,29 @@ export default function HelpPage() {
               Submit Support Note
             </button>
           </form>
+
+          {myTickets.length > 0 && (
+            <div className="pt-4 border-t border-[#F0ECE1] space-y-2.5">
+              <h3 className="text-xs font-bold text-[#20242C]">Your Support Cases ({myTickets.length})</h3>
+              {myTickets.map((t) => (
+                <div key={t.id} className="p-3 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] text-xs space-y-1.5">
+                  <div className="flex justify-between">
+                    <span className="font-semibold text-[#20242C]">{t.subject}</span>
+                    <span className="uppercase text-[10px] font-semibold text-[#76556F]">{t.status}</span>
+                  </div>
+                  {t.replies && t.replies.length > 0 && (
+                    <div className="pl-2.5 border-l-2 border-[#5F735E]/40 space-y-1">
+                      {t.replies.map((r) => (
+                        <p key={r.id} className="text-[11px] text-[#3C503B]">
+                          <strong>{r.authorName}:</strong> {r.message}
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </section>
       </div>
     </AppShell>

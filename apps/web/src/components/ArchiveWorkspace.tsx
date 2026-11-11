@@ -7,6 +7,7 @@ import {
   Calendar,
   FileText,
   Film,
+  Flag,
   Heart,
   History,
   Image as ImageIcon,
@@ -28,6 +29,9 @@ import {
   apiRequest,
   deleteMemoryComment,
   enqueueOfflineMutation,
+  flagMemoryForModeration,
+  getMediaAsset,
+  getMediaOcr,
   getMemoryHistory,
   getSpaceCalendar,
   getStoredSession,
@@ -85,7 +89,18 @@ export function ArchiveWorkspace({ initialMode = "grid" }: { initialMode?: ViewM
   const [zoomScale, setZoomScale] = useState(1);
   const [rotateDeg, setRotateDeg] = useState(0);
   const [warmth, setWarmth] = useState(0);
+  const [cropPreset, setCropPreset] = useState<"original" | "square" | "portrait">("original");
+  const [showVideoCaptions, setShowVideoCaptions] = useState(true);
+  const [activeMedia, setActiveMedia] = useState<{
+    id: string;
+    originalName: string;
+    mimeType: string;
+    publicUrl?: string;
+    metadata?: Record<string, any>;
+  } | null>(null);
+  const [activeOcr, setActiveOcr] = useState<Array<{ id: string; extractedText: string; confidence?: number }>>([]);
   const [commentBody, setCommentBody] = useState("");
+  const videoRef = useRef<HTMLVideoElement | null>(null);
   const lastTriggerRef = useRef<HTMLButtonElement | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const modalDialogRef = useRef<HTMLDivElement | null>(null);
@@ -153,10 +168,13 @@ export function ArchiveWorkspace({ initialMode = "grid" }: { initialMode?: ViewM
     if (!activeMemory) {
       setComments([]);
       setRevisions([]);
+      setActiveMedia(null);
+      setActiveOcr([]);
       setModalTab("details");
       setZoomScale(1);
       setRotateDeg(0);
       setWarmth(0);
+      setCropPreset("original");
       return;
     }
     listMemoryComments(activeMemory.id)
@@ -165,6 +183,25 @@ export function ArchiveWorkspace({ initialMode = "grid" }: { initialMode?: ViewM
     getMemoryHistory(activeMemory.id)
       .then((hist) => setRevisions(hist))
       .catch(() => setRevisions([]));
+    if (activeMemory.mediaIds?.length > 0) {
+      const primaryMediaId = activeMemory.mediaIds[0];
+      getMediaAsset(primaryMediaId)
+        .then((asset) => {
+          setActiveMedia(asset);
+          const saved = asset.metadata?.nonDestructiveEdits;
+          if (saved) {
+            if (typeof saved.rotateDegrees === "number") setRotateDeg(saved.rotateDegrees);
+            if (typeof saved.warmth === "number") setWarmth(saved.warmth);
+          }
+        })
+        .catch(() => setActiveMedia(null));
+      getMediaOcr(primaryMediaId)
+        .then((ocr) => setActiveOcr(ocr || []))
+        .catch(() => setActiveOcr([]));
+    } else {
+      setActiveMedia(null);
+      setActiveOcr([]);
+    }
 
     const shellRoot = document.getElementById("app-shell-root");
     const surface = archiveSurfaceRef.current;
@@ -360,7 +397,7 @@ export function ArchiveWorkspace({ initialMode = "grid" }: { initialMode?: ViewM
       await saveMediaNonDestructiveEdits(activeMemory.mediaIds[0], {
         rotateDegrees: rotateDeg,
         warmth,
-        cropPreset: zoomScale > 1 ? "zoom_center" : "original",
+        cropPreset: cropPreset !== "original" ? cropPreset : zoomScale > 1 ? "zoom_center" : "original",
       });
       setNotice("Saved non-destructive archival edits.");
     } catch (err) {
@@ -1053,15 +1090,103 @@ export function ArchiveWorkspace({ initialMode = "grid" }: { initialMode?: ViewM
 
               {modalTab === "media" && (
                 <div className="space-y-4">
-                  <div className="p-4 rounded-xl bg-[#20242C] text-white flex flex-col items-center justify-center min-h-[160px] space-y-2">
-                    <p className="text-xs font-mono opacity-80">
-                      Format: {activeMemory.format} • Non-Destructive Preview (Zoom {zoomScale}x • {rotateDeg}°)
-                    </p>
-                    <p className="text-[11px] opacity-70">
-                      {activeMemory.mediaIds.length > 0
-                        ? `Attached Media Asset: ${activeMemory.mediaIds[0]}`
-                        : "Textual heirloom memory (no binary attachment)."}
-                    </p>
+                  <div className="p-4 rounded-xl bg-[#20242C] text-white flex flex-col items-center justify-center min-h-[220px] space-y-3 overflow-hidden">
+                    {activeMedia?.publicUrl ? (
+                      activeMedia.mimeType.startsWith("video/") || activeMemory.format === "video" ? (
+                        <div className="w-full space-y-2">
+                          <video
+                            ref={videoRef}
+                            controls
+                            src={activeMedia.publicUrl}
+                            className="w-full max-h-[260px] rounded-lg bg-black"
+                          />
+                          {showVideoCaptions && (
+                            <p className="text-[11px] text-center bg-black/50 px-3 py-1 rounded">
+                              {activeMemory.content || activeMemory.title}
+                            </p>
+                          )}
+                          <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                            <div className="flex gap-1.5">
+                              {[0, 5, 15].map((sec) => (
+                                <button
+                                  key={sec}
+                                  type="button"
+                                  onClick={() => {
+                                    if (videoRef.current) videoRef.current.currentTime = sec;
+                                  }}
+                                  className="px-2 py-1 rounded bg-white/10 hover:bg-white/20"
+                                >
+                                  Jump {sec}s
+                                </button>
+                              ))}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setShowVideoCaptions((v) => !v)}
+                              className="px-2 py-1 rounded bg-white/10 hover:bg-white/20"
+                            >
+                              {showVideoCaptions ? "Hide Captions" : "Show Captions"}
+                            </button>
+                          </div>
+                        </div>
+                      ) : activeMedia.mimeType.startsWith("audio/") || activeMemory.format === "audio" ? (
+                        <div className="w-full space-y-3">
+                          <div className="flex items-end justify-center gap-1 h-12" aria-hidden="true">
+                            {[18, 32, 44, 26, 40, 22, 36, 48, 28, 34, 20, 30].map((h, i) => (
+                              <span
+                                key={i}
+                                className="w-1.5 rounded-full bg-[#D8973C]"
+                                style={{ height: `${h}px` }}
+                              />
+                            ))}
+                          </div>
+                          <audio controls src={activeMedia.publicUrl} className="w-full" />
+                        </div>
+                      ) : activeMedia.mimeType === "application/pdf" || activeMemory.format === "document" ? (
+                        <div className="w-full grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <iframe
+                            src={activeMedia.publicUrl}
+                            title={`Document preview: ${activeMemory.title}`}
+                            className="w-full h-52 rounded-lg bg-white"
+                          />
+                          <div className="p-3 rounded-lg bg-white/10 text-xs space-y-1.5 overflow-y-auto max-h-52">
+                            <p className="font-semibold text-[#D8973C]">Tesseract OCR Transcript</p>
+                            <p className="text-[11px] leading-relaxed">
+                              {activeOcr[0]?.extractedText || activeMemory.content || "No OCR text extracted yet."}
+                            </p>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="w-full flex items-center justify-center overflow-hidden rounded-lg bg-black/20 p-2">
+                          <img
+                            src={activeMedia.publicUrl}
+                            alt={activeMemory.title}
+                            className={`max-h-[240px] object-cover transition-transform ${
+                              cropPreset === "square"
+                                ? "aspect-square w-48"
+                                : cropPreset === "portrait"
+                                ? "aspect-[4/5] w-44"
+                                : "w-auto"
+                            }`}
+                            style={{
+                              transform: `scale(${zoomScale}) rotate(${rotateDeg}deg)`,
+                              filter: `sepia(${Math.max(0, warmth * 2)}%) saturate(${100 + warmth * 2}%)`,
+                            }}
+                          />
+                        </div>
+                      )
+                    ) : (
+                      <>
+                        <p className="text-xs font-mono opacity-80">
+                          Format: {activeMemory.format} • Non-Destructive Preview (Zoom {zoomScale}x • {rotateDeg}°)
+                        </p>
+                        <p className="text-[11px] opacity-70">
+                          {activeMemory.mediaIds.length > 0
+                            ? `Attached Media Asset: ${activeMemory.mediaIds[0]}`
+                            : "Textual heirloom memory (no binary attachment)."}
+                        </p>
+                      </>
+                    )}
                   </div>
                   <div className="flex flex-wrap items-center gap-2 text-xs">
                     <button
@@ -1078,6 +1203,16 @@ export function ArchiveWorkspace({ initialMode = "grid" }: { initialMode?: ViewM
                     >
                       <RotateCw className="w-3.5 h-3.5" /> Rotate 90°
                     </button>
+                    <select
+                      aria-label="Crop aspect preset"
+                      value={cropPreset}
+                      onChange={(e) => setCropPreset(e.target.value as "original" | "square" | "portrait")}
+                      className="px-2.5 py-1.5 rounded-lg bg-[#F0ECE1] font-medium"
+                    >
+                      <option value="original">Original Crop</option>
+                      <option value="square">Square 1:1</option>
+                      <option value="portrait">Portrait 4:5</option>
+                    </select>
                     <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#F0ECE1]">
                       Warmth
                       <input
@@ -1119,8 +1254,8 @@ export function ArchiveWorkspace({ initialMode = "grid" }: { initialMode?: ViewM
                 </div>
               )}
 
-              <div className="flex items-center justify-between pt-4 border-t border-[#E7E2DA]">
-                <div className="flex gap-2">
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-4 border-t border-[#E7E2DA]">
+                <div className="flex flex-wrap gap-2">
                   <button
                     type="button"
                     onClick={() => handleToggleFavorite(activeMemory)}
@@ -1131,6 +1266,21 @@ export function ArchiveWorkspace({ initialMode = "grid" }: { initialMode?: ViewM
                       fill={activeMemory.isFavorite ? "currentColor" : "none"}
                     />
                     {activeMemory.isFavorite ? "Favorited" : "Mark Favorite"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        await flagMemoryForModeration(activeMemory.id, "Archivist review requested");
+                        setNotice("Flagged memory for governance moderation review.");
+                      } catch (err) {
+                        setError(err instanceof Error ? err.message : "Unable to flag memory.");
+                      }
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] text-xs font-medium text-[#5C5955]"
+                  >
+                    <Flag className="w-3.5 h-3.5" aria-hidden="true" />
+                    Flag
                   </button>
                   <Link
                     href={`/archive/memories/${activeMemory.id}`}

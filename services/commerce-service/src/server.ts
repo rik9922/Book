@@ -256,6 +256,7 @@ export async function buildCommerceService(): Promise<FastifyInstance> {
     bookId: z.string().uuid(),
     quantity: z.number().int().min(1).max(20).default(1),
     format: z.enum(["hardcover_square_8x8", "hardcover_standard_8x10", "hardcover_grand_12x12"]).optional(),
+    shippingSpeed: z.enum(["standard", "priority"]).default("standard"),
     shippingAddress: z.object({
       recipientName: z.string().min(1),
       line1: z.string().min(1),
@@ -280,6 +281,67 @@ export async function buildCommerceService(): Promise<FastifyInstance> {
     return "hardcover_standard_8x10";
   }
 
+  async function computeLiveQuote(params: {
+    format?: string;
+    binding?: string;
+    paperWeight?: string;
+    quantity?: number;
+    country?: string;
+    shippingSpeed?: string;
+  }) {
+    const resolvedFormat =
+      params.format === "hardcover_grand_12x12" || params.format === "hardcover_square_8x8"
+        ? params.format
+        : "hardcover_standard_8x10";
+    const zoneCode = (params.country || "US").trim().toUpperCase() === "US" ? "US" : "INTL";
+
+    let formatBaseCentsOverride: number | undefined;
+    let formatEnabled = true;
+    let shippingRateCentsOverride: number | undefined;
+    let estimatedDaysOverride: string | undefined;
+
+    if (dbUrl) {
+      const [fmtRes, shipRes] = await Promise.all([
+        db.query(`SELECT base_cents as "baseCents", enabled FROM print_catalog_formats WHERE format_id = $1 LIMIT 1`, [resolvedFormat]),
+        db.query(`SELECT rate_cents as "rateCents", estimated_days as "estimatedDays" FROM shipping_rates WHERE zone_code = $1 LIMIT 1`, [zoneCode]),
+      ]);
+      if (fmtRes.rows[0]) {
+        formatBaseCentsOverride = Number(fmtRes.rows[0].baseCents);
+        formatEnabled = Boolean(fmtRes.rows[0].enabled);
+      }
+      if (shipRes.rows[0]) {
+        shippingRateCentsOverride = Number(shipRes.rows[0].rateCents);
+        estimatedDaysOverride = shipRes.rows[0].estimatedDays;
+      }
+    } else {
+      const fmt = memFormats.get(resolvedFormat);
+      if (fmt) {
+        formatBaseCentsOverride = fmt.baseCents;
+        formatEnabled = fmt.enabled;
+      }
+      const sr = memShippingRates.get(zoneCode);
+      if (sr) {
+        shippingRateCentsOverride = sr.rateCents;
+        estimatedDaysOverride = sr.estimatedDays;
+      }
+    }
+
+    return {
+      formatEnabled,
+      quote: calculatePrintOrderPricing({
+        format: resolvedFormat,
+        binding: params.binding,
+        paperWeight: params.paperWeight,
+        quantity: params.quantity,
+        country: params.country,
+        shippingSpeed: params.shippingSpeed,
+        formatBaseCentsOverride,
+        shippingRateCentsOverride,
+        estimatedDaysOverride,
+      }),
+    };
+  }
+
   app.post("/api/v1/orders", async (req: FastifyRequest, reply: FastifyReply) => {
     const userId = await requireAuthUser(req);
     const parseResult = CreateOrderSchema.safeParse(req.body);
@@ -287,17 +349,21 @@ export async function buildCommerceService(): Promise<FastifyInstance> {
       return reply.status(400).send(createErrorResponse("VALIDATION_ERROR", "Invalid print order payload"));
     }
 
-    const { spaceId, bookId, quantity, format, shippingAddress, printSpec } = parseResult.data;
+    const { spaceId, bookId, quantity, format, shippingSpeed, shippingAddress, printSpec } = parseResult.data;
     await assertSpaceAccess(spaceId, userId, true);
 
     const resolvedFormat = await resolveBookFormat(bookId, format || printSpec.format);
-    const quote = calculatePrintOrderPricing({
+    const { formatEnabled, quote } = await computeLiveQuote({
       format: resolvedFormat,
       binding: printSpec.binding,
       paperWeight: printSpec.paperWeight,
       quantity,
       country: shippingAddress.country,
+      shippingSpeed,
     });
+    if (!formatEnabled) {
+      return reply.status(400).send(createErrorResponse("FORMAT_DISABLED", "Selected print format is currently disabled"));
+    }
 
     const orderId = crypto.randomUUID();
     const order = await commerceRepo.createOrder({
@@ -312,6 +378,7 @@ export async function buildCommerceService(): Promise<FastifyInstance> {
       printSpec: {
         ...printSpec,
         format: quote.format,
+        shippingSpeed: quote.shippingSpeed,
         quantity: quote.quantity,
         unitCents: quote.unitCents,
         subtotalCents: quote.subtotalCents,
@@ -362,16 +429,21 @@ export async function buildCommerceService(): Promise<FastifyInstance> {
       paperWeight?: string;
       quantity?: number;
       country?: string;
+      shippingSpeed?: string;
       printSpec?: { format?: string; binding?: string; paperWeight?: string };
       shippingAddress?: { country?: string };
     }) || {};
-    const quote = calculatePrintOrderPricing({
+    const { formatEnabled, quote } = await computeLiveQuote({
       format: body.format || body.printSpec?.format,
       binding: body.binding || body.printSpec?.binding,
       paperWeight: body.paperWeight || body.printSpec?.paperWeight,
       quantity: body.quantity,
       country: body.country || body.shippingAddress?.country,
+      shippingSpeed: body.shippingSpeed,
     });
+    if (!formatEnabled) {
+      return reply.status(400).send(createErrorResponse("FORMAT_DISABLED", "Selected print format is currently disabled"));
+    }
     return reply.status(200).send(createSuccessResponse(quote));
   });
 
@@ -488,12 +560,13 @@ export async function buildCommerceService(): Promise<FastifyInstance> {
       await assertSpaceAccess(original.spaceId, userId, true);
 
       const quantity = Math.min(Math.max(Number(req.body?.quantity || original.printSpec?.quantity || 1), 1), 20);
-      const quote = calculatePrintOrderPricing({
+      const { quote } = await computeLiveQuote({
         format: original.printSpec?.format,
         binding: original.printSpec?.binding,
         paperWeight: original.printSpec?.paperWeight,
         quantity,
         country: original.shippingAddress?.country || "US",
+        shippingSpeed: original.printSpec?.shippingSpeed || "standard",
       });
 
       const reorder = await commerceRepo.createOrder({
@@ -507,14 +580,38 @@ export async function buildCommerceService(): Promise<FastifyInstance> {
         shippingAddress: original.shippingAddress,
         printSpec: {
           ...original.printSpec,
+          format: quote.format,
+          shippingSpeed: quote.shippingSpeed,
           quantity: quote.quantity,
           unitCents: quote.unitCents,
           subtotalCents: quote.subtotalCents,
           shippingCents: quote.shippingCents,
+          taxCents: quote.taxCents,
+          estimatedDays: quote.estimatedDays,
           reorderedFromOrderId: original.id,
           paymentMode: "sandbox_zero_budget",
         },
       });
+
+      if (dbUrl) {
+        await db.query(
+          `INSERT INTO order_items (id, order_id, book_id, edition_hash, quantity, unit_price_cents)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+          [
+            crypto.randomUUID(),
+            reorder.id,
+            reorder.bookId,
+            original.printSpec?.editionHash || "draft-edition",
+            quote.quantity,
+            quote.unitCents,
+          ]
+        ).catch((err) => logger.warn({ err, orderId: reorder.id }, "[Commerce] Non-fatal reorder order_items warning"));
+        await db.query(
+          `INSERT INTO fulfilment_records (id, order_id, provider, status)
+           VALUES ($1, $2, 'local_print_press', 'queued')`,
+          [crypto.randomUUID(), reorder.id]
+        ).catch((err) => logger.warn({ err, orderId: reorder.id }, "[Commerce] Non-fatal reorder fulfilment warning"));
+      }
 
       await publishDomainEvent("commerce.order.reordered", "commerce.order.reordered", reorder.id, {
         orderId: reorder.id,
@@ -617,12 +714,19 @@ export async function buildCommerceService(): Promise<FastifyInstance> {
 
       await commerceRepo.updateOrderStatus(order.id, "shipped");
       if (dbUrl) {
-        await db.query(
+        const updateRes = await db.query(
           `UPDATE fulfilment_records
            SET provider = $1, tracking_number = $2, tracking_url = $3, status = 'shipped', updated_at = NOW()
            WHERE order_id = $4`,
           [carrier, trackingNumber, trackingUrl, order.id]
         );
+        if ((updateRes.rowCount || 0) === 0) {
+          await db.query(
+            `INSERT INTO fulfilment_records (id, order_id, provider, tracking_number, tracking_url, status)
+             VALUES ($1, $2, $3, $4, $5, 'shipped')`,
+            [crypto.randomUUID(), order.id, carrier, trackingNumber, trackingUrl]
+          );
+        }
       } else {
         memTracking.set(order.id, { carrier, trackingNumber, trackingUrl, updatedAt: new Date().toISOString() });
       }

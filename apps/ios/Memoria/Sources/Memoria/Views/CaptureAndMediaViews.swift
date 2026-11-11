@@ -2,6 +2,9 @@ import SwiftUI
 #if canImport(AVFoundation)
 import AVFoundation
 #endif
+#if canImport(AVKit)
+import AVKit
+#endif
 #if canImport(CoreImage)
 import CoreImage
 #endif
@@ -281,63 +284,112 @@ public struct VoiceRecorderView: View {
 public struct UploadQueueSheetView: View {
     @Environment(\.dismiss) private var dismiss
 
-    @State private var entries: [UploadQueueEntry] = [
-        UploadQueueEntry(filename: "grandma_1954_portrait.heic", formatLabel: "Lossless Image", progress: 1.0, status: "Verified & Derivative Generated"),
-        UploadQueueEntry(filename: "sunday_dinner_oral_history.m4a", formatLabel: "Oral Audio", progress: 0.72, status: "Uploading Chunk 3/4"),
-    ]
+    @State private var entries: [UploadQueueEntry] = []
+    @State private var isLoading = false
+    @State private var statusBanner: String?
 
     public init() {}
 
     public var body: some View {
         NavigationStack {
             List {
-                Section("Background Upload Queue (IOS-21 / IOS-22)") {
-                    ForEach(entries) { entry in
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack {
-                                Text(entry.filename)
-                                    .font(.subheadline.weight(.semibold))
-                                    .foregroundStyle(MemoriaTheme.ink)
-                                Spacer()
-                                Text(entry.formatLabel)
-                                    .font(.caption2)
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 3)
-                                    .background(MemoriaTheme.plumLight)
-                                    .foregroundStyle(MemoriaTheme.plum)
-                                    .clipShape(Capsule())
-                            }
-                            ProgressView(value: entry.progress)
-                                .tint(entry.progress >= 1.0 ? MemoriaTheme.sageFunc : MemoriaTheme.plum)
-                            HStack {
-                                Text(entry.status)
-                                    .font(.caption)
-                                    .foregroundStyle(MemoriaTheme.textSecondary)
-                                Spacer()
-                                if entry.progress < 1.0 {
-                                    Button("Complete Now") {
-                                        if let idx = entries.firstIndex(where: { $0.id == entry.id }) {
-                                            entries[idx].progress = 1.0
-                                            entries[idx].status = "Verified & Synced"
+                if let statusBanner {
+                    Section {
+                        Text(statusBanner)
+                            .font(.footnote)
+                            .foregroundStyle(MemoriaTheme.sageFunc)
+                    }
+                }
+
+                Section("Background Upload & Offline Sync Queue (IOS-21 / IOS-22)") {
+                    if isLoading {
+                        ProgressView("Checking upload sessions...")
+                    } else if entries.isEmpty {
+                        Text("All media transfers and offline memories are synchronized.")
+                            .font(.footnote)
+                            .foregroundStyle(MemoriaTheme.textSecondary)
+                    } else {
+                        ForEach(entries) { entry in
+                            VStack(alignment: .leading, spacing: 6) {
+                                HStack {
+                                    Text(entry.filename)
+                                        .font(.subheadline.weight(.semibold))
+                                        .foregroundStyle(MemoriaTheme.ink)
+                                    Spacer()
+                                    Text(entry.formatLabel)
+                                        .font(.caption2)
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 3)
+                                        .background(MemoriaTheme.plumLight)
+                                        .foregroundStyle(MemoriaTheme.plum)
+                                        .clipShape(Capsule())
+                                }
+                                ProgressView(value: entry.progress)
+                                    .tint(entry.progress >= 1.0 ? MemoriaTheme.sageFunc : MemoriaTheme.plum)
+                                HStack {
+                                    Text(entry.status)
+                                        .font(.caption)
+                                        .foregroundStyle(MemoriaTheme.textSecondary)
+                                    Spacer()
+                                    if entry.status == "failed" || entry.status == "pending_upload" {
+                                        Button("Retry Session") {
+                                            Task { await retrySession(id: entry.id) }
                                         }
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(MemoriaTheme.plum)
                                     }
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(MemoriaTheme.plum)
                                 }
                             }
+                            .padding(.vertical, 4)
                         }
-                        .padding(.vertical, 4)
                     }
                 }
             }
             .scrollContentBackground(.hidden)
             .background(MemoriaTheme.canvas)
             .navigationTitle("Upload Queue")
+            .task { await loadQueue() }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Close") { dismiss() }
                 }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Refresh") {
+                        Task { await loadQueue() }
+                    }
+                    .foregroundStyle(MemoriaTheme.plum)
+                }
             }
+        }
+    }
+
+    private func loadQueue() async {
+        isLoading = true
+        defer { isLoading = false }
+        do {
+            let sessions = try await MemoriaAPIClient.shared.fetchActiveUploadSessions()
+            entries = sessions.map { s in
+                UploadQueueEntry(
+                    id: s.id,
+                    filename: s.originalName,
+                    formatLabel: s.mimeType,
+                    progress: s.status == "processing" ? 0.75 : s.status == "pending_upload" ? 0.25 : 0.1,
+                    status: s.status
+                )
+            }
+        } catch {
+            entries = []
+            statusBanner = "Offline or unauthenticated — queued items remain preserved locally."
+        }
+    }
+
+    private func retrySession(id: String) async {
+        do {
+            try await MemoriaAPIClient.shared.retryUploadSession(mediaId: id)
+            statusBanner = "Refreshed signed upload session for \(id.prefix(8))."
+            await loadQueue()
+        } catch {
+            statusBanner = "Retry queued: \(error.localizedDescription)"
         }
     }
 }
@@ -465,6 +517,12 @@ public struct MediaPlaybackView: View {
     @State private var isPlaying = false
     @State private var progress: Double = 0.0
     @State private var zoomScale: CGFloat = 1.0
+    @State private var resolvedUrl: URL?
+    @State private var ocrText: String?
+    @State private var playbackTimer: Task<Void, Never>?
+    #if canImport(AVFoundation)
+    @State private var player: AVPlayer?
+    #endif
 
     public init(memory: Memory) {
         self.memory = memory
@@ -472,66 +530,161 @@ public struct MediaPlaybackView: View {
 
     public var body: some View {
         NavigationStack {
-            VStack(spacing: 20) {
-                Spacer()
-                ZStack {
-                    RoundedRectangle(cornerRadius: MemoriaTheme.radiusLg)
-                        .fill(MemoriaTheme.surfacePrimary)
-                        .frame(height: 300)
-                        .shadow(color: .black.opacity(0.06), radius: 10, y: 4)
+            ScrollView {
+                VStack(spacing: 20) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: MemoriaTheme.radiusLg)
+                            .fill(MemoriaTheme.surfacePrimary)
+                            .frame(minHeight: 280)
+                            .shadow(color: .black.opacity(0.06), radius: 10, y: 4)
 
-                    VStack(spacing: 14) {
-                        Image(systemName: iconForFormat)
-                            .font(.system(size: 64))
-                            .foregroundStyle(MemoriaTheme.plum)
-                            .scaleEffect(zoomScale)
-                        Text(memory.title)
-                            .font(.headline)
-                            .foregroundStyle(MemoriaTheme.ink)
-                        Text(memory.mediaIds.first ?? "Archival Text / Local Specimen")
-                            .font(.caption.monospaced())
-                            .foregroundStyle(MemoriaTheme.textSecondary)
-                    }
-                    .padding()
-                }
-                .onTapGesture(count: 2) {
-                    withAnimation {
-                        zoomScale = zoomScale > 1.0 ? 1.0 : 1.5
-                    }
-                }
-
-                if memory.format == .video || memory.format == .audio {
-                    VStack(spacing: 10) {
-                        Slider(value: $progress, in: 0...1)
-                            .tint(MemoriaTheme.plum)
-                        HStack {
-                            Button {
-                                isPlaying.toggle()
-                            } label: {
-                                Label(isPlaying ? "Pause" : "Play", systemImage: isPlaying ? "pause.fill" : "play.fill")
+                        #if canImport(AVKit)
+                        if (memory.format == .video || memory.format == .audio), let player {
+                            VideoPlayer(player: player)
+                                .frame(height: 280)
+                                .clipShape(RoundedRectangle(cornerRadius: MemoriaTheme.radiusLg))
+                        } else if let resolvedUrl, memory.format == .image {
+                            AsyncImage(url: resolvedUrl) { phase in
+                                switch phase {
+                                case .success(let image):
+                                    image
+                                        .resizable()
+                                        .scaledToFit()
+                                        .scaleEffect(zoomScale)
+                                        .frame(maxHeight: 280)
+                                default:
+                                    fallbackSpecimen
+                                }
                             }
-                            .buttonStyle(.borderedProminent)
-                            .tint(MemoriaTheme.plum)
-                            Spacer()
-                            Text("\(Int(progress * 100))% buffered")
-                                .font(.caption.monospacedDigit())
-                                .foregroundStyle(MemoriaTheme.textSecondary)
+                        } else {
+                            fallbackSpecimen
+                        }
+                        #else
+                        fallbackSpecimen
+                        #endif
+                    }
+                    .onTapGesture(count: 2) {
+                        withAnimation {
+                            zoomScale = zoomScale > 1.0 ? 1.0 : 1.5
                         }
                     }
-                    .padding()
-                    .memoriaCard()
+
+                    if memory.format == .video || memory.format == .audio {
+                        VStack(spacing: 10) {
+                            Slider(value: $progress, in: 0...1)
+                                .tint(MemoriaTheme.plum)
+                            HStack {
+                                Button {
+                                    togglePlay()
+                                } label: {
+                                    Label(isPlaying ? "Pause" : "Play", systemImage: isPlaying ? "pause.fill" : "play.fill")
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .tint(MemoriaTheme.plum)
+                                Spacer()
+                                Text("\(Int(progress * 100))% played")
+                                    .font(.caption.monospacedDigit())
+                                    .foregroundStyle(MemoriaTheme.textSecondary)
+                            }
+                        }
+                        .padding()
+                        .memoriaCard()
+                    }
+
+                    if let ocrText, !ocrText.isEmpty {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Synchronized Transcript / OCR")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(MemoriaTheme.plum)
+                            Text(ocrText)
+                                .font(.footnote)
+                                .foregroundStyle(MemoriaTheme.ink)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding()
+                        .memoriaCard()
+                    }
                 }
-                Spacer()
+                .padding()
             }
-            .padding()
             .background(MemoriaTheme.canvas.ignoresSafeArea())
             .navigationTitle("Media Viewer")
+            .task { await loadMedia() }
+            .onDisappear { stopPlayback() }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") { dismiss() }
+                    Button("Done") {
+                        stopPlayback()
+                        dismiss()
+                    }
                 }
             }
         }
+    }
+
+    private var fallbackSpecimen: some View {
+        VStack(spacing: 14) {
+            Image(systemName: iconForFormat)
+                .font(.system(size: 64))
+                .foregroundStyle(MemoriaTheme.plum)
+                .scaleEffect(zoomScale)
+            Text(memory.title)
+                .font(.headline)
+                .foregroundStyle(MemoriaTheme.ink)
+            Text(memory.mediaIds.first ?? "Archival Text / Local Specimen")
+                .font(.caption.monospaced())
+                .foregroundStyle(MemoriaTheme.textSecondary)
+        }
+        .padding()
+    }
+
+    private func loadMedia() async {
+        guard let mediaId = memory.mediaIds.first else { return }
+        if let asset = try? await MemoriaAPIClient.shared.fetchMediaAsset(mediaId: mediaId),
+           let urlStr = asset.publicUrl,
+           let url = URL(string: urlStr) {
+            resolvedUrl = url
+            #if canImport(AVFoundation)
+            if memory.format == .video || memory.format == .audio {
+                player = AVPlayer(url: url)
+            }
+            #endif
+        }
+        if let transcripts = try? await MemoriaAPIClient.shared.fetchMediaOcr(mediaId: mediaId),
+           let first = transcripts.first {
+            ocrText = first.extractedText
+        }
+    }
+
+    private func togglePlay() {
+        isPlaying.toggle()
+        #if canImport(AVFoundation)
+        if let player {
+            if isPlaying { player.play() } else { player.pause() }
+        }
+        #endif
+        if isPlaying {
+            playbackTimer = Task {
+                while !Task.isCancelled && progress < 1.0 {
+                    try? await Task.sleep(nanoseconds: 250_000_000)
+                    if !Task.isCancelled {
+                        progress = min(1.0, progress + 0.05)
+                    }
+                }
+                if progress >= 1.0 { isPlaying = false }
+            }
+        } else {
+            playbackTimer?.cancel()
+        }
+    }
+
+    private func stopPlayback() {
+        playbackTimer?.cancel()
+        playbackTimer = nil
+        #if canImport(AVFoundation)
+        player?.pause()
+        #endif
+        isPlaying = false
     }
 
     private var iconForFormat: String {

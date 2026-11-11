@@ -48,6 +48,7 @@ export default function BillingPage() {
   const [paperWeight, setPaperWeight] = useState<"140gsm_matte" | "170gsm_lustre">("140gsm_matte");
   const [quantity, setQuantity] = useState(1);
   const [country, setCountry] = useState("US");
+  const [shippingSpeed, setShippingSpeed] = useState<"standard" | "priority">("standard");
   const [quote, setQuote] = useState<OrderQuoteDTO | null>(null);
 
   const [recipientName, setRecipientName] = useState("");
@@ -99,7 +100,9 @@ export default function BillingPage() {
     const unitCents = f.baseCents + b.surchargeCents + p.surchargeCents;
     const subtotalCents = unitCents * quantity;
     const isDomestic = country.trim().toUpperCase() === "US";
-    const shippingCents = isDomestic ? 900 : 2400;
+    const baseShipping = isDomestic ? 900 : 2400;
+    const prioritySurcharge = shippingSpeed === "priority" ? (isDomestic ? 1200 : 1800) : 0;
+    const shippingCents = baseShipping + prioritySurcharge;
     return {
       currency: "USD",
       quantity,
@@ -108,7 +111,14 @@ export default function BillingPage() {
       shippingCents,
       taxCents: 0,
       totalCents: subtotalCents + shippingCents,
-      estimatedDays: isDomestic ? "5–7 business days" : "10–14 business days",
+      estimatedDays:
+        shippingSpeed === "priority"
+          ? isDomestic
+            ? "2–3 business days"
+            : "4–6 business days"
+          : isDomestic
+          ? "5–7 business days"
+          : "10–14 business days",
     };
   };
 
@@ -119,7 +129,7 @@ export default function BillingPage() {
       return;
     }
     try {
-      const q = await getOrderQuote({ format, binding, paperWeight, quantity, country });
+      const q = await getOrderQuote({ format, binding, paperWeight, quantity, country, shippingSpeed });
       setQuote(q);
     } catch {
       setQuote(computeLocalQuote());
@@ -139,7 +149,9 @@ export default function BillingPage() {
         body: JSON.stringify({
           spaceId,
           bookId,
+          format,
           quantity,
+          shippingSpeed,
           shippingAddress: {
             recipientName: recipientName.trim(),
             line1: street.trim(),
@@ -148,6 +160,7 @@ export default function BillingPage() {
             country: country.trim().toUpperCase() || "US",
           },
           printSpec: {
+            format,
             paperWeight,
             binding,
           },
@@ -260,6 +273,21 @@ export default function BillingPage() {
                   className="w-full px-3 py-2 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] text-xs uppercase"
                 />
               </div>
+            </div>
+
+            <div className="sm:col-span-2">
+              <label htmlFor="bill-speed" className="block text-xs font-semibold text-[#20242C] mb-1">
+                Courier Shipping Tier
+              </label>
+              <select
+                id="bill-speed"
+                value={shippingSpeed}
+                onChange={(e) => setShippingSpeed(e.target.value as "standard" | "priority")}
+                className="w-full px-3 py-2 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] text-xs"
+              >
+                <option value="standard">Standard Archival Parcel (Pass-through base rate)</option>
+                <option value="priority">Priority Insured Courier (+$12 US / +$18 Intl)</option>
+              </select>
             </div>
           </div>
 

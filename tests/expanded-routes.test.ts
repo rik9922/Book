@@ -9,6 +9,7 @@ import { buildCollabService } from "../services/collab-service/src/server.ts";
 import { buildBookService } from "../services/book-service/src/server.ts";
 import { buildCommerceService } from "../services/commerce-service/src/server.ts";
 import { buildMediaService } from "../services/media-service/src/server.ts";
+import { buildNotificationService } from "../services/notification-service/src/server.ts";
 import { buildGateway } from "../services/api-gateway/src/server.ts";
 
 describe("Expanded Screen Inventory Backend Routes Suite", () => {
@@ -506,15 +507,18 @@ describe("Expanded Screen Inventory Backend Routes Suite", () => {
       });
       assert.equal(bookRes.statusCode, 201);
       const bookId = JSON.parse(bookRes.body).data.id;
+      const initialSpreadCount = JSON.parse(bookRes.body).data.spreads.length;
 
       const curateRes = await bookApp.inject({
         method: "POST",
         url: `/api/v1/books/${bookId}/curate`,
         headers,
-        payload: { memoryIds: [memId], theme: "heirloom_serif" },
+        payload: { memoryIds: [memId], template: "fine_art_spread" },
       });
       assert.equal(curateRes.statusCode, 200);
-      assert.ok(JSON.parse(curateRes.body).data.spreads.length >= 1);
+      const curatedBook = JSON.parse(curateRes.body).data;
+      assert.equal(curatedBook.spreads.length, initialSpreadCount + 1, "Curate must append a new spread for each curated memory");
+      assert.equal(curatedBook.spreads[initialSpreadCount].leftPage.layoutType, "full_bleed_single");
 
       const chapRes = await bookApp.inject({
         method: "PUT",
@@ -551,6 +555,8 @@ describe("Expanded Screen Inventory Backend Routes Suite", () => {
       });
       assert.equal(quoteRes.statusCode, 200);
       const quote = JSON.parse(quoteRes.body).data;
+      assert.equal(quote.shippingSpeed, "priority");
+      assert.equal(quote.shippingCents, 900 + 1200);
 
       const orderRes = await commerceApp.inject({
         method: "POST",
@@ -685,6 +691,246 @@ describe("Expanded Screen Inventory Backend Routes Suite", () => {
       assert.equal(JSON.parse(replyRes.body).data.status, "resolved");
     } finally {
       await Promise.all([identityApp.close(), commerceApp.close(), gatewayApp.close()]);
+    }
+  });
+
+  test("7. Security & Parity Regressions: Real 6-Digit OTP, Suspended Refresh Block, Dual-Custody Approval, Dynamic Pricing, Reorder Tracking & Notification Read", async () => {
+    const identityApp = await buildIdentityService();
+    const memoryApp = await buildMemoryService();
+    const commerceApp = await buildCommerceService();
+    const notificationApp = await buildNotificationService();
+    const gatewayApp = buildGateway();
+
+    const admin1Id = crypto.randomUUID();
+    const admin2Id = crypto.randomUUID();
+    const admin1Token = jwt.sign({ sub: admin1Id, email: "admin1@memoria.internal", role: "superadmin" }, cfg.JWT_SECRET, { expiresIn: "1h" });
+    const admin2Token = jwt.sign({ sub: admin2Id, email: "admin2@memoria.internal", role: "superadmin" }, cfg.JWT_SECRET, { expiresIn: "1h" });
+
+    try {
+      // 1. Register user -> bogus OTP rejected -> real 6-digit OTP accepted
+      const email = `otp_check_${Date.now()}@memoria.internal`;
+      const regRes = await identityApp.inject({
+        method: "POST",
+        url: "/api/v1/auth/register",
+        payload: { email, password: "StrongPassword123!", fullName: "OTP Verifier" },
+      });
+      assert.equal(regRes.statusCode, 201);
+      const regData = JSON.parse(regRes.body).data;
+      assert.ok(regData.verificationCode && regData.verificationCode.length === 6);
+
+      const bogusVerify = await identityApp.inject({
+        method: "POST",
+        url: "/api/v1/auth/verify-code",
+        headers: { authorization: `Bearer ${regData.accessToken}` },
+        payload: { code: "000000" },
+      });
+      assert.equal(bogusVerify.statusCode, 400, "Bogus 6-digit OTP must be rejected");
+
+      const validVerify = await identityApp.inject({
+        method: "POST",
+        url: "/api/v1/auth/verify-code",
+        headers: { authorization: `Bearer ${regData.accessToken}` },
+        payload: { code: regData.verificationCode },
+      });
+      assert.equal(validVerify.statusCode, 200);
+      assert.equal(JSON.parse(validVerify.body).data.verified, true);
+
+      // 2. Suspend user -> refresh blocked (403) + restore active
+      const suspendRes = await identityApp.inject({
+        method: "PATCH",
+        url: `/api/v1/admin/users/${regData.user.id}/status`,
+        headers: { authorization: `Bearer ${admin1Token}` },
+        payload: { status: "suspended" },
+      });
+      assert.equal(suspendRes.statusCode, 200);
+
+      const suspendedRefresh = await identityApp.inject({
+        method: "POST",
+        url: "/api/v1/auth/refresh",
+        payload: { refreshToken: regData.refreshToken },
+      });
+      assert.ok(
+        suspendedRefresh.statusCode === 401 || suspendedRefresh.statusCode === 403,
+        "Suspended user must not refresh tokens"
+      );
+
+      await identityApp.inject({
+        method: "PATCH",
+        url: `/api/v1/admin/users/${regData.user.id}/status`,
+        headers: { authorization: `Bearer ${admin1Token}` },
+        payload: { status: "active" },
+      });
+
+      // 3. Dual-custody access request: requester cannot self-approve; admin2 can approve
+      const reqCreate = await identityApp.inject({
+        method: "POST",
+        url: "/api/v1/admin/access-requests",
+        headers: { authorization: `Bearer ${admin1Token}` },
+        payload: { reason: "Investigate customer print ticket #402" },
+      });
+      assert.equal(reqCreate.statusCode, 201);
+      const accessReqId = JSON.parse(reqCreate.body).data.id;
+
+      const selfApprove = await identityApp.inject({
+        method: "POST",
+        url: `/api/v1/admin/access-requests/${accessReqId}/approve`,
+        headers: { authorization: `Bearer ${admin1Token}` },
+        payload: {},
+      });
+      assert.equal(selfApprove.statusCode, 403, "Dual-custody must block self-approval");
+
+      const peerApprove = await identityApp.inject({
+        method: "POST",
+        url: `/api/v1/admin/access-requests/${accessReqId}/approve`,
+        headers: { authorization: `Bearer ${admin2Token}` },
+        payload: {},
+      });
+      assert.equal(peerApprove.statusCode, 200);
+      assert.equal(JSON.parse(peerApprove.body).data.status, "approved");
+
+      // 4. Audit logs contain admin entries + ticket replies included
+      const auditRes = await identityApp.inject({
+        method: "GET",
+        url: "/api/v1/admin/audit-logs",
+        headers: { authorization: `Bearer ${admin1Token}` },
+      });
+      assert.equal(auditRes.statusCode, 200);
+      assert.ok(JSON.parse(auditRes.body).data.length >= 1, "Audit logs must record admin mutations");
+
+      const tCreate = await identityApp.inject({
+        method: "POST",
+        url: "/api/v1/support/tickets",
+        headers: { authorization: `Bearer ${regData.accessToken}` },
+        payload: { subject: "Scanner ICC Profile", message: "Which ICC profile for 1920 prints?" },
+      });
+      assert.equal(tCreate.statusCode, 201);
+      const tId = JSON.parse(tCreate.body).data.id;
+
+      await identityApp.inject({
+        method: "POST",
+        url: `/api/v1/admin/tickets/${tId}/reply`,
+        headers: { authorization: `Bearer ${admin1Token}` },
+        payload: { message: "Use sRGB IEC61966-2.1 lossless PNG/TIFF.", newStatus: "resolved" },
+      });
+      const myTicketsRes = await identityApp.inject({
+        method: "GET",
+        url: "/api/v1/support/tickets",
+        headers: { authorization: `Bearer ${regData.accessToken}` },
+      });
+      assert.equal(myTicketsRes.statusCode, 200);
+      const foundTicket = JSON.parse(myTicketsRes.body).data.find((t: any) => t.id === tId);
+      assert.ok(foundTicket && foundTicket.replies.length === 1, "Customer ticket fetch must include admin replies");
+
+      // 5. Dynamic catalog price & reorder tracking
+      const origFormats = await commerceApp.inject({
+        method: "GET",
+        url: "/api/v1/admin/catalog/formats",
+        headers: { authorization: `Bearer ${admin1Token}` },
+      });
+      const squareFmt = JSON.parse(origFormats.body).data.find((f: any) => f.formatId === "hardcover_square_8x8");
+      const originalBase = squareFmt.baseCents;
+
+      await commerceApp.inject({
+        method: "PUT",
+        url: "/api/v1/admin/catalog/formats/hardcover_square_8x8",
+        headers: { authorization: `Bearer ${admin1Token}` },
+        payload: { baseCents: 4500 },
+      });
+      const updatedQuote = await commerceApp.inject({
+        method: "POST",
+        url: "/api/v1/orders/quote",
+        headers: { authorization: `Bearer ${regData.accessToken}` },
+        payload: { format: "hardcover_square_8x8", binding: "hardcover_linen", paperWeight: "140gsm_matte", quantity: 1, country: "US" },
+      });
+      assert.equal(JSON.parse(updatedQuote.body).data.unitCents, 4500, "Admin catalog update must reflect in live quote");
+
+      // Restore original price
+      await commerceApp.inject({
+        method: "PUT",
+        url: "/api/v1/admin/catalog/formats/hardcover_square_8x8",
+        headers: { authorization: `Bearer ${admin1Token}` },
+        payload: { baseCents: originalBase },
+      });
+
+      // Space + Order + Reorder + Ship Tracking
+      const spRes = await memoryApp.inject({
+        method: "POST",
+        url: "/api/v1/spaces",
+        headers: { authorization: `Bearer ${regData.accessToken}` },
+        payload: { name: "Regression Vault", type: "family" },
+      });
+      const spaceId = JSON.parse(spRes.body).data.id;
+
+      const ordRes = await commerceApp.inject({
+        method: "POST",
+        url: "/api/v1/orders",
+        headers: { authorization: `Bearer ${regData.accessToken}` },
+        payload: {
+          spaceId,
+          bookId: crypto.randomUUID(),
+          format: "hardcover_square_8x8",
+          quantity: 1,
+          shippingAddress: { recipientName: "OTP Verifier", line1: "1 Main", city: "Austin", postalCode: "78701", country: "US" },
+          printSpec: { format: "hardcover_square_8x8", binding: "hardcover_linen", paperWeight: "140gsm_matte" },
+        },
+      });
+      assert.equal(ordRes.statusCode, 201);
+      const ordId = JSON.parse(ordRes.body).data.id;
+
+      const reordRes = await commerceApp.inject({
+        method: "POST",
+        url: `/api/v1/orders/${ordId}/reorder`,
+        headers: { authorization: `Bearer ${regData.accessToken}` },
+        payload: { quantity: 1 },
+      });
+      assert.equal(reordRes.statusCode, 201);
+      const reordId = JSON.parse(reordRes.body).data.id;
+
+      const shipReord = await commerceApp.inject({
+        method: "POST",
+        url: `/api/v1/admin/orders/${reordId}/ship`,
+        headers: { authorization: `Bearer ${admin1Token}` },
+        payload: { trackingNumber: "MEM-REORDER-777" },
+      });
+      assert.equal(shipReord.statusCode, 200);
+
+      const trackReord = await commerceApp.inject({
+        method: "GET",
+        url: `/api/v1/orders/${reordId}/tracking`,
+        headers: { authorization: `Bearer ${regData.accessToken}` },
+      });
+      assert.equal(trackReord.statusCode, 200);
+      assert.equal(JSON.parse(trackReord.body).data.trackingNumber, "MEM-REORDER-777");
+
+      // 6. Notification read supports both PATCH and POST + Gateway queues telemetry
+      const notifCreate = await notificationApp.inject({
+        method: "POST",
+        url: "/api/v1/notifications",
+        headers: { authorization: `Bearer ${regData.accessToken}` },
+        payload: { userId: regData.user.id, type: "system", title: "Ready", body: "Edition ready" },
+      });
+      assert.equal(notifCreate.statusCode, 201);
+      const notifId = JSON.parse(notifCreate.body).data.id;
+
+      const notifPostRead = await notificationApp.inject({
+        method: "POST",
+        url: `/api/v1/notifications/${notifId}/read`,
+        headers: { authorization: `Bearer ${regData.accessToken}` },
+        payload: {},
+      });
+      assert.equal(notifPostRead.statusCode, 200);
+
+      const gwQueues = await gatewayApp.inject({
+        method: "GET",
+        url: "/api/v1/admin/queues/telemetry",
+        headers: { authorization: `Bearer ${admin1Token}` },
+      });
+      assert.equal(gwQueues.statusCode, 200);
+      assert.ok(Array.isArray(JSON.parse(gwQueues.body).data.queues));
+
+      await memoryApp.inject({ method: "DELETE", url: `/api/v1/spaces/${spaceId}`, headers: { authorization: `Bearer ${regData.accessToken}` } });
+    } finally {
+      await Promise.all([identityApp.close(), memoryApp.close(), commerceApp.close(), notificationApp.close(), gatewayApp.close()]);
     }
   });
 });

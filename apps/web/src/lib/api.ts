@@ -631,7 +631,7 @@ export async function listNotifications(): Promise<NotificationDTO[]> {
 }
 
 export async function markNotificationRead(id: string): Promise<void> {
-  await apiRequest(`/notifications/${id}/read`, { method: "POST", body: JSON.stringify({}) });
+  await apiRequest(`/notifications/${id}/read`, { method: "PATCH", body: JSON.stringify({}) });
 }
 
 export async function markAllNotificationsRead(): Promise<void> {
@@ -648,6 +648,7 @@ export async function getOrderQuote(payload: {
   paperWeight: string;
   quantity: number;
   country: string;
+  shippingSpeed?: "standard" | "priority";
 }): Promise<OrderQuoteDTO> {
   return apiRequest<OrderQuoteDTO>("/orders/quote", {
     method: "POST",
@@ -920,10 +921,69 @@ export async function createShareLink(
 }
 
 export async function verifyShareLink(token: string, passphrase?: string) {
-  return apiRequest<{ valid: boolean; spaceId: string; allowDownloads: boolean; expiresAt: string }>(
-    `/collab/share-links/${token}/verify`,
-    { method: "POST", body: JSON.stringify({ passphrase }) }
+  return apiRequest<{
+    valid: boolean;
+    spaceId: string;
+    allowDownloads: boolean;
+    expiresAt: string;
+    space?: { id: string; name: string; description?: string; type: string } | null;
+    memories?: Array<{ id: string; title: string; content?: string; format: string; location?: string; capturedAt: string }>;
+  }>(`/collab/share-links/${token}/verify`, {
+    method: "POST",
+    body: JSON.stringify({ passphrase }),
+  });
+}
+
+export async function getMediaAsset(mediaId: string) {
+  return apiRequest<{
+    id: string;
+    spaceId: string;
+    originalName: string;
+    mimeType: string;
+    sizeBytes: number;
+    status: string;
+    publicUrl?: string;
+    metadata?: Record<string, any>;
+  }>(`/media/${mediaId}`);
+}
+
+export async function getMediaOcr(mediaId: string) {
+  return apiRequest<Array<{ id: string; mediaId: string; extractedText: string; confidence?: number; language?: string }>>(
+    `/media/${mediaId}/ocr`
   );
+}
+
+export async function flagMemoryForModeration(memoryId: string, reason: string) {
+  return apiRequest<{ id: string; status: string }>(`/memories/${memoryId}/flag`, {
+    method: "POST",
+    body: JSON.stringify({ reason }),
+  });
+}
+
+export async function listMySupportTickets() {
+  return apiRequest<
+    Array<{
+      id: string;
+      subject: string;
+      category: string;
+      message: string;
+      status: string;
+      createdAt: string;
+      replies?: Array<{ id: string; authorName: string; message: string; createdAt: string }>;
+    }>
+  >("/support/tickets");
+}
+
+export async function submitAbuseReport(payload: {
+  targetType: "memory" | "space" | "user";
+  targetId: string;
+  reason: string;
+  details?: string;
+}) {
+  return apiRequest<{ id: string; status: string }>("/support/reports", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }
 
 export async function curateBookMemories(

@@ -52,6 +52,8 @@ export default function SpaceDetailPage() {
         setSpace(sp.value);
         setEditName(sp.value.name);
         setEditDesc(sp.value.description || "");
+      } else {
+        setError(sp.reason instanceof Error ? sp.reason.message : "Unable to load this memory space.");
       }
       if (tl.status === "fulfilled") setTimelineGroups(tl.value.groups || []);
       if (mems.status === "fulfilled") setMembers(mems.value || []);
@@ -161,7 +163,9 @@ export default function SpaceDetailPage() {
           </div>
         ) : !space ? (
           <div className="bg-white rounded-2xl border border-[#E7E2DA] p-8 text-center text-xs text-[#5C5955]">
-            Sign in to view this memory space.
+            {getStoredSession().accessToken
+              ? "Memory space unavailable or access denied."
+              : "Sign in to view this memory space."}
           </div>
         ) : (
           <>

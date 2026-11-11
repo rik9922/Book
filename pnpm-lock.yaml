@@ -263,6 +263,12 @@ importers:
       '@memory-capsule/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@memory-capsule/database':
+        specifier: workspace:*
+        version: link:../../packages/database
+      '@memory-capsule/jobs':
+        specifier: workspace:*
+        version: link:../../packages/jobs
       '@memory-capsule/logger':
         specifier: workspace:*
         version: link:../../packages/logger

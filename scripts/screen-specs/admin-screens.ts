@@ -1458,7 +1458,7 @@ export const adminScreens: ScreenSpec[] = [
       e2e: ["edits Standard book price from $74 to $78, clicks Save, verifies updated price persists"]
     },
     uiComponents: ["PricingTable", "CurrencyInputField", "ShippingZoneCard", "MarginSummaryBox", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "ADMIN-18",
@@ -1898,7 +1898,7 @@ export const adminScreens: ScreenSpec[] = [
       e2e: ["selects Invite template, edits subject line, previews in mobile frame, clicks Send Test Email"]
     },
     uiComponents: ["TemplateSidebar", "MonacoCodeEditor", "LiveEmailPreviewFrame", "VariableJsonEditor", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "ADMIN-23",
@@ -2067,7 +2067,7 @@ export const adminScreens: ScreenSpec[] = [
       e2e: ["filters by 'Session Revoke' action, inspects record diff, clicks Verify Hash Chain, receives positive validation toast"]
     },
     uiComponents: ["AuditLogsTable", "RecordDiffInspector", "HashChainBadge", "DateRangePicker", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   },
   {
     id: "ADMIN-25",
@@ -2242,6 +2242,6 @@ export const adminScreens: ScreenSpec[] = [
       e2e: ["enrolls virtual authenticator key, verifies key appears in registered list with timestamp"]
     },
     uiComponents: ["AdminProfileCard", "FIDO2KeyList", "WebAuthnPromptModal", "TOTPConfigBox", "Button"],
-    verifiedStatus: "Implemented (UI/Route Scaffolded)"
+    verifiedStatus: "Implemented & Verified"
   }
 ];

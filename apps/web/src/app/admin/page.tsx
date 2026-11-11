@@ -58,6 +58,7 @@ import {
   getApiBaseUrl,
   getBookCatalog,
   getStoredSession,
+  overrideAdminPreflight,
   PrintCatalogDTO,
   refundAdminOrder,
   registerAdminSecurityKey,
@@ -191,6 +192,7 @@ export default function AdminPortalPage() {
   const [overviewMetrics, setOverviewMetrics] = useState<{ usersCount: number; spacesCount: number; ordersCount: number } | null>(null);
   const [servicesHealth, setServicesHealth] = useState<Array<{ service: string; status: string; latencyMs: number }>>([]);
   const [adminUsers, setAdminUsers] = useState<Array<{ id: string; email: string; fullName: string; role: string; status: string; isVerified: boolean }>>([]);
+  const [userSearchQuery, setUserSearchQuery] = useState("");
   const [accessRequests, setAccessRequests] = useState<Array<{ id: string; requesterId: string; reason: string; status: string }>>([]);
   const [newAccessReason, setNewAccessReason] = useState("");
   const [moderationFlags, setModerationFlags] = useState<Array<{ id: string; spaceId: string; memoryId: string; reason: string; status: string }>>([]);
@@ -198,9 +200,13 @@ export default function AdminPortalPage() {
   const [storageStats, setStorageStats] = useState<{ driver: string; totalUsedBytes: number; spaceCount: number; assetCount: number } | null>(null);
   const [uploadSessions, setUploadSessions] = useState<Array<{ id: string; originalName: string; mimeType: string; sizeBytes: number; status: string }>>([]);
   const [queuesTelemetry, setQueuesTelemetry] = useState<Array<{ name: string; active: number; waiting: number; completed: number; failed: number }>>([]);
-  const [bookJobs, setBookJobs] = useState<Array<{ id: string; title: string; format: string; version: number; isFrozenForPrint: boolean }>>([]);
+  const [deadLetterJobs, setDeadLetterJobs] = useState<Array<{ queueName: string; jobId: string; jobName: string; failedReason: string }>>([]);
+  const [bookJobs, setBookJobs] = useState<Array<{ id: string; title: string; format: string; version: number; isFrozenForPrint: boolean; preflightOverridden?: boolean }>>([]);
   const [catalogFormats, setCatalogFormats] = useState<Array<{ formatId: string; label: string; dimensionsCm: string; baseCents: number; enabled: boolean }>>([]);
+  const [formatPriceEdits, setFormatPriceEdits] = useState<Record<string, string>>({});
   const [shippingRates, setShippingRates] = useState<Array<{ zoneCode: string; label: string; rateCents: number; estimatedDays: string }>>([]);
+  const [shippingRateEdits, setShippingRateEdits] = useState<Record<string, string>>({});
+  const [trackingInputs, setTrackingInputs] = useState<Record<string, string>>({});
   const [transactions, setTransactions] = useState<{ transactions: any[]; refunds: any[] }>({ transactions: [], refunds: [] });
   const [emailTemplates, setEmailTemplates] = useState<Array<{ templateKey: string; subject: string; htmlBody: string }>>([]);
   const [selectedTemplateKey, setSelectedTemplateKey] = useState("welcome_heirloom");
@@ -208,7 +214,16 @@ export default function AdminPortalPage() {
   const [templateBody, setTemplateBody] = useState("");
   const [featureFlags, setFeatureFlags] = useState<Array<{ flagKey: string; description: string; enabled: boolean; rolloutPercentage: number }>>([]);
   const [auditLogs, setAuditLogs] = useState<Array<{ id: string; action: string; entityType: string; entityId: string; createdAt: string }>>([]);
-  const [tickets, setTickets] = useState<Array<{ id: string; email: string; subject: string; message: string; status: string }>>([]);
+  const [tickets, setTickets] = useState<
+    Array<{
+      id: string;
+      email: string;
+      subject: string;
+      message: string;
+      status: string;
+      replies?: Array<{ id: string; authorName: string; message: string; createdAt: string }>;
+    }>
+  >([]);
   const [replyTexts, setReplyTexts] = useState<Record<string, string>>({});
   const [securityKeys, setSecurityKeys] = useState<Array<{ id: string; name: string; keyType: string; credentialId: string }>>([]);
   const [newKeyName, setNewKeyName] = useState("");
@@ -249,109 +264,144 @@ export default function AdminPortalPage() {
     setHasSession(Boolean(session.accessToken));
     if (!session.accessToken) return;
 
-    try {
-      const [
-        ov,
-        health,
-        users,
-        spList,
-        reqs,
-        flags,
-        reps,
-        stStats,
-        upSess,
-        qTel,
-        bJobs,
-        catFmt,
-        pMat,
-        ordList,
-        txRes,
-        tpls,
-        fFlags,
-        audits,
-        tix,
-        sKeys,
-      ] = await Promise.all([
-        getAdminOverview(),
-        getAdminServicesHealth(),
-        getAdminUsers(),
-        getAdminSpaces(),
-        getAdminAccessRequests(),
-        getAdminModerationFlags(),
-        getAdminReports(),
-        getAdminStorageStats(),
-        getAdminUploadSessions(),
-        getAdminQueuesTelemetry(),
-        getAdminBookJobs(),
-        getAdminCatalogFormats(),
-        getAdminPricingMatrix(),
-        getAdminOrders(),
-        getAdminTransactions(),
-        getAdminEmailTemplates(),
-        getAdminFeatureFlags(),
-        getAdminAuditLogs(),
-        getAdminTickets(),
-        getAdminSecurityKeys(),
-      ]);
-      setAdminAuthorized(true);
-      setOverviewMetrics(ov);
-      setServicesHealth(health);
-      setAdminUsers(users);
-      if (spList.length > 0) {
-        setSpaces(
-          spList.map((s) => ({
-            id: s.id,
-            name: s.name,
-            type: s.type === "family" || s.type === "personal" ? s.type : "heritage",
-            ownerEmail: s.ownerId.slice(0, 8),
-            memberCount: 1,
-            memoryCount: 0,
-            usedBytesFormatted: "Live DB",
-            usedPercentage: 10,
-            syncStatus: "synchronized",
-            lastActive: new Date(s.updatedAt).toLocaleDateString(),
-          }))
-        );
-      }
-      setAccessRequests(reqs);
-      setModerationFlags(flags);
-      setReports(reps);
-      setStorageStats(stStats);
-      setUploadSessions(upSess);
-      setQueuesTelemetry(qTel.queues || []);
-      setBookJobs(bJobs);
-      setCatalogFormats(catFmt);
-      setShippingRates(pMat.shippingRates || []);
-      if (ordList.length > 0) {
-        setOrders(
-          ordList.map((o) => ({
-            id: o.id,
-            bookTitle: `Edition ${o.bookId.slice(0, 8)}`,
-            spaceName: o.spaceId.slice(0, 8),
-            recipient: `${o.shippingAddress?.recipientName || "Customer"} • ${o.shippingAddress?.city || "Local"}`,
-            format: o.printSpec?.binding || "hardcover_linen",
-            status: o.status,
-            amount: `$${(o.totalCents / 100).toFixed(2)}`,
-            trackingNumber: o.trackingNumber,
-            isLive: true,
-          }))
-        );
-      }
-      setTransactions(txRes);
-      setEmailTemplates(tpls);
-      if (tpls[0]) {
-        setSelectedTemplateKey(tpls[0].templateKey);
-        setTemplateSubject(tpls[0].subject);
-        setTemplateBody(tpls[0].htmlBody);
-      }
-      setFeatureFlags(fFlags);
-      setAuditLogs(audits);
-      setTickets(tix);
-      setSecurityKeys(sKeys);
-    } catch {
+    const settled = await Promise.allSettled([
+      getAdminOverview(),
+      getAdminServicesHealth(),
+      getAdminUsers(),
+      getAdminSpaces(),
+      getAdminAccessRequests(),
+      getAdminModerationFlags(),
+      getAdminReports(),
+      getAdminStorageStats(),
+      getAdminUploadSessions(),
+      getAdminQueuesTelemetry(),
+      getAdminBookJobs(),
+      getAdminCatalogFormats(),
+      getAdminPricingMatrix(),
+      getAdminOrders(),
+      getAdminTransactions(),
+      getAdminEmailTemplates(),
+      getAdminFeatureFlags(),
+      getAdminAuditLogs(),
+      getAdminTickets(),
+      getAdminSecurityKeys(),
+    ]);
+
+    const [
+      ov,
+      health,
+      users,
+      spList,
+      reqs,
+      flags,
+      reps,
+      stStats,
+      upSess,
+      qTel,
+      bJobs,
+      catFmt,
+      pMat,
+      ordList,
+      txRes,
+      tpls,
+      fFlags,
+      audits,
+      tix,
+      sKeys,
+    ] = settled;
+
+    if (ov.status !== "fulfilled" && users.status !== "fulfilled") {
       setAdminAuthorized(false);
+      return;
     }
+
+    setAdminAuthorized(true);
+    if (ov.status === "fulfilled") setOverviewMetrics(ov.value);
+    if (health.status === "fulfilled") setServicesHealth(health.value);
+    if (users.status === "fulfilled") setAdminUsers(users.value);
+    if (spList.status === "fulfilled" && spList.value.length > 0) {
+      setSpaces(
+        spList.value.map((s) => ({
+          id: s.id,
+          name: s.name,
+          type: s.type === "family" || s.type === "personal" ? s.type : "heritage",
+          ownerEmail: s.ownerId.slice(0, 8),
+          memberCount: 1,
+          memoryCount: 0,
+          usedBytesFormatted: "Live DB",
+          usedPercentage: 10,
+          syncStatus: "synchronized",
+          lastActive: new Date(s.updatedAt).toLocaleDateString(),
+        }))
+      );
+    }
+    if (reqs.status === "fulfilled") setAccessRequests(reqs.value);
+    if (flags.status === "fulfilled") setModerationFlags(flags.value);
+    if (reps.status === "fulfilled") setReports(reps.value);
+    if (stStats.status === "fulfilled") setStorageStats(stStats.value);
+    if (upSess.status === "fulfilled") setUploadSessions(upSess.value);
+    if (qTel.status === "fulfilled") {
+      setQueuesTelemetry(qTel.value.queues || []);
+      setDeadLetterJobs(qTel.value.deadLetterJobs || []);
+    }
+    if (bJobs.status === "fulfilled") setBookJobs(bJobs.value);
+    if (catFmt.status === "fulfilled") {
+      setCatalogFormats(catFmt.value);
+      setFormatPriceEdits((prev) => {
+        if (Object.keys(prev).length > 0) return prev;
+        const next: Record<string, string> = {};
+        for (const f of catFmt.value) next[f.formatId] = (f.baseCents / 100).toFixed(2);
+        return next;
+      });
+    }
+    if (pMat.status === "fulfilled") {
+      setShippingRates(pMat.value.shippingRates || []);
+      setShippingRateEdits((prev) => {
+        if (Object.keys(prev).length > 0) return prev;
+        const next: Record<string, string> = {};
+        for (const sr of pMat.value.shippingRates || []) next[sr.zoneCode] = (sr.rateCents / 100).toFixed(2);
+        return next;
+      });
+    }
+    if (ordList.status === "fulfilled" && ordList.value.length > 0) {
+      setOrders(
+        ordList.value.map((o) => ({
+          id: o.id,
+          bookTitle: `Edition ${o.bookId.slice(0, 8)}`,
+          spaceName: o.spaceId.slice(0, 8),
+          recipient: `${o.shippingAddress?.recipientName || "Customer"} • ${o.shippingAddress?.city || "Local"}`,
+          format: o.printSpec?.binding || "hardcover_linen",
+          status: o.status,
+          amount: `$${(o.totalCents / 100).toFixed(2)}`,
+          trackingNumber: o.trackingNumber,
+          isLive: true,
+        }))
+      );
+    }
+    if (txRes.status === "fulfilled") setTransactions(txRes.value);
+    if (tpls.status === "fulfilled") {
+      setEmailTemplates(tpls.value);
+      setTemplateSubject((prev) => (prev ? prev : tpls.value[0]?.subject || ""));
+      setTemplateBody((prev) => (prev ? prev : tpls.value[0]?.htmlBody || ""));
+      setSelectedTemplateKey((prev) => (prev ? prev : tpls.value[0]?.templateKey || "welcome_heirloom"));
+    }
+    if (fFlags.status === "fulfilled") setFeatureFlags(fFlags.value);
+    if (audits.status === "fulfilled") setAuditLogs(audits.value);
+    if (tix.status === "fulfilled") setTickets(tix.value);
+    if (sKeys.status === "fulfilled") setSecurityKeys(sKeys.value);
   }, []);
+
+  const runAdminAction = async (fn: () => Promise<void>, successMessage: string) => {
+    setAdminError(null);
+    setAdminNotice(null);
+    try {
+      await fn();
+      setAdminNotice(successMessage);
+      await probeClusterHealth();
+    } catch (err) {
+      setAdminError(err instanceof Error ? err.message : "Administrative action failed.");
+    }
+  };
 
   useEffect(() => {
     probeClusterHealth();
@@ -414,8 +464,9 @@ export default function AdminPortalPage() {
       setOrders((prev) => prev.map((o) => (o.id === order.id ? { ...o, status: "shipped" } : o)));
       return;
     }
+    const customTracking = trackingInputs[order.id]?.trim() || undefined;
     try {
-      await shipAdminOrder(order.id);
+      await shipAdminOrder(order.id, customTracking);
       setAdminNotice(`Dispatched order ${order.id.slice(0, 8)} with courier tracking.`);
       await probeClusterHealth();
     } catch (err) {
@@ -727,41 +778,61 @@ export default function AdminPortalPage() {
             {selectedTab === "users" && (
               <div className="space-y-6">
                 <section className="bg-white rounded-2xl border border-[#E7E2DA] p-6 space-y-4">
-                  <h2 className="font-serif text-lg font-bold text-[#20242C]">User Directory &amp; Session Controls (ADMIN-02 / ADMIN-03)</h2>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <h2 className="font-serif text-lg font-bold text-[#20242C]">User Directory &amp; Session Controls (ADMIN-02 / ADMIN-03)</h2>
+                    <input
+                      type="text"
+                      value={userSearchQuery}
+                      onChange={(e) => setUserSearchQuery(e.target.value)}
+                      placeholder="Filter users by email or name..."
+                      className="px-3 py-1.5 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] text-xs w-64"
+                    />
+                  </div>
                   <div className="space-y-2">
                     {adminUsers.length === 0 ? (
                       <p className="text-xs text-[#5C5955]">No live user records loaded (sign in as admin).</p>
                     ) : (
-                      adminUsers.map((u) => (
-                        <div key={u.id} className="p-3 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] flex flex-wrap items-center justify-between gap-2 text-xs">
-                          <div>
-                            <p className="font-semibold text-[#20242C]">{u.fullName} ({u.email})</p>
-                            <p className="text-[11px] text-[#5C5955] uppercase">{u.role} • {u.status}</p>
+                      adminUsers
+                        .filter(
+                          (u) =>
+                            !userSearchQuery.trim() ||
+                            u.email.toLowerCase().includes(userSearchQuery.trim().toLowerCase()) ||
+                            u.fullName.toLowerCase().includes(userSearchQuery.trim().toLowerCase())
+                        )
+                        .map((u) => (
+                          <div key={u.id} className="p-3 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] flex flex-wrap items-center justify-between gap-2 text-xs">
+                            <div>
+                              <p className="font-semibold text-[#20242C]">{u.fullName} ({u.email})</p>
+                              <p className="text-[11px] text-[#5C5955] uppercase">{u.role} • {u.status} • {u.isVerified ? "Verified" : "Unverified"}</p>
+                            </div>
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  runAdminAction(
+                                    () => updateAdminUserStatus(u.id, u.status === "suspended" ? "active" : "suspended").then(() => undefined),
+                                    `Updated status for ${u.email}.`
+                                  )
+                                }
+                                className="px-3 py-1.5 rounded-lg bg-white border border-[#E7E2DA] font-medium"
+                              >
+                                {u.status === "suspended" ? "Reactivate" : "Suspend"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  runAdminAction(
+                                    () => revokeAdminUserSessions(u.id).then(() => undefined),
+                                    `Revoked all active sessions for ${u.email}.`
+                                  )
+                                }
+                                className="px-3 py-1.5 rounded-lg bg-[#FDF2F2] text-[#B6423E] font-medium"
+                              >
+                                Revoke Sessions
+                              </button>
+                            </div>
                           </div>
-                          <div className="flex gap-2">
-                            <button
-                              type="button"
-                              onClick={async () => {
-                                await updateAdminUserStatus(u.id, u.status === "suspended" ? "active" : "suspended");
-                                await probeClusterHealth();
-                              }}
-                              className="px-3 py-1.5 rounded-lg bg-white border border-[#E7E2DA] font-medium"
-                            >
-                              {u.status === "suspended" ? "Reactivate" : "Suspend"}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={async () => {
-                                await revokeAdminUserSessions(u.id);
-                                setAdminNotice(`Revoked all sessions for ${u.email}.`);
-                              }}
-                              className="px-3 py-1.5 rounded-lg bg-[#FDF2F2] text-[#B6423E] font-medium"
-                            >
-                              Revoke Sessions
-                            </button>
-                          </div>
-                        </div>
-                      ))
+                        ))
                     )}
                   </div>
                 </section>
@@ -769,12 +840,15 @@ export default function AdminPortalPage() {
                 <section className="bg-white rounded-2xl border border-[#E7E2DA] p-6 space-y-4">
                   <h2 className="font-serif text-lg font-bold text-[#20242C]">Dual-Party Support Access Console (ADMIN-05)</h2>
                   <form
-                    onSubmit={async (e) => {
+                    onSubmit={(e) => {
                       e.preventDefault();
                       if (!newAccessReason.trim()) return;
-                      await createAdminAccessRequest(newAccessReason.trim());
+                      const reason = newAccessReason.trim();
                       setNewAccessReason("");
-                      await probeClusterHealth();
+                      runAdminAction(
+                        () => createAdminAccessRequest(reason).then(() => undefined),
+                        "Submitted dual-custody support access request."
+                      );
                     }}
                     className="flex gap-2"
                   >
@@ -795,10 +869,12 @@ export default function AdminPortalPage() {
                       {r.status === "pending" && (
                         <button
                           type="button"
-                          onClick={async () => {
-                            await approveAdminAccessRequest(r.id);
-                            await probeClusterHealth();
-                          }}
+                          onClick={() =>
+                            runAdminAction(
+                              () => approveAdminAccessRequest(r.id).then(() => undefined),
+                              `Approved support access request ${r.id.slice(0, 8)}.`
+                            )
+                          }
                           className="px-3 py-1 rounded-lg bg-[#5F735E] text-white font-semibold"
                         >
                           Approve
@@ -819,11 +895,33 @@ export default function AdminPortalPage() {
                     <p className="text-xs text-[#5C5955]">Zero flagged memories awaiting review.</p>
                   ) : (
                     moderationFlags.map((f) => (
-                      <div key={f.id} className="p-3 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] flex justify-between text-xs">
+                      <div key={f.id} className="p-3 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] flex justify-between items-center gap-2 text-xs">
                         <span>{f.reason} ({f.status})</span>
                         <div className="flex gap-1.5">
-                          <button type="button" onClick={() => resolveAdminModerationFlag(f.id, "approved")} className="px-2 py-1 rounded bg-[#5F735E] text-white">Approve</button>
-                          <button type="button" onClick={() => resolveAdminModerationFlag(f.id, "quarantined")} className="px-2 py-1 rounded bg-[#B6423E] text-white">Quarantine</button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              runAdminAction(
+                                () => resolveAdminModerationFlag(f.id, "approved").then(() => undefined),
+                                "Approved flagged item."
+                              )
+                            }
+                            className="px-2 py-1 rounded bg-[#5F735E] text-white"
+                          >
+                            Approve
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              runAdminAction(
+                                () => resolveAdminModerationFlag(f.id, "quarantined").then(() => undefined),
+                                "Quarantined flagged item."
+                              )
+                            }
+                            className="px-2 py-1 rounded bg-[#B6423E] text-white"
+                          >
+                            Quarantine
+                          </button>
                         </div>
                       </div>
                     ))
@@ -835,9 +933,20 @@ export default function AdminPortalPage() {
                     <p className="text-xs text-[#5C5955]">No open policy reports.</p>
                   ) : (
                     reports.map((rep) => (
-                      <div key={rep.id} className="p-3 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] flex justify-between text-xs">
+                      <div key={rep.id} className="p-3 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] flex justify-between items-center gap-2 text-xs">
                         <span>{rep.targetType}: {rep.reason} ({rep.status})</span>
-                        <button type="button" onClick={() => resolveAdminReport(rep.id, "resolved")} className="px-2.5 py-1 rounded bg-[#20242C] text-white">Resolve</button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            runAdminAction(
+                              () => resolveAdminReport(rep.id, "resolved").then(() => undefined),
+                              "Resolved user policy report."
+                            )
+                          }
+                          className="px-2.5 py-1 rounded bg-[#20242C] text-white"
+                        >
+                          Resolve
+                        </button>
                       </div>
                     ))
                   )}
@@ -861,10 +970,12 @@ export default function AdminPortalPage() {
                         <span><strong>{u.originalName}</strong> ({u.mimeType}, {u.status})</span>
                         <button
                           type="button"
-                          onClick={async () => {
-                            await reprocessAdminMedia(u.id);
-                            setAdminNotice(`Re-queued derivative & OCR job for ${u.originalName}.`);
-                          }}
+                          onClick={() =>
+                            runAdminAction(
+                              () => reprocessAdminMedia(u.id).then(() => undefined),
+                              `Re-queued derivative & OCR job for ${u.originalName}.`
+                            )
+                          }
                           className="px-3 py-1 rounded-lg bg-[#20242C] text-white font-medium"
                         >
                           Reprocess
@@ -883,11 +994,18 @@ export default function AdminPortalPage() {
                   <h2 className="font-serif text-lg font-bold text-[#20242C]">BullMQ Queues &amp; DLQ Console (ADMIN-11 / 12)</h2>
                   {queuesTelemetry.length > 0 ? (
                     queuesTelemetry.map((q) => (
-                      <div key={q.name} className="p-3 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] text-xs flex justify-between">
-                        <span><strong>{q.name}</strong> (Active: {q.active}, Completed: {q.completed})</span>
+                      <div key={q.name} className="p-3 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] text-xs flex justify-between items-center">
+                        <span>
+                          <strong>{q.name}</strong> (Active: {q.active}, Waiting: {q.waiting}, Completed: {q.completed}, Failed: {q.failed})
+                        </span>
                         <button
                           type="button"
-                          onClick={() => retryAdminQueueJob(q.name, "latest")}
+                          onClick={() =>
+                            runAdminAction(
+                              () => retryAdminQueueJob(q.name, "latest").then(() => undefined),
+                              `Retried failed jobs in queue ${q.name}.`
+                            )
+                          }
                           className="px-2.5 py-1 rounded bg-white border border-[#E7E2DA] font-medium"
                         >
                           Retry DLQ
@@ -900,6 +1018,28 @@ export default function AdminPortalPage() {
                       <span className="font-semibold text-[#5F735E]">SKIP LOCKED Active</span>
                     </div>
                   )}
+                  {deadLetterJobs.length > 0 && (
+                    <div className="space-y-1.5 pt-2 border-t border-[#F0ECE1]">
+                      <p className="text-[11px] font-semibold text-[#B6423E]">Failed Jobs ({deadLetterJobs.length})</p>
+                      {deadLetterJobs.map((j) => (
+                        <div key={`${j.queueName}-${j.jobId}`} className="p-2 rounded bg-[#FDF2F2] text-[11px] flex justify-between items-center">
+                          <span>{j.queueName}: {j.jobName} ({j.failedReason})</span>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              runAdminAction(
+                                () => retryAdminQueueJob(j.queueName, j.jobId).then(() => undefined),
+                                `Retried job ${j.jobId}.`
+                              )
+                            }
+                            className="px-2 py-0.5 rounded bg-white border border-[#F5C6C6]"
+                          >
+                            Retry
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 <div className="p-6 rounded-2xl bg-[#FFFFFF] border border-[#E7E2DA] space-y-3">
@@ -908,10 +1048,28 @@ export default function AdminPortalPage() {
                     <span>Tesseract Engine</span>
                     <span className="font-semibold text-[#20242C]">{ocrEngineStatus}</span>
                   </div>
-                  {bookJobs.slice(0, 4).map((b) => (
-                    <div key={b.id} className="p-2.5 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] text-xs flex justify-between">
+                  {bookJobs.slice(0, 6).map((b) => (
+                    <div key={b.id} className="p-2.5 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] text-xs flex justify-between items-center gap-2">
                       <span>{b.title} (v{b.version})</span>
-                      <span className="text-[#76556F] font-semibold">{b.isFrozenForPrint ? "Frozen" : "Draft"}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[#76556F] font-semibold">
+                          {b.preflightOverridden ? "Overridden" : b.isFrozenForPrint ? "Frozen" : "Draft"}
+                        </span>
+                        {adminAuthorized && !b.preflightOverridden && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              runAdminAction(
+                                () => overrideAdminPreflight(b.id, "Approved by prepress operator").then(() => undefined),
+                                `Overrode preflight tolerances for "${b.title}".`
+                              )
+                            }
+                            className="px-2 py-1 rounded bg-white border border-[#E7E2DA] text-[11px] font-medium"
+                          >
+                            Override Preflight
+                          </button>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -920,51 +1078,92 @@ export default function AdminPortalPage() {
 
             {/* Print Orders & Refunds & Transactions (ADMIN-18..21) */}
             {(selectedTab === "overview" || selectedTab === "orders") && (
-              <div className="rounded-2xl bg-[#FFFFFF] border border-[#E7E2DA] shadow-xs overflow-hidden">
-                <div className="p-5 border-b border-[#E7E2DA]">
-                  <h2 className="font-serif text-lg font-bold text-[#20242C]">Print Fulfillment Queue (ADMIN-18 / 19 / 20 / 21)</h2>
-                  <p className="text-xs text-[#5C5955]">
-                    Verify frozen edition hashes, inject courier tracking, or authorize refunds/remakes. Transactions: {transactions.transactions.length}.
-                  </p>
-                </div>
-                <div className="divide-y divide-[#F0ECE1]">
-                  {orders.map((order) => (
-                    <div key={order.id} className="p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono text-xs font-bold text-[#76556F]">{order.id.slice(0, 12)}</span>
-                          <span className="font-serif font-bold text-sm text-[#20242C]">{order.bookTitle}</span>
+              <div className="space-y-6">
+                <div className="rounded-2xl bg-[#FFFFFF] border border-[#E7E2DA] shadow-xs overflow-hidden">
+                  <div className="p-5 border-b border-[#E7E2DA]">
+                    <h2 className="font-serif text-lg font-bold text-[#20242C]">Print Fulfillment Queue (ADMIN-18 / 19 / 20 / 21)</h2>
+                    <p className="text-xs text-[#5C5955]">
+                      Verify frozen edition hashes, inject courier tracking, or authorize refunds/remakes. Transactions: {transactions.transactions.length} • Refunds: {transactions.refunds.length}.
+                    </p>
+                  </div>
+                  <div className="divide-y divide-[#F0ECE1]">
+                    {orders.map((order) => (
+                      <div key={order.id} className="p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono text-xs font-bold text-[#76556F]">{order.id.slice(0, 12)}</span>
+                            <span className="font-serif font-bold text-sm text-[#20242C]">{order.bookTitle}</span>
+                          </div>
+                          <p className="text-xs text-[#5C5955]">
+                            {order.format} • {order.recipient} • {order.amount} {order.trackingNumber ? `• Track: ${order.trackingNumber}` : ""}
+                          </p>
                         </div>
-                        <p className="text-xs text-[#5C5955]">
-                          {order.format} • {order.recipient} • {order.amount} {order.trackingNumber ? `• Track: ${order.trackingNumber}` : ""}
-                        </p>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="px-3 py-1 rounded-full bg-[#F0ECE1] text-[11px] uppercase font-semibold text-[#20242C]">
+                            {order.status}
+                          </span>
+                          {order.status !== "shipped" && (
+                            <>
+                              {order.isLive && (
+                                <input
+                                  type="text"
+                                  aria-label={`Tracking number for ${order.id}`}
+                                  value={trackingInputs[order.id] || ""}
+                                  onChange={(e) =>
+                                    setTrackingInputs((prev) => ({ ...prev, [order.id]: e.target.value }))
+                                  }
+                                  placeholder="Tracking # (optional)"
+                                  className="px-2.5 py-1.5 rounded-lg bg-[#F7F4EE] border border-[#E7E2DA] text-xs w-36"
+                                />
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => handleShipOrder(order)}
+                                className="px-3 py-1.5 rounded-xl bg-[#20242C] text-[#FFFFFF] text-xs font-medium"
+                              >
+                                Ship with Tracking
+                              </button>
+                            </>
+                          )}
+                          {order.isLive && order.status !== "cancelled" && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => handleRefundOrder(order, "remake")}
+                                className="px-3 py-1.5 rounded-xl bg-[#F0ECE1] text-[#20242C] text-xs font-medium"
+                              >
+                                Authorize Remake
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleRefundOrder(order, "refund")}
+                                className="px-3 py-1.5 rounded-xl bg-[#FDF2F2] text-[#B6423E] text-xs font-medium"
+                              >
+                                Issue Refund
+                              </button>
+                            </>
+                          )}
+                        </div>
                       </div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="px-3 py-1 rounded-full bg-[#F0ECE1] text-[11px] uppercase font-semibold text-[#20242C]">
-                          {order.status}
-                        </span>
-                        {order.status !== "shipped" && (
-                          <button
-                            type="button"
-                            onClick={() => handleShipOrder(order)}
-                            className="px-3 py-1.5 rounded-xl bg-[#20242C] text-[#FFFFFF] text-xs font-medium"
-                          >
-                            Ship with Tracking
-                          </button>
-                        )}
-                        {order.isLive && (
-                          <button
-                            type="button"
-                            onClick={() => handleRefundOrder(order, "remake")}
-                            className="px-3 py-1.5 rounded-xl bg-[#FDF2F2] text-[#B6423E] text-xs font-medium"
-                          >
-                            Remake / Refund
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
+
+                {selectedTab === "orders" && transactions.transactions.length > 0 && (
+                  <div className="rounded-2xl bg-[#FFFFFF] border border-[#E7E2DA] p-6 space-y-3">
+                    <h2 className="font-serif text-lg font-bold text-[#20242C]">Payment &amp; Settlement Ledger (ADMIN-21)</h2>
+                    <div className="space-y-2 text-xs">
+                      {transactions.transactions.slice(0, 15).map((tx: any) => (
+                        <div key={tx.id} className="p-3 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] flex justify-between">
+                          <span className="font-mono">{String(tx.id).slice(0, 12)} • {tx.paymentMode || "sandbox_zero_budget"}</span>
+                          <span className="font-semibold text-[#20242C]">
+                            ${((Number(tx.totalCents) || 0) / 100).toFixed(2)} {tx.currency || "USD"} ({tx.status})
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -974,18 +1173,51 @@ export default function AdminPortalPage() {
                 <div className="p-6 rounded-2xl bg-[#FFFFFF] border border-[#E7E2DA] space-y-3">
                   <h2 className="font-serif text-lg font-bold text-[#20242C]">Print Catalog Manager (ADMIN-16)</h2>
                   {(catalogFormats.length > 0 ? catalogFormats : (catalog?.formats || []).map((f) => ({ formatId: f.id, label: f.label, dimensionsCm: f.dimensionsCm, baseCents: f.baseCents, enabled: true }))).map((f) => (
-                    <div key={f.formatId} className="p-3 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] flex items-center justify-between text-xs">
+                    <div key={f.formatId} className="p-3 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] flex flex-wrap items-center justify-between gap-2 text-xs">
                       <span>{f.label} ({f.dimensionsCm})</span>
                       <div className="flex items-center gap-2">
-                        <span className="font-mono font-semibold">${(f.baseCents / 100).toFixed(2)}</span>
-                        {adminAuthorized && (
-                          <button
-                            type="button"
-                            onClick={() => updateAdminCatalogFormat(f.formatId, { enabled: !f.enabled }).then(probeClusterHealth)}
-                            className="px-2 py-1 rounded bg-white border border-[#E7E2DA]"
-                          >
-                            {f.enabled ? "Enabled" : "Disabled"}
-                          </button>
+                        {adminAuthorized ? (
+                          <>
+                            <input
+                              type="number"
+                              step="0.50"
+                              min="1"
+                              aria-label={`Base USD for ${f.label}`}
+                              value={formatPriceEdits[f.formatId] ?? (f.baseCents / 100).toFixed(2)}
+                              onChange={(e) =>
+                                setFormatPriceEdits((prev) => ({ ...prev, [f.formatId]: e.target.value }))
+                              }
+                              className="w-20 px-2 py-1 rounded bg-white border border-[#E7E2DA] font-mono"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const usd = Number(formatPriceEdits[f.formatId] ?? f.baseCents / 100);
+                                const cents = Math.round(usd * 100);
+                                runAdminAction(
+                                  () => updateAdminCatalogFormat(f.formatId, { baseCents: cents }).then(() => undefined),
+                                  `Updated base price for ${f.label} to $${(cents / 100).toFixed(2)}.`
+                                );
+                              }}
+                              className="px-2.5 py-1 rounded bg-[#20242C] text-white font-medium"
+                            >
+                              Save
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                runAdminAction(
+                                  () => updateAdminCatalogFormat(f.formatId, { enabled: !f.enabled }).then(() => undefined),
+                                  `${f.enabled ? "Disabled" : "Enabled"} ${f.label}.`
+                                )
+                              }
+                              className="px-2 py-1 rounded bg-white border border-[#E7E2DA]"
+                            >
+                              {f.enabled ? "Enabled" : "Disabled"}
+                            </button>
+                          </>
+                        ) : (
+                          <span className="font-mono font-semibold">${(f.baseCents / 100).toFixed(2)}</span>
                         )}
                       </div>
                     </div>
@@ -995,15 +1227,35 @@ export default function AdminPortalPage() {
                 <div className="p-6 rounded-2xl bg-[#FFFFFF] border border-[#E7E2DA] space-y-3">
                   <h2 className="font-serif text-lg font-bold text-[#20242C]">Shipping Rate Matrix (ADMIN-17)</h2>
                   {shippingRates.map((sr) => (
-                    <div key={sr.zoneCode} className="p-3 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] flex items-center justify-between text-xs">
+                    <div key={sr.zoneCode} className="p-3 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] flex flex-wrap items-center justify-between gap-2 text-xs">
                       <span>{sr.label} ({sr.estimatedDays})</span>
-                      <button
-                        type="button"
-                        onClick={() => updateAdminShippingRate(sr.zoneCode, sr.rateCents).then(probeClusterHealth)}
-                        className="font-mono font-semibold text-[#76556F]"
-                      >
-                        ${(sr.rateCents / 100).toFixed(2)}
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          step="0.50"
+                          min="0"
+                          aria-label={`Shipping USD for ${sr.zoneCode}`}
+                          value={shippingRateEdits[sr.zoneCode] ?? (sr.rateCents / 100).toFixed(2)}
+                          onChange={(e) =>
+                            setShippingRateEdits((prev) => ({ ...prev, [sr.zoneCode]: e.target.value }))
+                          }
+                          className="w-20 px-2 py-1 rounded bg-white border border-[#E7E2DA] font-mono"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const usd = Number(shippingRateEdits[sr.zoneCode] ?? sr.rateCents / 100);
+                            const cents = Math.round(usd * 100);
+                            runAdminAction(
+                              () => updateAdminShippingRate(sr.zoneCode, cents, sr.estimatedDays).then(() => undefined),
+                              `Updated ${sr.zoneCode} shipping rate to $${(cents / 100).toFixed(2)}.`
+                            );
+                          }}
+                          className="px-2.5 py-1 rounded bg-[#76556F] text-white font-semibold"
+                        >
+                          Update Rate
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -1024,10 +1276,12 @@ export default function AdminPortalPage() {
                         </div>
                         <button
                           type="button"
-                          onClick={async () => {
-                            await updateAdminFeatureFlag(flag.flagKey, !flag.enabled);
-                            await probeClusterHealth();
-                          }}
+                          onClick={() =>
+                            runAdminAction(
+                              () => updateAdminFeatureFlag(flag.flagKey, !flag.enabled).then(() => undefined),
+                              `Toggled feature flag ${flag.flagKey} ${!flag.enabled ? "ON" : "OFF"}.`
+                            )
+                          }
                           className={`px-3 py-1 rounded-full font-semibold ${
                             flag.enabled ? "bg-[#5F735E] text-white" : "bg-[#E7E2DA] text-[#28272A]"
                           }`}
@@ -1051,7 +1305,7 @@ export default function AdminPortalPage() {
                   {auditLogs.length > 0 && (
                     <div className="pt-2 text-xs space-y-1">
                       <p className="font-semibold text-[#20242C]">Recent Audit Ledger ({auditLogs.length})</p>
-                      {auditLogs.slice(0, 4).map((a) => (
+                      {auditLogs.slice(0, 6).map((a) => (
                         <p key={a.id} className="text-[#5C5955] font-mono text-[11px]">{a.action} • {a.entityType}</p>
                       ))}
                     </div>
@@ -1095,10 +1349,12 @@ export default function AdminPortalPage() {
                       />
                       <button
                         type="button"
-                        onClick={async () => {
-                          await updateAdminEmailTemplate(selectedTemplateKey, templateSubject, templateBody);
-                          setAdminNotice(`Saved template ${selectedTemplateKey}.`);
-                        }}
+                        onClick={() =>
+                          runAdminAction(
+                            () => updateAdminEmailTemplate(selectedTemplateKey, templateSubject, templateBody).then(() => undefined),
+                            `Saved template ${selectedTemplateKey}.`
+                          )
+                        }
                         className="px-4 py-2 rounded-xl bg-[#20242C] text-white font-semibold"
                       >
                         Save Template
@@ -1123,6 +1379,15 @@ export default function AdminPortalPage() {
                         <span className="uppercase text-[#76556F] font-semibold">{t.status}</span>
                       </div>
                       <p className="text-[#5C5955]">{t.email}: {t.message}</p>
+                      {t.replies && t.replies.length > 0 && (
+                        <div className="pl-3 border-l-2 border-[#76556F]/40 space-y-1">
+                          {t.replies.map((rep) => (
+                            <p key={rep.id} className="text-[11px] text-[#28272A]">
+                              <strong>{rep.authorName}:</strong> {rep.message}
+                            </p>
+                          ))}
+                        </div>
+                      )}
                       <div className="flex gap-2">
                         <input
                           type="text"
@@ -1133,12 +1398,14 @@ export default function AdminPortalPage() {
                         />
                         <button
                           type="button"
-                          onClick={async () => {
+                          onClick={() => {
                             const msg = replyTexts[t.id]?.trim();
                             if (!msg) return;
-                            await replyAdminTicket(t.id, msg, "resolved");
-                            setAdminNotice(`Replied to ticket "${t.subject}".`);
-                            await probeClusterHealth();
+                            setReplyTexts((prev) => ({ ...prev, [t.id]: "" }));
+                            runAdminAction(
+                              () => replyAdminTicket(t.id, msg, "resolved").then(() => undefined),
+                              `Replied to ticket "${t.subject}".`
+                            );
                           }}
                           className="px-3 py-1.5 rounded-lg bg-[#76556F] text-white font-semibold"
                         >
@@ -1156,12 +1423,15 @@ export default function AdminPortalPage() {
               <section className="bg-white rounded-2xl border border-[#E7E2DA] p-6 space-y-4">
                 <h2 className="font-serif text-lg font-bold text-[#20242C]">Admin Hardware FIDO2 &amp; TOTP Security Keys (ADMIN-26)</h2>
                 <form
-                  onSubmit={async (e) => {
+                  onSubmit={(e) => {
                     e.preventDefault();
                     if (!newKeyName.trim()) return;
-                    await registerAdminSecurityKey(newKeyName.trim(), "fido2");
+                    const name = newKeyName.trim();
                     setNewKeyName("");
-                    await probeClusterHealth();
+                    runAdminAction(
+                      () => registerAdminSecurityKey(name, "fido2").then(() => undefined),
+                      `Registered hardware security key "${name}".`
+                    );
                   }}
                   className="flex gap-2"
                 >
@@ -1182,7 +1452,12 @@ export default function AdminPortalPage() {
                       <span><strong>{k.name}</strong> ({k.keyType.toUpperCase()})</span>
                       <button
                         type="button"
-                        onClick={() => deleteAdminSecurityKey(k.id).then(probeClusterHealth)}
+                        onClick={() =>
+                          runAdminAction(
+                            () => deleteAdminSecurityKey(k.id).then(() => undefined),
+                            `Removed security key "${k.name}".`
+                          )
+                        }
                         className="text-[#B6423E] hover:underline"
                       >
                         Remove

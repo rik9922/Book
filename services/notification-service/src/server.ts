@@ -183,19 +183,22 @@ export async function buildNotificationService(): Promise<FastifyInstance> {
     return reply.status(201).send(createSuccessResponse(created));
   });
 
-  app.patch(
-    "/api/v1/notifications/:id/read",
-    async (req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
-      const userId = await requireAuthUser(req);
-      const updated = await notificationRepo.markRead(req.params.id, userId);
-      if (!updated) {
-        return reply
-          .status(404)
-          .send(createErrorResponse("NOTIFICATION_NOT_FOUND", "Unread notification not found"));
-      }
-      return reply.status(200).send(createSuccessResponse({ read: true, id: req.params.id }));
+  async function handleMarkNotificationRead(
+    req: FastifyRequest<{ Params: { id: string } }>,
+    reply: FastifyReply
+  ) {
+    const userId = await requireAuthUser(req);
+    const updated = await notificationRepo.markRead(req.params.id, userId);
+    if (!updated) {
+      return reply
+        .status(404)
+        .send(createErrorResponse("NOTIFICATION_NOT_FOUND", "Unread notification not found"));
     }
-  );
+    return reply.status(200).send(createSuccessResponse({ read: true, id: req.params.id }));
+  }
+
+  app.patch("/api/v1/notifications/:id/read", handleMarkNotificationRead);
+  app.post("/api/v1/notifications/:id/read", handleMarkNotificationRead);
 
   app.post("/api/v1/notifications/read-all", async (req: FastifyRequest, reply: FastifyReply) => {
     const userId = await requireAuthUser(req);
