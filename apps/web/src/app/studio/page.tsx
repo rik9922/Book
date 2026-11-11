@@ -17,10 +17,12 @@ import {
   getStoredSession,
   MemoryDTO,
   MemorySpaceDTO,
+  openAuthModal,
   PreflightReportDTO,
   PrintOrderDTO,
   reorderBookSpreads,
   saveBookChapters,
+  subscribeAuthChange,
 } from "@/lib/api";
 
 const COVER_SWATCHES = BOOK_LEATHER_SWATCHES.map((s) => ({
@@ -155,6 +157,10 @@ export default function BookStudioPage() {
       }
     };
     init();
+    const unsubscribe = subscribeAuthChange(() => {
+      init();
+    });
+    return unsubscribe;
   }, [loadSpaceStudio]);
 
   const handleCreateBook = async (e: React.FormEvent) => {
@@ -442,11 +448,16 @@ export default function BookStudioPage() {
       subtitle="Craft linen hardcover editions, edit spreads, inspect in WebGL 3D, freeze versions, and order print copies."
     >
       {!signedIn && !loading ? (
-        <div className="bg-[#FFFFFF] rounded-2xl border border-[#E7E2DA] p-8 text-center">
-          <p className="text-sm text-[#5C5955] mb-4">Sign in to open the 3D Book Studio.</p>
-          <Link href="/auth" className="inline-flex px-5 py-2.5 rounded-xl bg-[#20242C] text-[#FFFFFF] text-sm font-medium">
-            Sign In
-          </Link>
+        <div className="bg-[#FFFFFF] rounded-2xl border border-[#E7E2DA] p-8 text-center max-w-xl mx-auto space-y-4">
+          <h2 className="font-serif text-2xl font-bold text-[#20242C]">Sign in to open the 3D Book Studio</h2>
+          <p className="text-sm text-[#5C5955]">Persist cover customizations, curate memories into spreads, and order heirloom hardcover prints.</p>
+          <button
+            type="button"
+            onClick={() => openAuthModal("login")}
+            className="min-h-[44px] inline-flex items-center px-5 py-2.5 rounded-xl bg-[#76556F] hover:bg-[#63445C] text-white text-xs font-semibold cursor-pointer shadow-xs transition-colors"
+          >
+            Sign In or Create Account
+          </button>
         </div>
       ) : (
         <div className="space-y-8">

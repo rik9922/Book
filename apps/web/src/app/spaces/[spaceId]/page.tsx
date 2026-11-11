@@ -13,7 +13,9 @@ import {
   getStoredSession,
   MemoryDTO,
   MemorySpaceDTO,
+  openAuthModal,
   SpaceMemberDTO,
+  subscribeAuthChange,
   updateSpace,
   updateSpaceMemberRole,
 } from "@/lib/api";
@@ -67,6 +69,10 @@ export default function SpaceDetailPage() {
 
   useEffect(() => {
     loadAll();
+    const unsubscribe = subscribeAuthChange(() => {
+      loadAll();
+    });
+    return unsubscribe;
   }, [loadAll]);
 
   const handleSaveSettings = async (e: React.FormEvent) => {
@@ -162,10 +168,21 @@ export default function SpaceDetailPage() {
             Loading vault telemetry...
           </div>
         ) : !space ? (
-          <div className="bg-white rounded-2xl border border-[#E7E2DA] p-8 text-center text-xs text-[#5C5955]">
-            {getStoredSession().accessToken
-              ? "Memory space unavailable or access denied."
-              : "Sign in to view this memory space."}
+          <div className="bg-white rounded-2xl border border-[#E7E2DA] p-8 text-center text-xs text-[#5C5955] space-y-3">
+            <p>
+              {getStoredSession().accessToken
+                ? "Memory space unavailable or access denied."
+                : "Sign in to view this memory space."}
+            </p>
+            {!getStoredSession().accessToken && (
+              <button
+                type="button"
+                onClick={() => openAuthModal("login")}
+                className="inline-flex items-center px-4 py-2 rounded-xl bg-[#76556F] hover:bg-[#63445C] text-white text-xs font-semibold cursor-pointer shadow-xs transition-colors"
+              >
+                Sign In
+              </button>
+            )}
           </div>
         ) : (
           <>

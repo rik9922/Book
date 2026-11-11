@@ -10,9 +10,13 @@ export function getApiBaseUrl(): string {
     try {
       const stored = localStorage.getItem("memoria_api_url_override");
       if (stored) return stored;
-    } catch {
-      return API_BASE_URL;
+    } catch (err) {
+      void err;
     }
+    if (process.env.NEXT_PUBLIC_API_URL) {
+      return process.env.NEXT_PUBLIC_API_URL;
+    }
+    return "/api/v1";
   }
   return API_BASE_URL;
 }
@@ -262,9 +266,22 @@ export function getStoredSession(): {
   if (typeof window === "undefined") {
     return { accessToken: null, refreshToken: null, user: null };
   }
-  const accessToken = localStorage.getItem(TOKEN_STORAGE_KEY);
-  const refreshToken = localStorage.getItem(REFRESH_STORAGE_KEY);
-  const userRaw = localStorage.getItem(USER_STORAGE_KEY);
+  let accessToken = localStorage.getItem(TOKEN_STORAGE_KEY);
+  let refreshToken = localStorage.getItem(REFRESH_STORAGE_KEY);
+  let userRaw = localStorage.getItem(USER_STORAGE_KEY);
+
+  // Fallback to cookies if localStorage was cleared or in an iframe/cross-tab context
+  if (!accessToken && typeof document !== "undefined" && document.cookie) {
+    const cookies = document.cookie.split(";").map((c) => c.trim());
+    for (const c of cookies) {
+      if (c.startsWith("memoria_access_token=")) {
+        accessToken = decodeURIComponent(c.substring("memoria_access_token=".length));
+      } else if (c.startsWith("memoria_user=")) {
+        userRaw = decodeURIComponent(c.substring("memoria_user=".length));
+      }
+    }
+  }
+
   let user: AuthUser | null = null;
   if (userRaw) {
     try {
@@ -278,16 +295,74 @@ export function getStoredSession(): {
 
 export function saveStoredSession(accessToken: string, refreshToken: string, user: AuthUser): void {
   if (typeof window === "undefined") return;
-  localStorage.setItem(TOKEN_STORAGE_KEY, accessToken);
-  localStorage.setItem(REFRESH_STORAGE_KEY, refreshToken);
-  localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(user));
+  try {
+    localStorage.setItem(TOKEN_STORAGE_KEY, accessToken);
+    localStorage.setItem(REFRESH_STORAGE_KEY, refreshToken);
+    localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(user));
+  } catch (err) {
+    void err;
+  }
+
+  try {
+    if (typeof document !== "undefined") {
+      document.cookie = `memoria_access_token=${encodeURIComponent(accessToken)}; path=/; max-age=86400; SameSite=Lax`;
+      document.cookie = `memoria_user=${encodeURIComponent(JSON.stringify(user))}; path=/; max-age=86400; SameSite=Lax`;
+    }
+  } catch (err) {
+    void err;
+  }
+
+  window.dispatchEvent(
+    new CustomEvent("memoria:auth-change", {
+      detail: { user, accessToken },
+    })
+  );
 }
 
 export function clearStoredSession(): void {
   if (typeof window === "undefined") return;
-  localStorage.removeItem(TOKEN_STORAGE_KEY);
-  localStorage.removeItem(REFRESH_STORAGE_KEY);
-  localStorage.removeItem(USER_STORAGE_KEY);
+  try {
+    localStorage.removeItem(TOKEN_STORAGE_KEY);
+    localStorage.removeItem(REFRESH_STORAGE_KEY);
+    localStorage.removeItem(USER_STORAGE_KEY);
+  } catch (err) {
+    void err;
+  }
+
+  try {
+    if (typeof document !== "undefined") {
+      document.cookie = "memoria_access_token=; path=/; max-age=0; SameSite=Lax";
+      document.cookie = "memoria_user=; path=/; max-age=0; SameSite=Lax";
+    }
+  } catch (err) {
+    void err;
+  }
+
+  window.dispatchEvent(
+    new CustomEvent("memoria:auth-change", {
+      detail: { user: null, accessToken: null },
+    })
+  );
+}
+
+export function openAuthModal(mode: "login" | "register" = "login"): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent("memoria:open-auth", { detail: { mode } }));
+}
+
+export function subscribeAuthChange(
+  callback: (session: { user: AuthUser | null; accessToken: string | null }) => void
+): () => void {
+  if (typeof window === "undefined") return () => {};
+  const handler = () => {
+    callback(getStoredSession());
+  };
+  window.addEventListener("memoria:auth-change", handler);
+  window.addEventListener("storage", handler);
+  return () => {
+    window.removeEventListener("memoria:auth-change", handler);
+    window.removeEventListener("storage", handler);
+  };
 }
 
 export function getOfflineQueue(): OfflineMutationItem[] {
@@ -387,10 +462,45 @@ export async function apiRequest<T>(
     headers.set("Authorization", `Bearer ${accessToken}`);
   }
 
-  const res = await fetch(`${getApiBaseUrl()}${path}`, {
-    ...options,
-    headers,
-  });
+  const baseUrl = getApiBaseUrl();
+  let res: Response;
+  try {
+    res = await fetch(`${baseUrl}${path}`, {
+      ...options,
+      headers,
+    });
+  } catch (fetchErr) {
+    void fetchErr;
+    if (baseUrl === "/api/v1" && typeof window !== "undefined") {
+      res = await fetch(`http://127.0.0.1:4000/api/v1${path}`, {
+        ...options,
+        headers,
+      });
+    } else {
+      throw fetchErr;
+    }
+  }
+
+  // If /api/v1 returned 404, gracefully fall back to direct gateway address
+  if (res.status === 404 && baseUrl === "/api/v1" && typeof window !== "undefined") {
+    try {
+      const fallbackRes = await fetch(`http://127.0.0.1:4000/api/v1${path}`, {
+        ...options,
+        headers,
+      });
+      if (
+        fallbackRes.ok ||
+        fallbackRes.status === 400 ||
+        fallbackRes.status === 401 ||
+        fallbackRes.status === 403 ||
+        fallbackRes.status === 409
+      ) {
+        res = fallbackRes;
+      }
+    } catch (fallbackErr) {
+      void fallbackErr;
+    }
+  }
 
   if (res.status === 401 && allowRetry && !path.startsWith("/auth/")) {
     const nextToken = await refreshAccessToken();

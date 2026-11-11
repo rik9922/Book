@@ -10,6 +10,8 @@ import {
   fetchSpaces,
   getStoredSession,
   MemorySpaceDTO,
+  openAuthModal,
+  subscribeAuthChange,
   updateSpace,
 } from "@/lib/api";
 
@@ -51,6 +53,10 @@ export default function SpacesPage() {
 
   useEffect(() => {
     loadSpaces();
+    const unsubscribe = subscribeAuthChange(() => {
+      loadSpaces();
+    });
+    return unsubscribe;
   }, [loadSpaces]);
 
   const handleCreate = async (e: React.FormEvent) => {
@@ -121,12 +127,13 @@ export default function SpacesPage() {
         <div className="bg-[#FFFFFF] rounded-2xl border border-[#E7E2DA] p-8 text-center max-w-xl mx-auto space-y-4">
           <h2 className="font-serif text-2xl font-bold text-[#20242C]">Sign in to manage Memory Spaces</h2>
           <p className="text-xs text-[#5C5955]">Each memory space maintains strict RBAC boundaries and a dedicated 500 MB local quota.</p>
-          <Link
-            href="/auth"
-            className="min-h-[44px] inline-flex items-center px-5 py-2.5 rounded-xl bg-[#76556F] text-white text-xs font-semibold"
+          <button
+            type="button"
+            onClick={() => openAuthModal("login")}
+            className="min-h-[44px] inline-flex items-center px-5 py-2.5 rounded-xl bg-[#76556F] hover:bg-[#63445C] text-white text-xs font-semibold cursor-pointer shadow-xs transition-colors"
           >
-            Sign In
-          </Link>
+            Sign In or Create Account
+          </button>
         </div>
       ) : (
         <div className="space-y-8">

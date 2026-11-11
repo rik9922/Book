@@ -75,14 +75,10 @@ export function AuthFlowPanel({
         });
         saveStoredSession(res.accessToken, res.refreshToken, res.user);
         setSignedInUser(res.user);
-        setNotice(
-          res.verificationToken
-            ? `Account created! Local verification token: ${res.verificationToken}`
-            : "Account created! Redirecting to dashboard..."
-        );
-        if (!res.verificationToken) {
+        setNotice(`Account created! Welcome, ${res.user.fullName}. Redirecting to dashboard...`);
+        setTimeout(() => {
           router.push("/dashboard");
-        }
+        }, 500);
       } else if (mode === "forgot") {
         const res = await apiRequest<{ resetToken?: string; message?: string }>(
           "/auth/forgot-password",
@@ -112,6 +108,52 @@ export function AuthFlowPanel({
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Authentication request failed.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDemoSignIn = async () => {
+    setLoading(true);
+    setError(null);
+    setNotice(null);
+    const demoEmail = "elena@familyarchive.local";
+    const demoPassword = "Password123!";
+    setEmail(demoEmail);
+    setPassword(demoPassword);
+    setFullName("Elena Vance");
+
+    try {
+      const res = await apiRequest<{
+        user: AuthUser;
+        accessToken: string;
+        refreshToken: string;
+      }>("/auth/login", {
+        method: "POST",
+        body: JSON.stringify({ email: demoEmail, password: demoPassword }),
+      }).catch(async () => {
+        return await apiRequest<{
+          user: AuthUser;
+          accessToken: string;
+          refreshToken: string;
+        }>("/auth/register", {
+          method: "POST",
+          body: JSON.stringify({
+            email: demoEmail,
+            password: demoPassword,
+            fullName: "Elena Vance",
+          }),
+        });
+      });
+
+      saveStoredSession(res.accessToken, res.refreshToken, res.user);
+      setSignedInUser(res.user);
+      setNotice(`Signed in as demo curator: ${res.user.fullName}. Redirecting...`);
+      setTimeout(() => {
+        router.push("/dashboard");
+      }, 500);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Demo sign in failed.");
     } finally {
       setLoading(false);
     }
@@ -315,6 +357,17 @@ export function AuthFlowPanel({
                   className="min-h-[44px] px-4 py-2 rounded-xl bg-[#F0ECE1] text-xs font-semibold text-[#20242C]"
                 >
                   Resend Verification Token
+                </button>
+              )}
+
+              {(mode === "login" || mode === "register") && (
+                <button
+                  type="button"
+                  disabled={loading}
+                  onClick={handleDemoSignIn}
+                  className="min-h-[44px] px-4 py-2 rounded-xl bg-[#F7F4EE] hover:bg-[#F0ECE1] border border-[#E7E2DA] text-xs font-semibold text-[#76556F] transition-colors"
+                >
+                  ⚡ One-Click Demo Curator Access
                 </button>
               )}
             </div>

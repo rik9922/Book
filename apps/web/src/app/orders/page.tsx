@@ -10,9 +10,11 @@ import {
   getOrderTracking,
   getStoredSession,
   listMyOrders,
+  openAuthModal,
   OrderReceiptDTO,
   PrintOrderDTO,
   reorderPrintOrder,
+  subscribeAuthChange,
 } from "@/lib/api";
 
 const ORDER_STAGES = ["submitted", "preflight_passed", "in_production", "shipped", "delivered"] as const;
@@ -52,6 +54,10 @@ export default function OrdersPage() {
 
   useEffect(() => {
     loadOrders();
+    const unsubscribe = subscribeAuthChange(() => {
+      loadOrders();
+    });
+    return unsubscribe;
   }, [loadOrders]);
 
   useEffect(() => {
@@ -142,12 +148,13 @@ export default function OrdersPage() {
         {!signedIn && !loading ? (
           <div className="bg-[#FFFFFF] rounded-2xl border border-[#E7E2DA] p-8 text-center max-w-xl mx-auto space-y-4">
             <h2 className="font-serif text-2xl font-bold text-[#20242C]">Sign in to track Print Orders</h2>
-            <Link
-              href="/auth"
-              className="min-h-[44px] inline-flex items-center px-5 py-2.5 rounded-xl bg-[#76556F] text-white text-xs font-semibold"
+            <button
+              type="button"
+              onClick={() => openAuthModal("login")}
+              className="min-h-[44px] inline-flex items-center px-5 py-2.5 rounded-xl bg-[#76556F] hover:bg-[#63445C] text-white text-xs font-semibold cursor-pointer shadow-xs transition-colors"
             >
-              Sign In
-            </Link>
+              Sign In or Create Account
+            </button>
           </div>
         ) : (
           <div className="space-y-6">

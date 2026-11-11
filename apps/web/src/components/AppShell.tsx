@@ -31,6 +31,7 @@ import {
   getStoredSession,
   logoutCurrentSession,
 } from "@/lib/api";
+import { AuthModal } from "./AuthModal";
 
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutGrid },
@@ -65,6 +66,8 @@ export function AppShell({
   const [isOnline, setIsOnline] = useState(true);
   const [pendingCount, setPendingCount] = useState(0);
   const [user, setUser] = useState<AuthUser | null>(null);
+  const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [authModalMode, setAuthModalMode] = useState<"login" | "register">("login");
 
   useEffect(() => {
     setIsOnline(typeof navigator !== "undefined" ? navigator.onLine : true);
@@ -77,17 +80,43 @@ export function AppShell({
     };
     const onOffline = () => setIsOnline(false);
 
+    const onAuthChange = (e: Event) => {
+      const customEvent = e as CustomEvent<{ user: AuthUser | null }>;
+      if (customEvent.detail && "user" in customEvent.detail) {
+        setUser(customEvent.detail.user);
+      } else {
+        setUser(getStoredSession().user);
+      }
+    };
+
+    const onOpenAuth = (e: Event) => {
+      const customEvent = e as CustomEvent<{ mode?: "login" | "register" }>;
+      openAuth(customEvent.detail?.mode || "login");
+    };
+
     window.addEventListener("online", onOnline);
     window.addEventListener("offline", onOffline);
+    window.addEventListener("memoria:auth-change", onAuthChange);
+    window.addEventListener("memoria:open-auth", onOpenAuth);
+    window.addEventListener("storage", onAuthChange);
+
     return () => {
       window.removeEventListener("online", onOnline);
       window.removeEventListener("offline", onOffline);
+      window.removeEventListener("memoria:auth-change", onAuthChange);
+      window.removeEventListener("memoria:open-auth", onOpenAuth);
+      window.removeEventListener("storage", onAuthChange);
     };
   }, [pathname]);
 
   const handleSignOut = async () => {
     await logoutCurrentSession();
     setUser(null);
+  };
+
+  const openAuth = (mode: "login" | "register") => {
+    setAuthModalMode(mode);
+    setAuthModalOpen(true);
   };
 
   return (
@@ -154,23 +183,43 @@ export function AppShell({
             </Link>
 
             {user ? (
-              <button
-                type="button"
-                onClick={handleSignOut}
-                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-white border border-[#E7E2DA] text-xs font-medium text-[#20242C] hover:border-[#8D857A] cursor-pointer"
-                title={`Signed in as ${user.email}`}
-              >
-                <LogOut className="w-3.5 h-3.5 text-[#76556F]" />
-                <span className="hidden sm:inline">{user.fullName.split(" ")[0]}</span>
-              </button>
+              <div className="flex items-center gap-1.5">
+                <div className="flex items-center gap-2 pl-2 pr-3 py-1 rounded-xl bg-white border border-[#E7E2DA] shadow-xs">
+                  <div className="w-6 h-6 rounded-lg bg-[#76556F] text-white flex items-center justify-center text-[11px] font-bold">
+                    {user.fullName.charAt(0).toUpperCase()}
+                  </div>
+                  <span className="text-xs font-semibold text-[#20242C] hidden sm:inline">
+                    {user.fullName.split(" ")[0]}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleSignOut}
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-white border border-[#E7E2DA] text-xs font-medium text-[#5C5955] hover:text-[#B6423E] hover:border-[#F5C6C6] transition-colors cursor-pointer"
+                  title="Sign out of Memoria"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                  <span className="hidden md:inline">Sign Out</span>
+                </button>
+              </div>
             ) : (
-              <Link
-                href="/auth"
-                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-[#76556F] hover:bg-[#63445C] text-white text-xs font-semibold"
-              >
-                <LogIn className="w-3.5 h-3.5" />
-                Sign In
-              </Link>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => openAuth("register")}
+                  className="hidden sm:inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-white border border-[#E7E2DA] hover:border-[#8D857A] text-xs font-semibold text-[#20242C] transition-all cursor-pointer shadow-xs"
+                >
+                  Create Account
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openAuth("login")}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-[#76556F] hover:bg-[#63445C] text-white text-xs font-semibold transition-all cursor-pointer shadow-xs"
+                >
+                  <LogIn className="w-3.5 h-3.5" />
+                  Sign In
+                </button>
+              </div>
             )}
           </div>
         </div>
@@ -249,6 +298,13 @@ export function AppShell({
         )}
         {children}
       </main>
+
+      <AuthModal
+        isOpen={authModalOpen}
+        onClose={() => setAuthModalOpen(false)}
+        initialMode={authModalMode}
+        onSuccess={(newUser) => setUser(newUser)}
+      />
     </div>
   );
 }

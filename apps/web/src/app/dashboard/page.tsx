@@ -21,6 +21,8 @@ import {
   getStoredSession,
   MemorySpaceDTO,
   NotificationDTO,
+  openAuthModal,
+  subscribeAuthChange,
 } from "@/lib/api";
 
 interface QuotaSummary {
@@ -118,6 +120,10 @@ export default function DashboardPage() {
 
   useEffect(() => {
     loadDashboard();
+    const unsubscribe = subscribeAuthChange(() => {
+      loadDashboard();
+    });
+    return unsubscribe;
   }, [loadDashboard]);
 
   const handleSelectSpace = async (spaceId: string) => {
@@ -181,12 +187,13 @@ export default function DashboardPage() {
           <p className="text-sm text-[#5C5955] max-w-md mx-auto mb-5">
             Your private archives, media quota, and print studio live in authenticated Memoria spaces.
           </p>
-          <Link
-            href="/auth"
-            className="inline-flex items-center px-5 py-2.5 rounded-xl bg-[#20242C] text-[#FFFFFF] text-sm font-medium hover:bg-[#343A46]"
+          <button
+            type="button"
+            onClick={() => openAuthModal("login")}
+            className="inline-flex items-center px-5 py-2.5 rounded-xl bg-[#76556F] hover:bg-[#63445C] text-[#FFFFFF] text-sm font-medium cursor-pointer shadow-xs transition-colors"
           >
             Sign In or Create Account
-          </Link>
+          </button>
         </div>
       )}
 

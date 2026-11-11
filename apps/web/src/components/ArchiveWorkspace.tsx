@@ -43,8 +43,10 @@ import {
   MemoryReactionKind,
   MemoryReactionStateDTO,
   MemorySpaceDTO,
+  openAuthModal,
   retryUploadSession,
   saveMediaNonDestructiveEdits,
+  subscribeAuthChange,
   toggleMemoryReaction,
   uploadFileToMediaService,
 } from "@/lib/api";
@@ -171,6 +173,10 @@ export function ArchiveWorkspace({ initialMode = "grid" }: { initialMode?: ViewM
       }
     };
     init();
+    const unsubscribe = subscribeAuthChange(() => {
+      init();
+    });
+    return unsubscribe;
   }, [loadMemories, initialMode]);
 
   useEffect(() => {
@@ -493,14 +499,16 @@ export function ArchiveWorkspace({ initialMode = "grid" }: { initialMode?: ViewM
     >
       <div ref={archiveSurfaceRef}>
         {!signedIn && !loading ? (
-          <div className="bg-[#FFFFFF] rounded-2xl border border-[#E7E2DA] p-8 text-center">
-            <p className="text-sm text-[#5C5955] mb-4">Sign in to browse or add memories.</p>
-            <Link
-              href="/auth"
-              className="inline-flex px-5 py-2.5 rounded-xl bg-[#20242C] text-[#FFFFFF] text-sm font-medium"
+          <div className="bg-[#FFFFFF] rounded-2xl border border-[#E7E2DA] p-8 text-center max-w-xl mx-auto space-y-4">
+            <h2 className="font-serif text-2xl font-bold text-[#20242C]">Sign in to access Living Memory Archive</h2>
+            <p className="text-sm text-[#5C5955]">Browse heirloom stories, scanned letters with OCR, voice notes, calendar anniversaries, and photographs.</p>
+            <button
+              type="button"
+              onClick={() => openAuthModal("login")}
+              className="min-h-[44px] inline-flex items-center px-5 py-2.5 rounded-xl bg-[#76556F] hover:bg-[#63445C] text-white text-xs font-semibold cursor-pointer shadow-xs transition-colors"
             >
-              Go to Sign In
-            </Link>
+              Sign In or Create Account
+            </button>
           </div>
         ) : (
           <div className="space-y-6">

@@ -12,9 +12,11 @@ import {
   getOrderQuote,
   getStoredSession,
   MemorySpaceDTO,
+  openAuthModal,
   OrderQuoteDTO,
   PrintCatalogDTO,
   PrintOrderDTO,
+  subscribeAuthChange,
 } from "@/lib/api";
 
 const FALLBACK_CATALOG: PrintCatalogDTO = {
@@ -77,20 +79,28 @@ export default function BillingPage() {
       .then((c) => setCatalog(c))
       .catch(() => setCatalog(FALLBACK_CATALOG));
 
-    if (!getStoredSession().accessToken) {
-      setSignedIn(false);
-      return;
-    }
-    setSignedIn(true);
-    fetchSpaces()
-      .then(async (list) => {
-        setSpaces(list);
-        if (list.length > 0) {
-          setSpaceId(list[0].id);
-          await loadBooksForSpace(list[0].id);
-        }
-      })
-      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load spaces."));
+    const loadUserData = () => {
+      if (!getStoredSession().accessToken) {
+        setSignedIn(false);
+        return;
+      }
+      setSignedIn(true);
+      fetchSpaces()
+        .then(async (list) => {
+          setSpaces(list);
+          if (list.length > 0) {
+            setSpaceId(list[0].id);
+            await loadBooksForSpace(list[0].id);
+          }
+        })
+        .catch((err) => setError(err instanceof Error ? err.message : "Failed to load spaces."));
+    };
+
+    loadUserData();
+    const unsubscribe = subscribeAuthChange(() => {
+      loadUserData();
+    });
+    return unsubscribe;
   }, [loadBooksForSpace]);
 
   // Clear stale cached server quote whenever print specifications change
@@ -342,12 +352,13 @@ export default function BillingPage() {
           {!signedIn ? (
             <div className="space-y-3 text-xs text-[#5C5955]">
               <p>Sign in to select one of your authored editions and submit a sandbox fulfillment order.</p>
-              <Link
-                href="/auth"
-                className="min-h-[44px] inline-flex items-center px-5 py-2.5 rounded-xl bg-[#76556F] text-white font-semibold"
+              <button
+                type="button"
+                onClick={() => openAuthModal("login")}
+                className="min-h-[44px] inline-flex items-center px-5 py-2.5 rounded-xl bg-[#76556F] hover:bg-[#63445C] text-white font-semibold cursor-pointer shadow-xs transition-colors"
               >
                 Sign In to Order
-              </Link>
+              </button>
             </div>
           ) : (
             <form onSubmit={handlePlaceOrder} className="space-y-3">

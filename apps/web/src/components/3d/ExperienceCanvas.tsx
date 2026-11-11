@@ -63,25 +63,32 @@ function createCoverLabelTexture(
 ): THREE.CanvasTexture | null {
   if (typeof document === "undefined") return null;
   const canvas = document.createElement("canvas");
-  canvas.width = 1024;
-  canvas.height = 192;
+  canvas.width = 2048;
+  canvas.height = 384;
   const ctx = canvas.getContext("2d");
   if (!ctx) return null;
 
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   const content = (options.uppercase ? text.toUpperCase() : text).trim();
-  ctx.fillStyle = colorHex;
+
+  // Subtle deboss shadow underneath the foil for 3D tactile stamping depth
+  ctx.fillStyle = "rgba(0, 0, 0, 0.45)";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.font = `${options.weight ?? "600"} ${options.fontSizePx}px Georgia, "Times New Roman", serif`;
+  const scaledSize = options.fontSizePx * 2;
+  ctx.font = `${options.weight ?? "600"} ${scaledSize}px Georgia, "Times New Roman", serif`;
   if ("letterSpacing" in ctx && options.letterSpacing) {
-    (ctx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = `${options.letterSpacing}px`;
+    (ctx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = `${options.letterSpacing * 2}px`;
   }
-  ctx.fillText(content, canvas.width / 2, canvas.height / 2, canvas.width - 48);
+  ctx.fillText(content, canvas.width / 2 + 2, canvas.height / 2 + 3, canvas.width - 96);
+
+  // Main hot-stamped foil text
+  ctx.fillStyle = colorHex;
+  ctx.fillText(content, canvas.width / 2, canvas.height / 2, canvas.width - 96);
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
-  texture.anisotropy = 4;
+  texture.anisotropy = 16;
   texture.needsUpdate = true;
   return texture;
 }
@@ -92,8 +99,8 @@ function createSpreadPageTexture(
 ): THREE.CanvasTexture | null {
   if (typeof document === "undefined") return null;
   const canvas = document.createElement("canvas");
-  canvas.width = 768;
-  canvas.height = 1024;
+  canvas.width = 1536;
+  canvas.height = 2048;
   const ctx = canvas.getContext("2d");
   if (!ctx) return null;
 
@@ -103,125 +110,321 @@ function createSpreadPageTexture(
   const pageHeading = side === "left" ? spread.leftHeading : spread.rightHeading;
   const pageBody = side === "left" ? spread.leftBody : spread.rightBody;
 
-  // Archival paper base
+  // 1. Archival cotton paper base (#FAF7F2)
   ctx.fillStyle = "#FAF7F2";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  // Subtle spine gutter shading
-  const gutterGrad =
-    side === "left"
-      ? ctx.createLinearGradient(canvas.width - 48, 0, canvas.width, 0)
-      : ctx.createLinearGradient(0, 0, 48, 0);
-  if (side === "left") {
-    gutterGrad.addColorStop(0, "rgba(215, 206, 192, 0)");
-    gutterGrad.addColorStop(1, "rgba(180, 168, 150, 0.35)");
-    ctx.fillStyle = gutterGrad;
-    ctx.fillRect(canvas.width - 48, 0, 48, canvas.height);
-  } else {
-    gutterGrad.addColorStop(0, "rgba(180, 168, 150, 0.35)");
-    gutterGrad.addColorStop(1, "rgba(215, 206, 192, 0)");
-    ctx.fillStyle = gutterGrad;
-    ctx.fillRect(0, 0, 48, canvas.height);
+  // 2. Paper grain texture simulation
+  ctx.fillStyle = "rgba(225, 218, 204, 0.25)";
+  for (let i = 0; i < 500; i++) {
+    const rx = (i * 97) % canvas.width;
+    const ry = (i * 137) % canvas.height;
+    ctx.fillRect(rx, ry, 2.5, 1);
   }
 
-  // Subtle archival frame border
+  // 3. Spine gutter optical depth gradient
+  const gutterWidth = 140;
+  if (side === "left") {
+    const gutterGrad = ctx.createLinearGradient(canvas.width - gutterWidth, 0, canvas.width, 0);
+    gutterGrad.addColorStop(0, "rgba(180, 168, 150, 0)");
+    gutterGrad.addColorStop(0.7, "rgba(180, 168, 150, 0.22)");
+    gutterGrad.addColorStop(1, "rgba(150, 138, 120, 0.42)");
+    ctx.fillStyle = gutterGrad;
+    ctx.fillRect(canvas.width - gutterWidth, 0, gutterWidth, canvas.height);
+  } else {
+    const gutterGrad = ctx.createLinearGradient(0, 0, gutterWidth, 0);
+    gutterGrad.addColorStop(0, "rgba(150, 138, 120, 0.42)");
+    gutterGrad.addColorStop(0.3, "rgba(180, 168, 150, 0.22)");
+    gutterGrad.addColorStop(1, "rgba(180, 168, 150, 0)");
+    ctx.fillStyle = gutterGrad;
+    ctx.fillRect(0, 0, gutterWidth, canvas.height);
+  }
+
+  // 4. Archival frame borders
   ctx.strokeStyle = "#E7E2DA";
   ctx.lineWidth = 4;
-  ctx.strokeRect(28, 28, canvas.width - 56, canvas.height - 56);
+  ctx.strokeRect(56, 56, canvas.width - 112, canvas.height - 112);
 
-  // Chapter label
+  ctx.strokeStyle = "rgba(215, 206, 192, 0.6)";
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(70, 70, canvas.width - 140, canvas.height - 140);
+
+  // 5. Header: Chapter title & date/location
   ctx.fillStyle = "#76556F";
   ctx.textAlign = "center";
   ctx.textBaseline = "top";
-  ctx.font = '600 22px system-ui, -apple-system, sans-serif';
-  ctx.fillText(spread.chapterTitle.toUpperCase(), canvas.width / 2, 72, canvas.width - 110);
+  ctx.font = '600 32px system-ui, -apple-system, sans-serif';
+  if ("letterSpacing" in ctx) {
+    (ctx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = "4px";
+  }
+  ctx.fillText(spread.chapterTitle.toUpperCase(), canvas.width / 2, 110, canvas.width - 240);
 
-  // Date & Location
   ctx.fillStyle = "#5C5955";
-  ctx.font = '500 20px system-ui, -apple-system, sans-serif';
-  ctx.fillText(`${pageDate}  •  ${pageLocation}`, canvas.width / 2, 118, canvas.width - 110);
-
-  // Heading
-  ctx.fillStyle = "#20242C";
-  ctx.font = '700 38px Georgia, "Times New Roman", serif';
-  const headingWords = pageHeading.split(" ");
-  let headingLine = "";
-  let y = 186;
-  for (const word of headingWords) {
-    const test = headingLine ? `${headingLine} ${word}` : word;
-    if (ctx.measureText(test).width > canvas.width - 120) {
-      ctx.fillText(headingLine, canvas.width / 2, y);
-      headingLine = word;
-      y += 48;
-    } else {
-      headingLine = test;
-    }
+  ctx.font = '500 26px system-ui, -apple-system, sans-serif';
+  if ("letterSpacing" in ctx) {
+    (ctx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = "2px";
   }
-  if (headingLine) {
-    ctx.fillText(headingLine, canvas.width / 2, y);
-    y += 66;
-  }
+  ctx.fillText(`${pageDate}  •  ${pageLocation}`, canvas.width / 2, 164, canvas.width - 240);
 
-  // Divider rule
+  // Gilded separator
   ctx.strokeStyle = "#D4AF37";
-  ctx.lineWidth = 2;
+  ctx.lineWidth = 2.5;
   ctx.beginPath();
-  ctx.moveTo(canvas.width / 2 - 90, y);
-  ctx.lineTo(canvas.width / 2 + 90, y);
+  ctx.moveTo(canvas.width / 2 - 120, 216);
+  ctx.lineTo(canvas.width / 2 + 120, 216);
   ctx.stroke();
-  y += 42;
 
-  // Body text (left-aligned editorial column)
-  ctx.fillStyle = "#28272A";
-  ctx.textAlign = "left";
-  ctx.font = '400 27px Georgia, "Times New Roman", serif';
-  const words = pageBody.split(" ");
-  let line = "";
-  const leftMargin = 72;
-  const maxLineWidth = canvas.width - 144;
-  for (const word of words) {
-    const test = line ? `${line} ${word}` : word;
-    if (ctx.measureText(test).width > maxLineWidth) {
+  if ("letterSpacing" in ctx) {
+    (ctx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = "0px";
+  }
+
+  if (side === "left") {
+    // ==========================================
+    // LEFT PAGE: ARCHIVAL PHOTOGRAPH / PASSE-PARTOUT PLATE
+    // ==========================================
+    const plateX = 140;
+    const plateY = 270;
+    const plateW = canvas.width - 280;
+    const plateH = 760;
+
+    // Outer passe-partout mat
+    ctx.fillStyle = "#F3EFE6";
+    ctx.fillRect(plateX, plateY, plateW, plateH);
+    ctx.strokeStyle = "#DDD5C7";
+    ctx.lineWidth = 3;
+    ctx.strokeRect(plateX, plateY, plateW, plateH);
+
+    // Inner photo inset with subtle photographic tint
+    const photoInsetX = plateX + 36;
+    const photoInsetY = plateY + 36;
+    const photoInsetW = plateW - 72;
+    const photoInsetH = plateH - 72;
+
+    const photoGrad = ctx.createLinearGradient(photoInsetX, photoInsetY, photoInsetX + photoInsetW, photoInsetY + photoInsetH);
+    photoGrad.addColorStop(0, "#EAE4D7");
+    photoGrad.addColorStop(0.5, "#DFD7C7");
+    photoGrad.addColorStop(1, "#D2C7B3");
+    ctx.fillStyle = photoGrad;
+    ctx.fillRect(photoInsetX, photoInsetY, photoInsetW, photoInsetH);
+    ctx.strokeStyle = "#C9BEAD";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(photoInsetX, photoInsetY, photoInsetW, photoInsetH);
+
+    // Gilded corner ornaments on plate
+    const corn = 24;
+    ctx.strokeStyle = "#D4AF37";
+    ctx.lineWidth = 3;
+    const drawCorner = (cx: number, cy: number, dx: number, dy: number) => {
+      ctx.beginPath();
+      ctx.moveTo(cx + dx * corn, cy);
+      ctx.lineTo(cx, cy);
+      ctx.lineTo(cx, cy + dy * corn);
+      ctx.stroke();
+    };
+    drawCorner(photoInsetX + 8, photoInsetY + 8, 1, 1);
+    drawCorner(photoInsetX + photoInsetW - 8, photoInsetY + 8, -1, 1);
+    drawCorner(photoInsetX + 8, photoInsetY + photoInsetH - 8, 1, -1);
+    drawCorner(photoInsetX + photoInsetW - 8, photoInsetY + photoInsetH - 8, -1, -1);
+
+    // Embossed Tree of Life emblem watermark in photo center
+    ctx.fillStyle = "rgba(118, 85, 111, 0.28)";
+    ctx.font = 'italic 700 36px Georgia, serif';
+    ctx.textAlign = "center";
+    ctx.fillText("✦  MEMORIA LIVING ARCHIVE  ✦", canvas.width / 2, plateY + plateH / 2 - 20);
+    ctx.fillStyle = "rgba(92, 89, 85, 0.35)";
+    ctx.font = '500 24px system-ui, sans-serif';
+    ctx.fillText("Archival Provenance Plate • SHA-256 Verified", canvas.width / 2, plateY + plateH / 2 + 25);
+
+    // Heading below plate
+    let y = plateY + plateH + 70;
+    ctx.fillStyle = "#20242C";
+    ctx.font = '700 52px Georgia, "Times New Roman", serif';
+    ctx.textAlign = "center";
+    ctx.fillText(pageHeading, canvas.width / 2, y, canvas.width - 240);
+    y += 75;
+
+    // Editorial body paragraph
+    ctx.fillStyle = "#333135";
+    ctx.textAlign = "left";
+    ctx.font = '400 34px Georgia, "Times New Roman", serif';
+    const words = pageBody.split(" ");
+    let line = "";
+    const leftMargin = 160;
+    const maxLineWidth = canvas.width - 320;
+    for (const word of words) {
+      const test = line ? `${line} ${word}` : word;
+      if (ctx.measureText(test).width > maxLineWidth) {
+        ctx.fillText(line, leftMargin, y);
+        line = word;
+        y += 54;
+      } else {
+        line = test;
+      }
+    }
+    if (line) {
       ctx.fillText(line, leftMargin, y);
-      line = word;
-      y += 42;
-    } else {
-      line = test;
+    }
+  } else {
+    // ==========================================
+    // RIGHT PAGE: EDITORIAL STORY & INSCRIPTION
+    // ==========================================
+    let y = 290;
+
+    // Heading
+    ctx.fillStyle = "#20242C";
+    ctx.font = '700 56px Georgia, "Times New Roman", serif';
+    ctx.textAlign = "left";
+    const headingWords = pageHeading.split(" ");
+    let headingLine = "";
+    const textLeftMargin = 170; // Clearance for spine gutter on right page
+    const textMaxWidth = canvas.width - textLeftMargin - 130;
+
+    for (const word of headingWords) {
+      const test = headingLine ? `${headingLine} ${word}` : word;
+      if (ctx.measureText(test).width > textMaxWidth) {
+        ctx.fillText(headingLine, textLeftMargin, y);
+        headingLine = word;
+        y += 68;
+      } else {
+        headingLine = test;
+      }
+    }
+    if (headingLine) {
+      ctx.fillText(headingLine, textLeftMargin, y);
+      y += 85;
+    }
+
+    // Illuminated drop-capital letter
+    const firstLetter = pageBody.charAt(0) || "M";
+    const remainder = pageBody.slice(1);
+
+    // Drop cap box
+    const capSize = 92;
+    ctx.fillStyle = "#F3EFE6";
+    ctx.fillRect(textLeftMargin, y - 8, capSize, capSize);
+    ctx.strokeStyle = "#76556F";
+    ctx.lineWidth = 3;
+    ctx.strokeRect(textLeftMargin, y - 8, capSize, capSize);
+
+    ctx.fillStyle = "#76556F";
+    ctx.font = '700 84px Georgia, serif';
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(firstLetter, textLeftMargin + capSize / 2, y + capSize / 2 - 8);
+
+    // Remaining body text wrapping
+    ctx.fillStyle = "#28272A";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "top";
+    ctx.font = '400 36px Georgia, "Times New Roman", serif';
+
+    const words = remainder.split(" ");
+    let line = "";
+    let curX = textLeftMargin + capSize + 24;
+    let curMaxW = textMaxWidth - capSize - 24;
+    let linesDrawn = 0;
+
+    for (const word of words) {
+      const test = line ? `${line} ${word}` : word;
+      if (ctx.measureText(test).width > curMaxW) {
+        ctx.fillText(line, curX, y);
+        line = word;
+        y += 56;
+        linesDrawn++;
+        if (linesDrawn >= 2) {
+          curX = textLeftMargin;
+          curMaxW = textMaxWidth;
+        }
+      } else {
+        line = test;
+      }
+    }
+    if (line) {
+      ctx.fillText(line, curX, y);
+      y += 80;
+    }
+
+    // Archival Inscription Box
+    if (spread.ocrInscription) {
+      y = Math.max(y + 20, 1100);
+      const boxW = textMaxWidth;
+      const boxH = 340;
+
+      ctx.fillStyle = "#F3EFE6";
+      ctx.fillRect(textLeftMargin, y, boxW, boxH);
+      ctx.strokeStyle = "#D4AF37";
+      ctx.lineWidth = 3;
+      ctx.strokeRect(textLeftMargin, y, boxW, boxH);
+
+      // Inner deckle line
+      ctx.strokeStyle = "rgba(118, 85, 111, 0.3)";
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(textLeftMargin + 10, y + 10, boxW - 20, boxH - 20);
+
+      // Inscription header
+      ctx.fillStyle = "#76556F";
+      ctx.font = '600 24px system-ui, sans-serif';
+      if ("letterSpacing" in ctx) {
+        (ctx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = "3px";
+      }
+      ctx.fillText("ARCHIVAL INSCRIPTION", textLeftMargin + 32, y + 36);
+      if ("letterSpacing" in ctx) {
+        (ctx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = "0px";
+      }
+
+      // Inscription text (cursive italic quote)
+      ctx.fillStyle = "#20242C";
+      ctx.font = 'italic 34px Georgia, serif';
+      const inscWords = `“${spread.ocrInscription}”`.split(" ");
+      let inscLine = "";
+      let iy = y + 95;
+      for (const iw of inscWords) {
+        const itest = inscLine ? `${inscLine} ${iw}` : iw;
+        if (ctx.measureText(itest).width > boxW - 64) {
+          ctx.fillText(inscLine, textLeftMargin + 32, iy);
+          inscLine = iw;
+          iy += 50;
+        } else {
+          inscLine = itest;
+        }
+      }
+      if (inscLine) {
+        ctx.fillText(inscLine, textLeftMargin + 32, iy);
+      }
+
+      // Archival verification badge
+      ctx.fillStyle = "#5C5955";
+      ctx.font = '500 22px system-ui, sans-serif';
+      ctx.fillText("Verified Manuscript Transcription • Sealed", textLeftMargin + 32, y + boxH - 45);
     }
   }
-  if (line) {
-    ctx.fillText(line, leftMargin, y);
-    y += 56;
-  }
 
-  // Optional OCR Inscription box (right page)
-  if (side === "right" && spread.ocrInscription) {
-    ctx.fillStyle = "#F0ECE1";
-    ctx.fillRect(68, y, canvas.width - 136, 130);
-    ctx.strokeStyle = "#E7E2DA";
-    ctx.lineWidth = 2;
-    ctx.strokeRect(68, y, canvas.width - 136, 130);
-    ctx.fillStyle = "#76556F";
-    ctx.font = '600 18px system-ui, sans-serif';
-    ctx.fillText("ARCHIVAL INSCRIPTION", 88, y + 20);
-    ctx.fillStyle = "#20242C";
-    ctx.font = 'italic 22px Georgia, serif';
-    ctx.fillText(`"${spread.ocrInscription}"`, 88, y + 58, canvas.width - 176);
-  }
-
-  // Footer page number
+  // Footer: Page numerals and archival stamp
   ctx.fillStyle = "#78736E";
-  ctx.textAlign = side === "left" ? "left" : "right";
-  ctx.font = '500 20px monospace';
-  ctx.fillText(
-    `p. ${pageNumber}`,
-    side === "left" ? 72 : canvas.width - 72,
-    canvas.height - 76
-  );
+  ctx.font = '500 28px Georgia, monospace';
+  ctx.textBaseline = "alphabetic";
+  if (side === "left") {
+    ctx.textAlign = "left";
+    ctx.fillText(`p. ${pageNumber}`, 140, canvas.height - 110);
+    ctx.textAlign = "right";
+    ctx.fillStyle = "#9C9589";
+    ctx.font = '500 22px system-ui, sans-serif';
+    ctx.fillText("MEMORIA LIVING ARCHIVE", canvas.width - 180, canvas.height - 110);
+  } else {
+    ctx.textAlign = "left";
+    ctx.fillStyle = "#9C9589";
+    ctx.font = '500 22px system-ui, sans-serif';
+    ctx.fillText("EDITION SHA-256 VERIFIED", 170, canvas.height - 110);
+    ctx.textAlign = "right";
+    ctx.fillStyle = "#78736E";
+    ctx.fillText(`p. ${pageNumber}`, canvas.width - 140, canvas.height - 110);
+  }
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
-  texture.anisotropy = 4;
+  texture.anisotropy = 16;
+  texture.generateMipmaps = true;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
   texture.needsUpdate = true;
   return texture;
 }
@@ -234,7 +437,7 @@ function StudioEnvironment() {
     pmrem.compileEquirectangularShader();
 
     const envScene = new THREE.Scene();
-    envScene.background = new THREE.Color("#F4EFE6");
+    envScene.background = new THREE.Color("#FAF7F2");
 
     const addPanel = (
       pos: [number, number, number],
@@ -255,16 +458,16 @@ function StudioEnvironment() {
     };
 
     const panels = [
-      addPanel([0, 4.5, 0], [0, 0, 0], [8, 8], "#FFFDF8", 2.4),
-      addPanel([3.2, 2.5, 3.0], [0, 0, 0], [4, 4], "#FFF4DC", 3.2),
-      addPanel([-3.5, 2.0, -2.5], [0, 0, 0], [5, 4], "#DCE9E2", 1.8),
-      addPanel([0, 2.2, 4.2], [0, 0, 0], [6, 3], "#FFF7E8", 2.1),
-      addPanel([0, -2.5, 0], [0, 0, 0], [10, 10], "#EDE7DC", 1.0),
+      addPanel([0, 5.0, 0], [0, 0, 0], [8, 8], "#FFFDF8", 2.0),
+      addPanel([3.5, 2.8, 3.2], [0, 0, 0], [5, 4], "#FFF6E5", 2.5),
+      addPanel([-3.5, 2.2, -2.5], [0, 0, 0], [5, 4], "#EAEFEA", 1.4),
+      addPanel([0, 2.5, 4.2], [0, 0, 0], [6, 3], "#FFFBF2", 1.8),
+      addPanel([0, -2.5, 0], [0, 0, 0], [10, 10], "#EFEAE1", 0.9),
     ];
 
     const renderTarget = pmrem.fromScene(envScene, 0.04);
     scene.environment = renderTarget.texture;
-    scene.environmentIntensity = 0.9;
+    scene.environmentIntensity = 0.82;
 
     return () => {
       scene.environment = null;
@@ -340,37 +543,104 @@ function Heirloom3DBook({
   const leatherSwatch = useMemo(() => resolveLeatherSwatch(leatherId), [leatherId]);
   const foilSwatch = useMemo(() => resolveFoilSwatch(foilId), [foilId]);
 
+  const textureLoader = useMemo(() => new THREE.TextureLoader(), []);
+
+  const pbrTextures = useMemo(() => {
+    const leatherNormal = textureLoader.load("/textures/leather_normal.png");
+    leatherNormal.wrapS = leatherNormal.wrapT = THREE.RepeatWrapping;
+    leatherNormal.repeat.set(5, 5);
+
+    const leatherRoughness = textureLoader.load("/textures/leather_roughness.png");
+    leatherRoughness.wrapS = leatherRoughness.wrapT = THREE.RepeatWrapping;
+    leatherRoughness.repeat.set(5, 5);
+
+    const paperTexture = textureLoader.load("/textures/paper_texture.png");
+    paperTexture.wrapS = paperTexture.wrapT = THREE.RepeatWrapping;
+    paperTexture.repeat.set(2, 2);
+
+    const pageEdges = textureLoader.load("/textures/page_edges.png");
+    pageEdges.wrapS = pageEdges.wrapT = THREE.RepeatWrapping;
+    pageEdges.repeat.set(1, 4);
+
+    const ribbonTexture = textureLoader.load("/textures/ribbon_texture.png");
+    ribbonTexture.wrapS = ribbonTexture.wrapT = THREE.RepeatWrapping;
+    ribbonTexture.repeat.set(1, 6);
+
+    return { leatherNormal, leatherRoughness, paperTexture, pageEdges, ribbonTexture };
+  }, [textureLoader]);
+
+  useEffect(() => {
+    return () => {
+      pbrTextures.leatherNormal.dispose();
+      pbrTextures.leatherRoughness.dispose();
+      pbrTextures.paperTexture.dispose();
+      pbrTextures.pageEdges.dispose();
+      pbrTextures.ribbonTexture.dispose();
+    };
+  }, [pbrTextures]);
+
   const materialsBundle = useMemo(() => {
     const leatherParams = toThreeMaterialParams(buildLeatherMaterialSpec(leatherSwatch));
     const foilParams = toThreeMaterialParams(buildFoilMaterialSpec(foilSwatch, leatherSwatch));
     const paperParams = toThreeMaterialParams(ARCHIVAL_PAPER_MATERIAL_SPEC);
-    const ribbonParams = toThreeMaterialParams(SILK_RIBBON_MATERIAL_SPEC);
 
     return {
       leather: new THREE.MeshPhysicalMaterial({
         ...leatherParams,
+        normalMap: pbrTextures.leatherNormal,
+        normalScale: new THREE.Vector2(0.65, 0.65),
+        roughnessMap: pbrTextures.leatherRoughness,
+        roughness: 0.76,
+        metalness: 0.04,
+        clearcoat: 0.22,
+        clearcoatRoughness: 0.35,
+        sheen: 0.45,
+        sheenColor: new THREE.Color(leatherSwatch.accentHex || "#8A6682"),
         side: THREE.DoubleSide,
       }),
       foil: new THREE.MeshPhysicalMaterial({
         ...foilParams,
+        metalness: 0.95,
+        roughness: 0.16,
+        clearcoat: 0.35,
+        clearcoatRoughness: 0.20,
+        reflectivity: 0.95,
         side: THREE.DoubleSide,
       }),
       paper: new THREE.MeshStandardMaterial({
         ...paperParams,
+        map: pbrTextures.paperTexture,
+        roughness: 0.95,
+        metalness: 0.0,
+        side: THREE.DoubleSide,
+      }),
+      textBlock: new THREE.MeshStandardMaterial({
+        color: "#F6F2E9",
+        map: pbrTextures.pageEdges,
+        roughness: 0.90,
+        metalness: 0.0,
         side: THREE.DoubleSide,
       }),
       ribbon: new THREE.MeshPhysicalMaterial({
-        ...ribbonParams,
+        color: "#849483",
+        map: pbrTextures.ribbonTexture,
+        roughness: 0.35,
+        metalness: 0.04,
+        clearcoat: 0.45,
+        clearcoatRoughness: 0.25,
+        sheen: 0.8,
+        sheenColor: new THREE.Color("#A8B5A7"),
         side: THREE.DoubleSide,
       }),
     };
-  }, [leatherSwatch, foilSwatch]);
+  }, [leatherSwatch, foilSwatch, pbrTextures]);
 
   useEffect(() => {
     return () => {
       materialsBundle.leather.dispose();
       materialsBundle.foil.dispose();
       materialsBundle.paper.dispose();
+      materialsBundle.textBlock.dispose();
       materialsBundle.ribbon.dispose();
     };
   }, [materialsBundle]);
@@ -437,7 +707,7 @@ function Heirloom3DBook({
           nodeName === BOOK_3D_HIERARCHY.textBlock ||
           parentName === BOOK_3D_HIERARCHY.textBlock
         ) {
-          mesh.material = materialsBundle.paper;
+          mesh.material = materialsBundle.textBlock;
         }
       }
     });
@@ -514,13 +784,12 @@ function Heirloom3DBook({
     }
 
     if (turningPageHingeRef.current) {
-      const idleWave =
-        isOpen && !reducedMotion ? Math.sin(state.clock.elapsedTime * 2.0) * 0.025 + 0.04 : 0;
-      const turnAngle =
-        turnProgressRef.current > 0
-          ? computePageTurnAngle(turnProgressRef.current)
-          : idleWave;
-      turningPageHingeRef.current.rotation.z = turnAngle;
+      const isActivelyTurning = turnProgressRef.current > 0 && turnProgressRef.current < 1;
+      turningPageHingeRef.current.visible = isActivelyTurning;
+      if (isActivelyTurning) {
+        const turnAngle = computePageTurnAngle(turnProgressRef.current);
+        turningPageHingeRef.current.rotation.z = turnAngle;
+      }
     }
 
     // Apply subtle vertex curl modulation only when open/turning; skip GPU re-uploads when closed and flat
@@ -661,9 +930,9 @@ function Heirloom3DBook({
         {/* Left Open Spread Content synced to FrontCoverHinge */}
         <group ref={leftPageGroupRef}>
           {openSpreadVisible && leftSpreadTexture && (
-            <mesh position={[0.10, 0.0085, 0]} rotation={[Math.PI / 2, 0, Math.PI]}>
-              <planeGeometry args={[0.184, 0.242]} />
-              <meshStandardMaterial map={leftSpreadTexture} roughness={0.92} metalness={0.0} />
+            <mesh position={[0.10, 0.0118, 0]} rotation={[Math.PI / 2, 0, Math.PI]}>
+              <planeGeometry args={[0.186, 0.244]} />
+              <meshStandardMaterial map={leftSpreadTexture} roughness={0.94} metalness={0.0} />
             </mesh>
           )}
         </group>
@@ -671,8 +940,8 @@ function Heirloom3DBook({
         {/* Right Open Spread Content on TextBlock Surface */}
         {openSpreadVisible && rightSpreadTexture && (
           <mesh position={[0.10, textBlockTopY, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-            <planeGeometry args={[0.184, 0.242]} />
-            <meshStandardMaterial map={rightSpreadTexture} roughness={0.92} metalness={0.0} />
+            <planeGeometry args={[0.186, 0.244]} />
+            <meshStandardMaterial map={rightSpreadTexture} roughness={0.94} metalness={0.0} />
           </mesh>
         )}
       </group>
@@ -1165,6 +1434,8 @@ export default function ExperienceCanvas({
                   powerPreference: "high-performance",
                 }}
                 onCreated={({ gl }) => {
+                  gl.toneMapping = THREE.ACESFilmicToneMapping;
+                  gl.toneMappingExposure = 1.06;
                   gl.domElement.addEventListener("webglcontextlost", (event) => {
                     event.preventDefault();
                     setWebglError("WebGL context lost. Showing Accessible 2D Spread Reader.");
@@ -1214,12 +1485,12 @@ export default function ExperienceCanvas({
                 </Suspense>
 
                 <ContactShadows
-                  position={[0, -0.055, 0]}
-                  opacity={BOOK_LIGHTING_INTENT.shadowOpacity}
-                  scale={1.2}
-                  blur={1.9}
-                  far={0.5}
-                  color="#20242C"
+                  position={[0, -0.022, 0]}
+                  opacity={0.52}
+                  scale={1.35}
+                  blur={2.2}
+                  far={0.35}
+                  color="#1A1C22"
                 />
                 <CameraPresetController
                   presetId={cameraPresetId}
