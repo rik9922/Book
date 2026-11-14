@@ -286,4 +286,68 @@ describe("Phase B/D/E — Security, Idempotency, Conflict Detection & Storage Co
       await gateway.close();
     }
   });
+
+  test("6. Unscoped GET /api/v1/media/upload-sessions/active enforces space authorization (no BOLA leak)", async () => {
+    const ownerId = crypto.randomUUID();
+    const outsiderId = crypto.randomUUID();
+    const spaceId = crypto.randomUUID();
+    const ownerToken = signUserToken(ownerId, "owner-upload@memoria.internal");
+    const outsiderToken = signUserToken(outsiderId, "outsider-upload@memoria.internal");
+
+    const memoryDbUrl = process.env.MEMORY_DATABASE_URL || process.env.DATABASE_URL;
+    const memoryDb = memoryDbUrl ? createDatabaseClient(memoryDbUrl) : null;
+    if (memoryDb) {
+      const spaceRepo = new PostgresSpaceRepository(memoryDb);
+      await spaceRepo.createSpace({
+        id: spaceId,
+        ownerId,
+        name: "Private Upload Space",
+        type: "personal",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+    }
+
+    const mediaApp = await buildMediaService();
+    try {
+      const sessionRes = await mediaApp.inject({
+        method: "POST",
+        url: "/api/v1/media/upload-session",
+        headers: { authorization: `Bearer ${ownerToken}` },
+        payload: {
+          spaceId,
+          fileName: "private-scan.jpg",
+          mimeType: "image/jpeg",
+          fileSizeBytes: 512,
+        },
+      });
+      assert.equal(sessionRes.statusCode, 201);
+      const { mediaId } = JSON.parse(sessionRes.body).data;
+
+      const ownerActive = await mediaApp.inject({
+        method: "GET",
+        url: "/api/v1/media/upload-sessions/active",
+        headers: { authorization: `Bearer ${ownerToken}` },
+      });
+      assert.equal(ownerActive.statusCode, 200);
+      const ownerSessions = JSON.parse(ownerActive.body).data;
+      assert.ok(ownerSessions.some((s: any) => s.id === mediaId), "Owner must see own pending upload session");
+
+      const outsiderActive = await mediaApp.inject({
+        method: "GET",
+        url: "/api/v1/media/upload-sessions/active",
+        headers: { authorization: `Bearer ${outsiderToken}` },
+      });
+      assert.equal(outsiderActive.statusCode, 200);
+      const outsiderSessions = JSON.parse(outsiderActive.body).data;
+      assert.equal(
+        outsiderSessions.some((s: any) => s.id === mediaId),
+        false,
+        "Outsider must NOT see another user's pending upload session"
+      );
+    } finally {
+      await mediaApp.close();
+      if (memoryDb) await memoryDb.close();
+    }
+  });
 });

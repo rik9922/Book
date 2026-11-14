@@ -50,6 +50,7 @@ export interface BackupManifest {
   schemaVersion: string;
   databases: {
     name: string;
+    roles?: string[];
     dumpFile: string;
     sizeBytes: number;
     sha256: string;
@@ -69,6 +70,20 @@ export interface BackupManifest {
     checkedAt: string;
     errors: string[];
   };
+}
+
+export function resolveDatabaseName(defaultName: string, envVar: string): string {
+  const urlStr = process.env[envVar] || process.env.DATABASE_URL;
+  if (urlStr) {
+    try {
+      const parsed = new URL(urlStr);
+      const dbFromUrl = parsed.pathname.replace(/^\//, "");
+      if (dbFromUrl) return dbFromUrl;
+    } catch {
+      // Fallback to defaultName
+    }
+  }
+  return defaultName;
 }
 
 export function resolvePgConnectionDefaults(): {
@@ -200,8 +215,18 @@ export async function createBackup(options?: {
   const { pgUser, pgPass, pgHost, pgPort } = resolvePgConnectionDefaults();
 
   try {
+    const groupedByPhysicalDb = new Map<string, { physicalName: string; roles: { name: string; envVar: string }[] }>();
     for (const dbEntry of targetDatabases) {
-      const dbName = dbEntry.name;
+      const physicalName = resolveDatabaseName(dbEntry.name, dbEntry.envVar);
+      const existing = groupedByPhysicalDb.get(physicalName);
+      if (existing) {
+        existing.roles.push(dbEntry);
+      } else {
+        groupedByPhysicalDb.set(physicalName, { physicalName, roles: [dbEntry] });
+      }
+    }
+
+    for (const { physicalName: dbName, roles } of groupedByPhysicalDb.values()) {
       const dumpFileName = `${dbName}.sql`;
       const dumpFilePath = path.join(dbDumpsDir, dumpFileName);
       process.stdout.write(`  ⏳ Dumping database '${dbName}'... `);
@@ -231,19 +256,22 @@ export async function createBackup(options?: {
       const sha256 = await calculateFileSha256(dumpFilePath);
 
       const counts: Record<string, number> = {};
-      if (dbName === "identity_db") {
-        counts.users = await getRecordCount(dbName, dbEntry.envVar, "users");
-      } else if (dbName === "memory_db") {
-        counts.memory_spaces = await getRecordCount(dbName, dbEntry.envVar, "memory_spaces");
-        counts.memories = await getRecordCount(dbName, dbEntry.envVar, "memories");
-      } else if (dbName === "media_db") {
-        counts.media_assets = await getRecordCount(dbName, dbEntry.envVar, "media_assets");
-      } else if (dbName === "book_db") {
-        counts.books = await getRecordCount(dbName, dbEntry.envVar, "books");
+      for (const role of roles) {
+        if (role.name === "identity_db") {
+          counts.users = await getRecordCount(dbName, role.envVar, "users");
+        } else if (role.name === "memory_db") {
+          counts.memory_spaces = await getRecordCount(dbName, role.envVar, "memory_spaces");
+          counts.memories = await getRecordCount(dbName, role.envVar, "memories");
+        } else if (role.name === "media_db") {
+          counts.media_assets = await getRecordCount(dbName, role.envVar, "media_assets");
+        } else if (role.name === "book_db") {
+          counts.books = await getRecordCount(dbName, role.envVar, "books");
+        }
       }
 
       manifest.databases.push({
         name: dbName,
+        roles: roles.map((r) => r.name),
         dumpFile: `databases/${dumpFileName}`,
         sizeBytes: stats.size,
         sha256,

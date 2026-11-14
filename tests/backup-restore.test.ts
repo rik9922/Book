@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
 import { createDatabaseClient } from "@memory-capsule/database";
-import { createBackup, resolvePgConnectionDefaults, BackupManifest } from "../scripts/backup.ts";
+import { createBackup, resolveDatabaseName, resolvePgConnectionDefaults, BackupManifest } from "../scripts/backup.ts";
 import { restoreBackup } from "../scripts/restore.ts";
 
 describe("Phase C — Backup Fail-Closed Verification & Isolated Restore Rehearsal", () => {
@@ -73,7 +73,12 @@ describe("Phase C — Backup Fail-Closed Verification & Isolated Restore Rehears
 
     // Isolated restore into suffix DBs & isolated storage dir
     const suffix = `_rehearsal_${Date.now()}`;
-    createdTempDbs.push(`memory_db${suffix}`, `media_db${suffix}`);
+    const physicalDbs = Array.from(
+      new Set(testDbs.map((d) => resolveDatabaseName(d.name, d.envVar)))
+    );
+    for (const dbName of physicalDbs) {
+      createdTempDbs.push(`${dbName}${suffix}`);
+    }
 
     const restoreReport = await restoreBackup({
       backupDir,
@@ -85,7 +90,7 @@ describe("Phase C — Backup Fail-Closed Verification & Isolated Restore Rehears
 
     assert.equal(restoreReport.status, "SUCCESS");
     assert.equal(restoreReport.mode, "isolated_restore");
-    assert.equal(restoreReport.databasesRestored.length, 2);
+    assert.equal(restoreReport.databasesRestored.length, physicalDbs.length);
     for (const dbRes of restoreReport.databasesRestored) {
       assert.equal(dbRes.countsMatch, true, `Record counts must match for ${dbRes.sourceDb}`);
     }

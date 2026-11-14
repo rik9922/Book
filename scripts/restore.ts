@@ -335,8 +335,10 @@ export async function restoreBackup(options: {
   console.log(`  🟢 RESTORED (${mediaCheck.actualFileCount} files verified via SHA-256)`);
 
   // STEP 4: Verify Memory-to-Media References
-  const restoredMemoryDb = restoredDbNames.get("memory_db");
-  const restoredMediaDb = restoredDbNames.get("media_db");
+  const memoryManifestEntry = manifest.databases.find((d) => d.name === "memory_db" || d.roles?.includes("memory_db"));
+  const mediaManifestEntry = manifest.databases.find((d) => d.name === "media_db" || d.roles?.includes("media_db"));
+  const restoredMemoryDb = memoryManifestEntry ? restoredDbNames.get(memoryManifestEntry.name) : undefined;
+  const restoredMediaDb = mediaManifestEntry ? restoredDbNames.get(mediaManifestEntry.name) : undefined;
   if (restoredMemoryDb && restoredMediaDb) {
     const memClient = createDatabaseClient(`postgres://${auth}@${pgHost}:${pgPort}/${restoredMemoryDb}`);
     const medClient = createDatabaseClient(`postgres://${auth}@${pgHost}:${pgPort}/${restoredMediaDb}`);

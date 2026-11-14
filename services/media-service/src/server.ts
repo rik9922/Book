@@ -896,18 +896,48 @@ export async function buildMediaService(): Promise<FastifyInstance> {
     "/api/v1/media/upload-sessions/active",
     async (req: FastifyRequest<{ Querystring: { spaceId?: string } }>, reply) => {
       const userId = await requireAuthUser(req);
+      const activeStatuses = [
+        "pending_upload",
+        "original_verified",
+        "processing",
+        "failed",
+        "retryable_failure",
+        "permanent_failure",
+      ];
       if (req.query.spaceId) {
         await assertSpaceAccess(req.query.spaceId, userId, false);
         const assets = await mediaRepo.listAssets(req.query.spaceId);
         return reply.status(200).send(
-          createSuccessResponse(assets.filter((a) => a.status === "pending_upload" || a.status === "processing" || a.status === "failed"))
+          createSuccessResponse(assets.filter((a) => activeStatuses.includes(a.status)))
         );
       }
       if (dbUrl) {
+        const authorizedSpaceIds = new Set<string>();
+        if (memoryDb) {
+          const ownedRes = await memoryDb.query<{ id: string }>(
+            `SELECT id FROM memory_spaces WHERE owner_id = $1 AND deleted_at IS NULL`,
+            [userId]
+          );
+          for (const row of ownedRes.rows) authorizedSpaceIds.add(row.id);
+        }
+        if (collabDb) {
+          const memberRes = await collabDb.query<{ space_id: string }>(
+            `SELECT space_id FROM space_members WHERE user_id = $1`,
+            [userId]
+          );
+          for (const row of memberRes.rows) authorizedSpaceIds.add(row.space_id);
+        }
+        if (authorizedSpaceIds.size === 0) {
+          return reply.status(200).send(createSuccessResponse([]));
+        }
         const res = await db.query(
           `SELECT id, space_id as "spaceId", original_name as "originalName", mime_type as "mimeType",
                   size_bytes as "sizeBytes", status, storage_key as "storageKey", created_at::text as "createdAt"
-           FROM media_assets WHERE status IN ('pending_upload', 'processing', 'failed') ORDER BY created_at DESC LIMIT 50`
+           FROM media_assets
+           WHERE space_id = ANY($1::uuid[])
+             AND status = ANY($2::text[])
+           ORDER BY created_at DESC LIMIT 50`,
+          [Array.from(authorizedSpaceIds), activeStatuses]
         );
         return reply.status(200).send(createSuccessResponse(res.rows));
       }
