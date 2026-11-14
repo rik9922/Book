@@ -688,3 +688,230 @@ struct Book3DEngineTests {
     }
     #endif
 }
+
+private final class OfflineSyncURLProtocol: URLProtocol, @unchecked Sendable {
+    nonisolated(unsafe) static var handler: ((URLRequest) throws -> (Int, Data))?
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        guard let handler = Self.handler else {
+            client?.urlProtocol(self, didFailWithError: URLError(.cannotConnectToHost))
+            return
+        }
+        do {
+            let (status, data) = try handler(request)
+            let response = HTTPURLResponse(
+                url: request.url ?? URL(string: "http://127.0.0.1:4000")!,
+                statusCode: status,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: data)
+            client?.urlProtocolDidFinishLoading(self)
+        } catch {
+            client?.urlProtocol(self, didFailWithError: error)
+        }
+    }
+
+    override func stopLoading() {}
+}
+
+@Suite("Memoria Durable Offline Storage & Sync Integrity Tests", .serialized)
+struct OfflineSyncIntegrityTests {
+    private func makeIsolatedDirs() -> (archive: URL, cache: URL) {
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent("memoria-offline-test-\(UUID().uuidString)", isDirectory: true)
+        return (base.appendingPathComponent("Archive", isDirectory: true), base.appendingPathComponent("Cache", isDirectory: true))
+    }
+
+    private func makeMockClient(token: String = "test-token", userId: String = "user-a") async -> MemoriaAPIClient {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [OfflineSyncURLProtocol.self]
+        let session = URLSession(configuration: config)
+        let client = MemoriaAPIClient(baseURL: URL(string: "http://127.0.0.1:4000/api/v1")!, urlSession: session, useKeychain: false)
+        await client.setAuthToken(token, refreshToken: nil)
+        await client.setCurrentUserId(userId)
+        return client
+    }
+
+    @Test("Offline memory + original photo survive simulated restart and clearCache, then sync idempotently across interrupted upload")
+    @MainActor
+    func testOfflineDurabilityRestartClearCacheAndIdempotentRetry() async throws {
+        let dirs = makeIsolatedDirs()
+        defer { try? FileManager.default.removeItem(at: dirs.archive.deletingLastPathComponent()) }
+
+        let photoBytes = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x01, 0x02, 0x03, 0x04])
+        let spaceId = UUID().uuidString
+
+        // 1-2. Save offline memory with original photo
+        do {
+            let storage1 = LocalStorageService(baseArchiveURL: dirs.archive, baseCacheURL: dirs.cache)
+            let client1 = await makeMockClient(userId: "user-a")
+            let sync1 = OfflineSyncService(storage: storage1, apiClient: client1)
+            let record = try sync1.saveOfflineMemory(
+                spaceId: spaceId,
+                authorId: "user-a",
+                title: "Grandma's Garden",
+                content: "Saved while offline",
+                format: .image,
+                location: "Kyoto",
+                tags: ["garden"],
+                mediaData: photoBytes,
+                mediaFileName: "garden.png",
+                mediaMimeType: "image/png",
+                accountId: "user-a"
+            )
+            #expect(record.localMediaAssetIds.count == 1)
+            #expect(storage1.loadPendingMutations().count == 1)
+        }
+
+        // 3-7. Simulate app restart (new LocalStorageService instance) + clear disposable caches
+        let storage2 = LocalStorageService(baseArchiveURL: dirs.archive, baseCacheURL: dirs.cache)
+        storage2.clearCache()
+
+        let loadedMemories = storage2.loadLocalMemories(forSpaceId: spaceId, accountId: "user-a")
+        #expect(loadedMemories.count == 1)
+        #expect(loadedMemories[0].title == "Grandma's Garden")
+
+        let assets = storage2.listLocalMediaAssets(forMemoryId: loadedMemories[0].id)
+        #expect(assets.count == 1)
+        let (_, loadedPhoto) = try storage2.loadOriginalMediaData(assetId: assets[0].id)
+        #expect(loadedPhoto == photoBytes)
+
+        // 8-12. Restore connectivity, interrupt upload after media completes, then retry -> no duplicate media or memory
+        var uploadSessionCalls = 0
+        var createMemoryCalls = 0
+        var failCreateOnce = true
+        let fixedMediaId = UUID().uuidString
+
+        OfflineSyncURLProtocol.handler = { req in
+            let url = req.url?.absoluteString ?? ""
+            if url.contains("/media/upload-session") {
+                uploadSessionCalls += 1
+                let json = """
+                {"success":true,"data":{"mediaId":"\(fixedMediaId)","uploadUrl":"http://127.0.0.1:4000/api/v1/media/local-upload?key=test","storageKey":"originals/test/garden.png","expiresAt":"2026-12-01T00:00:00Z"}}
+                """
+                return (201, Data(json.utf8))
+            }
+            if url.contains("/media/local-upload") {
+                return (200, Data("{\"success\":true}".utf8))
+            }
+            if url.contains("/complete") {
+                return (200, Data("{\"success\":true,\"data\":{\"id\":\"\(fixedMediaId)\"}}".utf8))
+            }
+            if url.contains("/memories") && req.httpMethod == "POST" {
+                createMemoryCalls += 1
+                if failCreateOnce {
+                    failCreateOnce = false
+                    throw URLError(.networkConnectionLost)
+                }
+                let memId = loadedMemories[0].id
+                let json = """
+                {"success":true,"data":{"id":"\(memId)","spaceId":"\(spaceId)","authorId":"user-a","title":"Grandma's Garden","content":"Saved while offline","format":"image","capturedAt":"2026-11-14T00:00:00Z","location":"Kyoto","isFavorite":false,"associatedProfileIds":[],"mediaIds":["\(fixedMediaId)"],"tags":["garden"],"revision":1,"createdAt":"2026-11-14T00:00:00Z","updatedAt":"2026-11-14T00:00:00Z"}}
+                """
+                return (201, Data(json.utf8))
+            }
+            return (404, Data("{}".utf8))
+        }
+
+        let client2 = await makeMockClient(userId: "user-a")
+        let sync2 = OfflineSyncService(storage: storage2, apiClient: client2)
+
+        let firstRun = await sync2.syncPendingMutations(accountId: "user-a", force: true)
+        #expect(firstRun.failed == 1)
+        #expect(uploadSessionCalls == 1)
+        #expect(createMemoryCalls == 1)
+
+        // Retry: media already recorded remoteMediaId, so upload-session is NOT called again!
+        let secondRun = await sync2.syncPendingMutations(accountId: "user-a", force: true)
+        #expect(secondRun.succeeded == 1)
+        #expect(uploadSessionCalls == 1)
+        #expect(createMemoryCalls == 2)
+        #expect(storage2.loadPendingMutations().isEmpty)
+
+        // Original media remains intact on disk
+        let (_, stillThere) = try storage2.loadOriginalMediaData(assetId: assets[0].id)
+        #expect(stillThere == photoBytes)
+    }
+
+    @Test("Version conflict preserves both local and server versions and account switching isolates mutations")
+    @MainActor
+    func testVersionConflictAndAccountIsolation() async throws {
+        let dirs = makeIsolatedDirs()
+        defer { try? FileManager.default.removeItem(at: dirs.archive.deletingLastPathComponent()) }
+
+        let storage = LocalStorageService(baseArchiveURL: dirs.archive, baseCacheURL: dirs.cache)
+        let clientA = await makeMockClient(userId: "user-a")
+        let syncA = OfflineSyncService(storage: storage, apiClient: clientA)
+
+        let spaceId = UUID().uuidString
+        let memId = UUID().uuidString
+        let localMemory = Memory(
+            id: memId,
+            spaceId: spaceId,
+            authorId: "user-a",
+            title: "Original Title",
+            format: .story,
+            revision: 1,
+            updatedAt: "2026-11-14T00:00:00Z"
+        )
+        try syncA.enqueueMemoryUpdate(memory: localMemory, title: "Device A Edit", accountId: "user-a")
+
+        // Account B logs in -> must NOT sync Account A's mutation
+        let clientB = await makeMockClient(userId: "user-b")
+        let syncB = OfflineSyncService(storage: storage, apiClient: clientB)
+        let runB = await syncB.syncPendingMutations(accountId: "user-b", force: true)
+        #expect(runB.skippedAccountMismatch == 1)
+        #expect(runB.attempted == 0)
+
+        // Account A syncs and receives 409 VERSION_CONFLICT
+        OfflineSyncURLProtocol.handler = { req in
+            if req.httpMethod == "PATCH" {
+                let conflictJson = """
+                {"success":false,"error":{"code":"VERSION_CONFLICT","message":"Modified","details":{"serverMemory":{"id":"\(memId)","spaceId":"\(spaceId)","authorId":"user-a","title":"Device B Edit","format":"story","capturedAt":"2026-11-14T00:00:00Z","isFavorite":false,"associatedProfileIds":[],"mediaIds":[],"tags":[],"revision":2,"createdAt":"2026-11-14T00:00:00Z","updatedAt":"2026-11-14T01:00:00Z"}}}}
+                """
+                return (409, Data(conflictJson.utf8))
+            }
+            return (404, Data("{}".utf8))
+        }
+
+        let runA = await syncA.syncPendingMutations(accountId: "user-a", force: true)
+        #expect(runA.conflicts == 1)
+        let conflicts = storage.loadSyncConflicts(accountId: "user-a")
+        #expect(conflicts.count == 1)
+        #expect(conflicts[0].localMemory.title == "Device A Edit")
+        #expect(conflicts[0].serverMemory.title == "Device B Edit")
+    }
+
+    @Test("Missing and corrupted local original media files fail integrity check explicitly")
+    func testMissingAndCorruptedOriginalMedia() throws {
+        let dirs = makeIsolatedDirs()
+        defer { try? FileManager.default.removeItem(at: dirs.archive.deletingLastPathComponent()) }
+
+        let storage = LocalStorageService(baseArchiveURL: dirs.archive, baseCacheURL: dirs.cache)
+        let original = Data("heirloom-photo-bytes".utf8)
+        let asset = try storage.saveOriginalMedia(
+            data: original,
+            memoryId: UUID().uuidString,
+            spaceId: UUID().uuidString,
+            fileName: "photo.jpg",
+            mimeType: "image/jpeg"
+        )
+
+        let fileURL = storage.archiveDirectory.appendingPathComponent(asset.relativePath)
+
+        // Corrupt the file on disk
+        try Data("corrupted-bytes".utf8).write(to: fileURL)
+        #expect(throws: LocalStorageError.self) {
+            _ = try storage.loadOriginalMediaData(assetId: asset.id)
+        }
+
+        // Delete the file on disk
+        try FileManager.default.removeItem(at: fileURL)
+        #expect(throws: LocalStorageError.self) {
+            _ = try storage.loadOriginalMediaData(assetId: asset.id)
+        }
+    }
+}

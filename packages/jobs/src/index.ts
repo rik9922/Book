@@ -34,39 +34,61 @@ export interface JobManager {
   close(): Promise<void>;
 }
 
-class InMemoryJobManager implements JobManager {
+export class InMemoryJobManager implements JobManager {
   private workers = new Map<string, Array<(job: any) => Promise<any>>>();
   private timers = new Set<NodeJS.Timeout>();
+  private activeJobIds = new Set<string>();
+  private inFlight = new Set<Promise<void>>();
   private completedCounts = new Map<string, number>();
   private failedJobs = new Map<string, DeadLetterJobSummary[]>();
   private closed = false;
 
-  async addJob<T>(queueName: string, jobName: string, data: T): Promise<void> {
+  async addJob<T>(queueName: string, jobName: string, data: T, opts?: { jobId?: string }): Promise<void> {
     if (this.closed) return;
-    logger.debug({ queueName, jobName }, "[InMemoryJobManager] Enqueued job");
+    const jobId = opts?.jobId || `job-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const dedupKey = opts?.jobId ? `${queueName}:${opts.jobId}` : null;
+    if (dedupKey && this.activeJobIds.has(dedupKey)) {
+      logger.debug({ queueName, jobName, jobId }, "[InMemoryJobManager] Skipping duplicate jobId");
+      return;
+    }
+    if (dedupKey) {
+      this.activeJobIds.add(dedupKey);
+    }
+
+    logger.debug({ queueName, jobName, jobId }, "[InMemoryJobManager] Enqueued job");
     const registered = this.workers.get(queueName) || [];
-    const timer = setTimeout(async () => {
+    const timer = setTimeout(() => {
       this.timers.delete(timer);
-      if (this.closed) return;
-      for (const worker of registered) {
-        if (this.closed) break;
-        const jobId = `job-${Date.now()}`;
-        try {
-          await worker({ name: jobName, data, id: jobId });
-          this.completedCounts.set(queueName, (this.completedCounts.get(queueName) || 0) + 1);
-        } catch (err) {
-          logger.error({ err, queueName, jobName }, "[InMemoryJobManager] Job execution failure");
-          const list = this.failedJobs.get(queueName) || [];
-          list.push({
-            queueName,
-            jobId,
-            jobName,
-            failedReason: err instanceof Error ? err.message : String(err),
-            attemptsMade: 1,
-          });
-          this.failedJobs.set(queueName, list);
-        }
+      if (this.closed) {
+        if (dedupKey) this.activeJobIds.delete(dedupKey);
+        return;
       }
+      const run = (async () => {
+        try {
+          for (const worker of registered) {
+            if (this.closed) break;
+            try {
+              await worker({ name: jobName, data, id: jobId });
+              this.completedCounts.set(queueName, (this.completedCounts.get(queueName) || 0) + 1);
+            } catch (err) {
+              logger.error({ err, queueName, jobName, jobId }, "[InMemoryJobManager] Job execution failure");
+              const list = this.failedJobs.get(queueName) || [];
+              list.push({
+                queueName,
+                jobId,
+                jobName,
+                failedReason: err instanceof Error ? err.message : String(err),
+                attemptsMade: 1,
+              });
+              this.failedJobs.set(queueName, list);
+            }
+          }
+        } finally {
+          if (dedupKey) this.activeJobIds.delete(dedupKey);
+        }
+      })();
+      this.inFlight.add(run);
+      run.finally(() => this.inFlight.delete(run));
     }, 10);
     this.timers.add(timer);
   }
@@ -108,6 +130,10 @@ class InMemoryJobManager implements JobManager {
       clearTimeout(timer);
     }
     this.timers.clear();
+    if (this.inFlight.size > 0) {
+      await Promise.allSettled([...this.inFlight]);
+    }
+    this.activeJobIds.clear();
     this.workers.clear();
   }
 }

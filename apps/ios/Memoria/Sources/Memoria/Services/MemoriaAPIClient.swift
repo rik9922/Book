@@ -1,5 +1,16 @@
 import Foundation
 
+public enum MemoriaAPIError: LocalizedError, Sendable {
+    case versionConflict(serverMemory: Memory?)
+
+    public var errorDescription: String? {
+        switch self {
+        case .versionConflict:
+            return "This memory was updated on another device. Please review and resolve the conflict."
+        }
+    }
+}
+
 public struct UploadSessionDTO: Decodable, Sendable {
     public let mediaId: String
     public let uploadUrl: String
@@ -441,12 +452,14 @@ public actor MemoriaAPIClient {
 
     private static let accessTokenKey = "memoria_access_token"
     private static let refreshTokenKey = "memoria_refresh_token"
+    private static let currentUserIdKey = "memoria_current_user_id"
 
     public private(set) var baseURL: URL
     private let urlSession: URLSession
     private let useKeychain: Bool
     private var authToken: String?
     private var refreshTokenValue: String?
+    private var currentUserIdValue: String?
 
     public init(
         baseURL: URL? = nil,
@@ -507,14 +520,36 @@ public actor MemoriaAPIClient {
     public func clearAuthSession() {
         self.authToken = nil
         self.refreshTokenValue = nil
+        self.currentUserIdValue = nil
         if useKeychain {
             KeychainTokenStore.shared.delete(forKey: Self.accessTokenKey)
             KeychainTokenStore.shared.delete(forKey: Self.refreshTokenKey)
+            KeychainTokenStore.shared.delete(forKey: Self.currentUserIdKey)
         }
     }
 
     public func getAuthToken() -> String? {
         return self.authToken
+    }
+
+    public func getCurrentUserId() -> String? {
+        if let currentUserIdValue { return currentUserIdValue }
+        if useKeychain, let stored = KeychainTokenStore.shared.read(forKey: Self.currentUserIdKey) {
+            self.currentUserIdValue = stored
+            return stored
+        }
+        return nil
+    }
+
+    public func setCurrentUserId(_ userId: String?) {
+        self.currentUserIdValue = userId
+        if useKeychain {
+            if let userId {
+                KeychainTokenStore.shared.save(userId, forKey: Self.currentUserIdKey)
+            } else {
+                KeychainTokenStore.shared.delete(forKey: Self.currentUserIdKey)
+            }
+        }
     }
 
     private func createRequest(
@@ -579,15 +614,22 @@ public actor MemoriaAPIClient {
         path: String,
         queryItems: [URLQueryItem] = [],
         method: String = "GET",
-        body: Data? = nil
+        body: Data? = nil,
+        extraHeaders: [String: String] = [:]
     ) async throws -> (Data, HTTPURLResponse) {
         var req = createRequest(path: path, queryItems: queryItems, method: method)
+        for (k, v) in extraHeaders {
+            req.setValue(v, forHTTPHeaderField: k)
+        }
         req.httpBody = body
         var (data, response) = try await urlSession.data(for: req)
 
         if let http = response as? HTTPURLResponse, http.statusCode == 401 {
             if await refreshSessionIfPossible() {
                 var retryReq = createRequest(path: path, queryItems: queryItems, method: method)
+                for (k, v) in extraHeaders {
+                    retryReq.setValue(v, forHTTPHeaderField: k)
+                }
                 retryReq.httpBody = body
                 (data, response) = try await urlSession.data(for: retryReq)
             }
@@ -634,6 +676,7 @@ public actor MemoriaAPIClient {
         }
         let decoded = try JSONDecoder().decode(Envelope.self, from: data)
         setAuthToken(decoded.data.accessToken, refreshToken: decoded.data.refreshToken)
+        setCurrentUserId(decoded.data.user.id)
         return decoded.data
     }
 
@@ -660,6 +703,7 @@ public actor MemoriaAPIClient {
         }
         let decoded = try JSONDecoder().decode(Envelope.self, from: data)
         setAuthToken(decoded.data.accessToken, refreshToken: decoded.data.refreshToken)
+        setCurrentUserId(decoded.data.user.id)
         return decoded.data
     }
 
@@ -721,18 +765,31 @@ public actor MemoriaAPIClient {
         spaceId: String,
         fileName: String,
         mimeType: String,
-        data fileData: Data
+        data fileData: Data,
+        idempotencyKey: String? = nil,
+        sha256: String? = nil
     ) async throws -> String {
-        let sessionBody = try JSONSerialization.data(withJSONObject: [
+        let computedSha256 = sha256 ?? LocalStorageService.sha256Hex(of: fileData)
+        var sessionDict: [String: Any] = [
             "spaceId": spaceId,
             "fileName": fileName,
             "mimeType": mimeType,
             "fileSizeBytes": fileData.count,
-        ])
+            "checksumSha256": computedSha256,
+        ]
+        if let idempotencyKey {
+            sessionDict["idempotencyKey"] = idempotencyKey
+        }
+        let sessionBody = try JSONSerialization.data(withJSONObject: sessionDict)
+        var sessionHeaders: [String: String] = [:]
+        if let idempotencyKey {
+            sessionHeaders["Idempotency-Key"] = idempotencyKey
+        }
         let (sessionData, httpSessionResp) = try await performAuthenticatedData(
             path: "media/upload-session",
             method: "POST",
-            body: sessionBody
+            body: sessionBody,
+            extraHeaders: sessionHeaders
         )
         guard (200...299).contains(httpSessionResp.statusCode) else {
             throw NSError(domain: "MemoriaAPIClient", code: httpSessionResp.statusCode, userInfo: [NSLocalizedDescriptionKey: "Failed to create upload session"])
@@ -758,10 +815,11 @@ public actor MemoriaAPIClient {
             throw NSError(domain: "MemoriaAPIClient", code: (putResp as? HTTPURLResponse)?.statusCode ?? 500, userInfo: [NSLocalizedDescriptionKey: "Failed to upload media binary"])
         }
 
+        let completeBody = try JSONSerialization.data(withJSONObject: ["sha256": computedSha256])
         let (_, httpCompleteResp) = try await performAuthenticatedData(
             path: "media/\(session.mediaId)/complete",
             method: "POST",
-            body: Data("{}".utf8)
+            body: completeBody
         )
         guard (200...299).contains(httpCompleteResp.statusCode) else {
             throw NSError(domain: "MemoriaAPIClient", code: httpCompleteResp.statusCode, userInfo: [NSLocalizedDescriptionKey: "Failed to finalize media upload"])
@@ -777,15 +835,24 @@ public actor MemoriaAPIClient {
         format: String = "story",
         location: String? = nil,
         tags: [String] = [],
-        mediaIds: [String] = []
+        mediaIds: [String] = [],
+        id: String? = nil,
+        clientMutationId: String? = nil,
+        capturedAt: String? = nil
     ) async throws -> Memory {
         var payload: [String: Any] = [
             "title": title,
             "format": format,
             "tags": tags,
             "mediaIds": mediaIds,
-            "capturedAt": ISO8601DateFormatter().string(from: Date()),
+            "capturedAt": capturedAt ?? ISO8601DateFormatter().string(from: Date()),
         ]
+        if let id {
+            payload["id"] = id
+        }
+        if let clientMutationId {
+            payload["clientMutationId"] = clientMutationId
+        }
         if let content {
             payload["content"] = content
         }
@@ -793,13 +860,18 @@ public actor MemoriaAPIClient {
             payload["location"] = location
         }
         let body = try JSONSerialization.data(withJSONObject: payload)
+        var headers: [String: String] = [:]
+        if let clientMutationId {
+            headers["Idempotency-Key"] = clientMutationId
+        }
         let (data, httpResponse) = try await performAuthenticatedData(
             path: "spaces/\(spaceId)/memories",
             method: "POST",
-            body: body
+            body: body,
+            extraHeaders: headers
         )
         guard (200...299).contains(httpResponse.statusCode) else {
-            throw NSError(domain: "MemoriaAPIClient", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Failed to create memory"])
+            throw NSError(domain: "MemoriaAPIClient", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: extractErrorMessage(from: data, fallback: "Failed to create memory")])
         }
 
         struct SingleResponseEnvelope: Decodable {
@@ -809,6 +881,54 @@ public actor MemoriaAPIClient {
 
         let decoded = try JSONDecoder().decode(SingleResponseEnvelope.self, from: data)
         return decoded.data
+    }
+
+    public func updateMemory(
+        memoryId: String,
+        title: String? = nil,
+        content: String? = nil,
+        location: String? = nil,
+        isFavorite: Bool? = nil,
+        tags: [String]? = nil,
+        expectedRevision: Int? = nil,
+        expectedUpdatedAt: String? = nil
+    ) async throws -> Memory {
+        var payload: [String: Any] = [:]
+        if let title { payload["title"] = title }
+        if let content { payload["content"] = content }
+        if let location { payload["location"] = location }
+        if let isFavorite { payload["isFavorite"] = isFavorite }
+        if let tags { payload["tags"] = tags }
+        if let expectedRevision { payload["expectedRevision"] = expectedRevision }
+        if let expectedUpdatedAt { payload["expectedUpdatedAt"] = expectedUpdatedAt }
+
+        let body = try JSONSerialization.data(withJSONObject: payload)
+        let (data, httpResponse) = try await performAuthenticatedData(
+            path: "memories/\(memoryId)",
+            method: "PATCH",
+            body: body
+        )
+        if httpResponse.statusCode == 409 {
+            struct ConflictEnvelope: Decodable {
+                struct ErrorObj: Decodable {
+                    struct Details: Decodable {
+                        let serverMemory: Memory?
+                    }
+                    let details: Details?
+                }
+                let error: ErrorObj?
+            }
+            let serverMem = (try? JSONDecoder().decode(ConflictEnvelope.self, from: data))?.error?.details?.serverMemory
+            throw MemoriaAPIError.versionConflict(serverMemory: serverMem)
+        }
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw NSError(domain: "MemoriaAPIClient", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: extractErrorMessage(from: data, fallback: "Failed to update memory")])
+        }
+        struct SingleResponseEnvelope: Decodable {
+            let success: Bool
+            let data: Memory
+        }
+        return try JSONDecoder().decode(SingleResponseEnvelope.self, from: data).data
     }
 
     public func fetchNotifications(unreadOnly: Bool = false) async throws -> [NotificationItemDTO] {

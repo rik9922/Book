@@ -439,6 +439,7 @@ export interface KeysetPaginationResult<T> {
 export interface MemoryRepository {
   createMemory(memory: Memory): Promise<Memory>;
   findMemoryById(id: string, includeDeleted?: boolean): Promise<Memory | null>;
+  findMemoryByClientMutationId?(spaceId: string, clientMutationId: string): Promise<Memory | null>;
   listMemories(spaceId: string, options?: { profileId?: string; isFavorite?: boolean }): Promise<Memory[]>;
   listDeletedMemories?(spaceId: string): Promise<Memory[]>;
   listMemoriesKeyset(spaceId: string, options?: KeysetPaginationOptions): Promise<KeysetPaginationResult<Memory>>;
@@ -453,10 +454,11 @@ export class PostgresMemoryRepository implements MemoryRepository {
   constructor(private db: DatabaseClient) {}
 
   async createMemory(memory: Memory): Promise<Memory> {
+    const revision = memory.revision ?? 1;
     await this.db.transaction(async (client) => {
       await client.query(
-        `INSERT INTO memories (id, space_id, author_id, title, content, format, captured_at, location, is_favorite, associated_profile_ids, media_ids, tags, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+        `INSERT INTO memories (id, space_id, author_id, title, content, format, captured_at, location, is_favorite, associated_profile_ids, media_ids, tags, client_mutation_id, revision, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
         [
           memory.id,
           memory.spaceId,
@@ -470,6 +472,8 @@ export class PostgresMemoryRepository implements MemoryRepository {
           memory.associatedProfileIds || [],
           memory.mediaIds || [],
           memory.tags || [],
+          memory.clientMutationId || null,
+          revision,
           memory.createdAt,
           memory.updatedAt,
         ]
@@ -531,15 +535,30 @@ export class PostgresMemoryRepository implements MemoryRepository {
       ? `SELECT id, space_id as "spaceId", author_id as "authorId", title, content, format,
                 captured_at::text as "capturedAt", location, is_favorite as "isFavorite",
                 associated_profile_ids as "associatedProfileIds", media_ids as "mediaIds", tags,
+                revision, client_mutation_id as "clientMutationId",
                 created_at::text as "createdAt", updated_at::text as "updatedAt"
          FROM memories WHERE id = $1 LIMIT 1`
       : `SELECT id, space_id as "spaceId", author_id as "authorId", title, content, format,
                 captured_at::text as "capturedAt", location, is_favorite as "isFavorite",
                 associated_profile_ids as "associatedProfileIds", media_ids as "mediaIds", tags,
+                revision, client_mutation_id as "clientMutationId",
                 created_at::text as "createdAt", updated_at::text as "updatedAt"
          FROM memories WHERE id = $1 AND deleted_at IS NULL LIMIT 1`;
 
     const res = await this.db.query(query, [id]);
+    return res.rows[0] || null;
+  }
+
+  async findMemoryByClientMutationId(spaceId: string, clientMutationId: string): Promise<Memory | null> {
+    const res = await this.db.query(
+      `SELECT id, space_id as "spaceId", author_id as "authorId", title, content, format,
+              captured_at::text as "capturedAt", location, is_favorite as "isFavorite",
+              associated_profile_ids as "associatedProfileIds", media_ids as "mediaIds", tags,
+              revision, client_mutation_id as "clientMutationId",
+              created_at::text as "createdAt", updated_at::text as "updatedAt"
+       FROM memories WHERE space_id = $1 AND client_mutation_id = $2 AND deleted_at IS NULL LIMIT 1`,
+      [spaceId, clientMutationId]
+    );
     return res.rows[0] || null;
   }
 
@@ -548,6 +567,7 @@ export class PostgresMemoryRepository implements MemoryRepository {
       SELECT id, space_id as "spaceId", author_id as "authorId", title, content, format,
              captured_at::text as "capturedAt", location, is_favorite as "isFavorite",
              associated_profile_ids as "associatedProfileIds", media_ids as "mediaIds", tags,
+             revision, client_mutation_id as "clientMutationId",
              created_at::text as "createdAt", updated_at::text as "updatedAt"
       FROM memories WHERE space_id = $1 AND deleted_at IS NULL`;
     const params: any[] = [spaceId];
@@ -641,12 +661,14 @@ export class PostgresMemoryRepository implements MemoryRepository {
     const existing = await this.findMemoryById(id);
     if (!existing) return null;
 
-    const merged = { ...existing, ...updates, updatedAt: new Date().toISOString() };
+    const nextRevision = (existing.revision ?? 1) + 1;
+    const merged = { ...existing, ...updates, revision: nextRevision, updatedAt: new Date().toISOString() };
     await this.db.query(
       `UPDATE memories
        SET title = $1, content = $2, format = $3, captured_at = $4, location = $5,
-           is_favorite = $6, associated_profile_ids = $7, media_ids = $8, tags = $9, updated_at = $10
-       WHERE id = $11`,
+           is_favorite = $6, associated_profile_ids = $7, media_ids = $8, tags = $9,
+           revision = $10, updated_at = $11
+       WHERE id = $12`,
       [
         merged.title,
         merged.content || null,
@@ -657,6 +679,7 @@ export class PostgresMemoryRepository implements MemoryRepository {
         merged.associatedProfileIds,
         merged.mediaIds,
         merged.tags,
+        nextRevision,
         merged.updatedAt,
         id,
       ]
@@ -726,6 +749,7 @@ export interface OcrTranscript {
 export interface MediaRepository {
   createAsset(asset: MediaAsset): Promise<MediaAsset>;
   findAssetById(id: string): Promise<MediaAsset | null>;
+  findAssetByIdempotencyKey?(spaceId: string, idempotencyKey: string): Promise<MediaAsset | null>;
   updateAsset(id: string, updates: Partial<MediaAsset>): Promise<MediaAsset | null>;
   listAssets(spaceId: string): Promise<MediaAsset[]>;
   getSpaceQuota(spaceId: string): Promise<SpaceQuota>;
@@ -740,8 +764,8 @@ export class PostgresMediaRepository implements MediaRepository {
 
   async createAsset(asset: MediaAsset): Promise<MediaAsset> {
     await this.db.query(
-      `INSERT INTO media_assets (id, space_id, original_name, mime_type, size_bytes, status, storage_key, public_url, derivatives, metadata, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+      `INSERT INTO media_assets (id, space_id, original_name, mime_type, size_bytes, status, storage_key, public_url, derivatives, metadata, idempotency_key, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
       [
         asset.id,
         asset.spaceId,
@@ -753,11 +777,30 @@ export class PostgresMediaRepository implements MediaRepository {
         asset.publicUrl || null,
         JSON.stringify(asset.derivatives || {}),
         JSON.stringify(asset.metadata || {}),
+        asset.idempotencyKey || null,
         asset.createdAt,
         asset.updatedAt,
       ]
     );
     return asset;
+  }
+
+  async findAssetByIdempotencyKey(spaceId: string, idempotencyKey: string): Promise<MediaAsset | null> {
+    const res = await this.db.query(
+      `SELECT id, space_id as "spaceId", original_name as "originalName", mime_type as "mimeType",
+              size_bytes::bigint as "sizeBytes", status, storage_key as "storageKey", public_url as "publicUrl",
+              derivatives, metadata, idempotency_key as "idempotencyKey", created_at::text as "createdAt", updated_at::text as "updatedAt"
+       FROM media_assets WHERE space_id = $1 AND idempotency_key = $2 LIMIT 1`,
+      [spaceId, idempotencyKey]
+    );
+    if (!res.rows[0]) return null;
+    const r = res.rows[0];
+    return {
+      ...r,
+      sizeBytes: Number(r.sizeBytes),
+      derivatives: typeof r.derivatives === "string" ? JSON.parse(r.derivatives) : (r.derivatives || {}),
+      metadata: typeof r.metadata === "string" ? JSON.parse(r.metadata) : (r.metadata || {}),
+    };
   }
 
   async findAssetById(id: string): Promise<MediaAsset | null> {
@@ -855,7 +898,13 @@ export class PostgresMediaRepository implements MediaRepository {
   async saveOcrTranscript(transcript: OcrTranscript): Promise<OcrTranscript> {
     await this.db.query(
       `INSERT INTO media_ocr_transcripts (id, media_id, space_id, status, extracted_text, confidence, word_count, language, page_number, metadata, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, COALESCE($11, NOW()))`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, COALESCE($11, NOW()))
+       ON CONFLICT (media_id, page_number, language) DO UPDATE
+       SET status = EXCLUDED.status,
+           extracted_text = EXCLUDED.extracted_text,
+           confidence = EXCLUDED.confidence,
+           word_count = EXCLUDED.word_count,
+           metadata = EXCLUDED.metadata`,
       [
         transcript.id,
         transcript.mediaId,

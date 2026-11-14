@@ -82,11 +82,11 @@ interface SpaceRecord {
   name: string;
   type: "family" | "personal" | "heritage";
   ownerEmail: string;
-  memberCount: number;
-  memoryCount: number;
+  memberCount: number | null;
+  memoryCount: number | null;
   usedBytesFormatted: string;
-  usedPercentage: number;
-  syncStatus: "synchronized" | "processing" | "offline_pending" | "warning";
+  usedPercentage: number | null;
+  syncStatus: "synchronized" | "processing" | "offline_pending" | "warning" | "unavailable";
   lastActive: string;
 }
 
@@ -259,19 +259,59 @@ export default function AdminPortalPage() {
     if (health.status === "fulfilled") setServicesHealth(health.value);
     if (users.status === "fulfilled") setAdminUsers(users.value);
     if (spList.status === "fulfilled") {
+      const usersById = new Map(
+        (users.status === "fulfilled" ? users.value : []).map((u) => [u.id, u.email])
+      );
+      const storageBySpace = new Map<string, { usedBytes: number; maxBytes: number }>();
+      const statsData = stStats.status === "fulfilled"
+        ? (stStats.value as unknown as { spaces?: Array<{ spaceId: string; usedBytes: number; maxBytes: number }> })
+        : null;
+      if (statsData && Array.isArray(statsData.spaces)) {
+        for (const sp of statsData.spaces) {
+          storageBySpace.set(sp.spaceId, { usedBytes: sp.usedBytes, maxBytes: sp.maxBytes });
+        }
+      }
+      const sessionsList = upSess.status === "fulfilled" ? upSess.value : [];
+
       setSpaces(
-        spList.value.map((s) => ({
-          id: s.id,
-          name: s.name,
-          type: s.type === "family" || s.type === "personal" ? s.type : "heritage",
-          ownerEmail: s.ownerId.slice(0, 8),
-          memberCount: 1,
-          memoryCount: 0,
-          usedBytesFormatted: "Live DB",
-          usedPercentage: 10,
-          syncStatus: "synchronized",
-          lastActive: new Date(s.updatedAt).toLocaleDateString(),
-        }))
+        spList.value.map((s) => {
+          const raw = s as typeof s & { memberCount?: number | null; memoryCount?: number | null };
+          const quota = storageBySpace.get(s.id);
+          const usedBytes = quota?.usedBytes ?? null;
+          const maxBytes = quota?.maxBytes ?? 500 * 1024 * 1024;
+          const usedPct = usedBytes !== null && maxBytes > 0 ? Math.min(100, Math.round((usedBytes / maxBytes) * 100)) : null;
+          const usedFormatted =
+            usedBytes === null
+              ? "Unavailable"
+              : usedBytes >= 1024 * 1024
+              ? `${(usedBytes / (1024 * 1024)).toFixed(1)} MB`
+              : `${(usedBytes / 1024).toFixed(1)} KB`;
+
+          const spaceUploads = sessionsList.filter((u) => u.spaceId === s.id);
+          const hasFailure = spaceUploads.some((u) => u.status === "failed" || u.status === "retryable_failure" || u.status === "permanent_failure");
+          const hasProcessing = spaceUploads.some((u) => u.status === "processing" || u.status === "pending_upload" || u.status === "original_verified");
+          const syncStatus: SpaceRecord["syncStatus"] =
+            upSess.status !== "fulfilled"
+              ? "unavailable"
+              : hasFailure || (usedPct !== null && usedPct >= 85)
+              ? "warning"
+              : hasProcessing
+              ? "processing"
+              : "synchronized";
+
+          return {
+            id: s.id,
+            name: s.name,
+            type: s.type === "family" || s.type === "personal" ? s.type : "heritage",
+            ownerEmail: usersById.get(s.ownerId) ?? s.ownerId.slice(0, 8),
+            memberCount: typeof raw.memberCount === "number" ? raw.memberCount : null,
+            memoryCount: typeof raw.memoryCount === "number" ? raw.memoryCount : null,
+            usedBytesFormatted: usedFormatted,
+            usedPercentage: usedPct,
+            syncStatus,
+            lastActive: new Date(s.updatedAt).toLocaleDateString(),
+          };
+        })
       );
     }
     if (reqs.status === "fulfilled") setAccessRequests(reqs.value);
@@ -684,13 +724,19 @@ export default function AdminPortalPage() {
                               <div className="text-[11px] text-[#5C5955]">{space.ownerEmail}</div>
                             </td>
                             <td className="py-4 px-4 capitalize">{space.type}</td>
-                            <td className="py-4 px-4">{space.memberCount}</td>
-                            <td className="py-4 px-4">{space.usedBytesFormatted} ({space.usedPercentage}%)</td>
+                            <td className="py-4 px-4">{space.memberCount !== null ? space.memberCount : "Unavailable"}</td>
+                            <td className="py-4 px-4">
+                              {space.usedPercentage !== null
+                                ? `${space.usedBytesFormatted} (${space.usedPercentage}%)`
+                                : space.usedBytesFormatted}
+                            </td>
                             <td className="py-4 px-4">
                               {space.syncStatus === "synchronized" ? (
                                 <span className="inline-flex items-center gap-1 text-[#5F735E]"><CheckCircle2 className="w-3.5 h-3.5" /> Synchronized</span>
                               ) : space.syncStatus === "warning" ? (
-                                <span className="inline-flex items-center gap-1 text-[#B6423E]"><AlertTriangle className="w-3.5 h-3.5" /> High Quota</span>
+                                <span className="inline-flex items-center gap-1 text-[#B6423E]"><AlertTriangle className="w-3.5 h-3.5" /> Attention Needed</span>
+                              ) : space.syncStatus === "unavailable" ? (
+                                <span className="inline-flex items-center gap-1 text-[#5C5955]">Unavailable</span>
                               ) : (
                                 <span className="inline-flex items-center gap-1 text-[#76556F]"><Clock className="w-3.5 h-3.5" /> Processing</span>
                               )}
@@ -1463,8 +1509,14 @@ export default function AdminPortalPage() {
               </div>
               <div className="space-y-2 text-xs text-[#28272A]">
                 <p><strong>Owner:</strong> {inspectedSpace.ownerEmail}</p>
-                <p><strong>Members:</strong> {inspectedSpace.memberCount}</p>
-                <p><strong>Allocated Storage:</strong> {inspectedSpace.usedBytesFormatted} ({inspectedSpace.usedPercentage}%)</p>
+                <p><strong>Members:</strong> {inspectedSpace.memberCount !== null ? inspectedSpace.memberCount : "Unavailable"}</p>
+                <p><strong>Memories:</strong> {inspectedSpace.memoryCount !== null ? inspectedSpace.memoryCount : "Unavailable"}</p>
+                <p>
+                  <strong>Allocated Storage:</strong>{" "}
+                  {inspectedSpace.usedPercentage !== null
+                    ? `${inspectedSpace.usedBytesFormatted} (${inspectedSpace.usedPercentage}%)`
+                    : inspectedSpace.usedBytesFormatted}
+                </p>
                 <p><strong>Sync Health:</strong> {inspectedSpace.syncStatus}</p>
                 <p><strong>Last Active:</strong> {inspectedSpace.lastActive}</p>
               </div>

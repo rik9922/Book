@@ -1,6 +1,7 @@
 import SwiftUI
 
 public struct HomeFeedView: View {
+    @ObservedObject private var syncService = OfflineSyncService.shared
     @State private var memories: [Memory] = []
     @State private var isLoading = false
     @State private var errorMessage: String?
@@ -343,19 +344,23 @@ public struct HomeFeedView: View {
             }
         }
 
-        let local = LocalStorageService.shared.loadLocalMemories(forSpaceId: activeSpaceId)
+        let accountId = await MemoriaAPIClient.shared.getCurrentUserId()
+        let local = LocalStorageService.shared.loadLocalMemories(forSpaceId: activeSpaceId, accountId: accountId)
         if !local.isEmpty {
             self.memories = local
         }
 
         guard hasAuth else {
+            syncService.refreshCounts()
             return
         }
 
+        _ = await syncService.syncPendingMutations(accountId: accountId)
+
         do {
             let fetched = try await MemoriaAPIClient.shared.fetchMemories(spaceId: activeSpaceId)
-            self.memories = fetched
             try? LocalStorageService.shared.saveMemoriesLocally(fetched, forSpaceId: activeSpaceId)
+            self.memories = LocalStorageService.shared.mergedMemories(remote: fetched, spaceId: activeSpaceId, accountId: accountId)
         } catch {
             self.errorMessage = error.localizedDescription
         }

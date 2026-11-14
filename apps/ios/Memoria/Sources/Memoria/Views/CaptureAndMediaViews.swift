@@ -112,18 +112,24 @@ public struct VideoCaptureTrimView: View {
         let trimHeader = "[Trim \(Int(trimStart))s–\(Int(trimEnd))s]"
         let summary = cleanNotes.isEmpty ? trimHeader : "\(trimHeader) \(cleanNotes)"
         let hasAuth = await MemoriaAPIClient.shared.getAuthToken() != nil
+        let accountId = await MemoriaAPIClient.shared.getCurrentUserId()
         guard hasAuth else {
-            let localMemory = Memory(
-                spaceId: spaceId,
-                authorId: "local-author",
-                title: cleanTitle,
-                content: summary,
-                format: .video,
-                tags: ["video-trim"]
-            )
-            try? LocalStorageService.shared.upsertLocalMemory(localMemory)
-            onSaved?(localMemory)
-            dismiss()
+            do {
+                let record = try OfflineSyncService.shared.saveOfflineMemory(
+                    spaceId: spaceId,
+                    authorId: accountId ?? "local-author",
+                    title: cleanTitle,
+                    content: summary,
+                    format: .video,
+                    location: nil,
+                    tags: ["video-trim"],
+                    accountId: accountId
+                )
+                onSaved?(record.memory)
+                dismiss()
+            } catch {
+                statusMessage = "Failed to save offline clip: \(error.localizedDescription)"
+            }
             return
         }
         do {
@@ -272,11 +278,24 @@ public struct VoiceRecorderView: View {
         let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let notes = "[Oral History • \(formattedTime)] " + transcriptNotes.trimmingCharacters(in: .whitespacesAndNewlines)
         let hasAuth = await MemoriaAPIClient.shared.getAuthToken() != nil
+        let accountId = await MemoriaAPIClient.shared.getCurrentUserId()
         guard hasAuth else {
-            let local = Memory(spaceId: spaceId, authorId: "local-author", title: cleanTitle, content: notes, format: .audio, tags: ["oral-history"])
-            try? LocalStorageService.shared.upsertLocalMemory(local)
-            onSaved?(local)
-            dismiss()
+            do {
+                let record = try OfflineSyncService.shared.saveOfflineMemory(
+                    spaceId: spaceId,
+                    authorId: accountId ?? "local-author",
+                    title: cleanTitle,
+                    content: notes,
+                    format: .audio,
+                    location: nil,
+                    tags: ["oral-history"],
+                    accountId: accountId
+                )
+                onSaved?(record.memory)
+                dismiss()
+            } catch {
+                errorMessage = "Failed to save offline audio: \(error.localizedDescription)"
+            }
             return
         }
         do {

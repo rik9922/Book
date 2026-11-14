@@ -43,12 +43,39 @@ export class LocalDiskStorageDriver implements StorageDriver {
   }
 
   private resolvePath(key: string): string {
-    const normalized = path.posix.normalize(key.replace(/\\/g, "/")).replace(/^(\.\.\/)+/, "").replace(/^\/+/, "");
-    const full = path.resolve(this.baseDir, normalized);
+    if (!key || typeof key !== "string" || key.includes("\0")) {
+      throw new Error("Invalid storage key");
+    }
+    const slashNormalized = key.replace(/\\/g, "/");
+    const segments = slashNormalized.split("/").filter((s) => s.length > 0 && s !== ".");
+    if (segments.length === 0 || segments.some((s) => s === "..")) {
+      throw new Error("Invalid storage key path traversal");
+    }
+
     const rootResolved = path.resolve(this.baseDir);
+    const full = path.resolve(rootResolved, ...segments);
     if (!full.startsWith(rootResolved + path.sep) && full !== rootResolved) {
       throw new Error("Invalid storage key path traversal");
     }
+
+    // Symlink escape containment: verify the deepest existing ancestor resolves inside realRoot
+    let realRoot = rootResolved;
+    if (fsSync.existsSync(rootResolved)) {
+      realRoot = fsSync.realpathSync(rootResolved);
+    }
+
+    let checkPath = full;
+    while (checkPath !== rootResolved && checkPath !== path.dirname(checkPath)) {
+      if (fsSync.existsSync(checkPath)) {
+        const realCheck = fsSync.realpathSync(checkPath);
+        if (realCheck !== realRoot && !realCheck.startsWith(realRoot + path.sep)) {
+          throw new Error("Storage symlink escape detected");
+        }
+        break;
+      }
+      checkPath = path.dirname(checkPath);
+    }
+
     return full;
   }
 

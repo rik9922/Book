@@ -1,0 +1,18 @@
+# Memoria Remediation & Production-Readiness Report
+
+**Product:** Memoria — Your memories, made timeless.  
+**Branch:** `main`  
+**Budget Constraint:** $0 (100% local/open-source tooling, cardless).
+
+## 1. Implementation Matrix (Verified Against Source & Runtime)
+
+| Area | Source Location | Remediation Implemented | Verification |
+|---|---|---|---|
+| **Offline Memory Durability (iOS)** | `apps/ios/Memoria/Sources/Memoria/Services/LocalStorageService.swift`, `OfflineSyncService.swift`, `MemoryCreateView.swift` | Replaced disposable Caches JSON + `try?` swallowing with durable `Application Support/MemoriaArchive/Originals/`, atomic writes, SHA-256 checksums (`CryptoKit`), and persistent `PendingMutation` queue with exponential backoff + jitter and account isolation. | `cd apps/ios/Memoria && swift test` (`OfflineSyncIntegrityTests`) |
+| **Sync Idempotency & Conflicts** | `packages/database/migrations/015_memory_sync_idempotency_and_revisions.sql`, `services/memory-service/src/server.ts`, `services/media-service/src/server.ts` | Added `client_mutation_id`, `revision`, and `media_assets.idempotency_key` unique indexes; `POST` memory/upload-session idempotency; `PATCH` `409 VERSION_CONFLICT` on stale `expectedRevision`. | `tests/security-and-processing.test.ts` + `swift test` |
+| **Fail-Closed Backup & Restore** | `scripts/backup.ts`, `scripts/restore.ts`, `tests/backup-restore.test.ts` | Fail-closed manifest (`schemaVersion`, `assetManifest` per-file SHA-256, `fileCount`, `tar -tzf` check), `--verify-only` extraction check, `--confirm-live-restore` guard, isolated `--target-db-suffix` restore rehearsal, and machine-readable `RestorationReport`. | `tests/backup-restore.test.ts` against live PostgreSQL 18.6 |
+| **OCR Idempotency & Graceful Jobs** | `packages/database/migrations/016_ocr_idempotency.sql`, `packages/jobs/src/index.ts`, `services/media-service/src/server.ts` | Unique index on `(media_id, page_number, language)` with `ON CONFLICT DO UPDATE`, canonical `jobId` deduplication (`ocr_<id>_<lang>`, `proc_<id>`), `InMemoryJobManager.close()` awaits in-flight tasks, explicit media statuses (`original_verified`, `completed_partial`, `retryable_failure`, `permanent_failure`). | `tests/security-and-processing.test.ts` + `tests/ocr-pipeline.test.ts` |
+| **Storage Containment & Infra** | `packages/storage/src/index.ts`, `docker-compose.yml` | `LocalDiskStorageDriver.resolvePath` rejects `..`, null bytes, and symlink escapes via `realpathSync`; Docker Compose ports bound to `127.0.0.1`. | `tests/security-and-processing.test.ts` |
+| **Admin Portal Real Aggregates** | `services/memory-service/src/server.ts`, `services/media-service/src/server.ts`, `apps/web/src/app/admin/page.tsx` | Replaced hardcoded placeholders (`memberCount: 1`, `memoryCount: 0`, `usedPercentage: 10`, `"Live DB"`) with real DB counts and quota stats (`"Unavailable"` fallback when unmeasured). | `pnpm build` + `tests/security-and-processing.test.ts` |
+| **Web 3D Adaptive Rendering** | `apps/web/src/components/3d/ExperienceCanvas.tsx` | Added hardware-aware `qualityTier` (`low`/`balanced`/`high`), `@react-three/drei` `PerformanceMonitor`, adaptive `dpr` & shadow map sizes, `ContactShadows` frame baking, and `frameloop="demand"` when idle. | `pnpm build` |
+| **CI Pipeline & Brand Reconciliation** | `.github/workflows/ci.yml`, `docs/BRAND_IDENTITY.md` | Added Playwright Chromium install in CI, toolchain/SHA logging, iOS Simulator `xcodebuild` build & test job, and removed contradictory legacy emerald/gold rows from `BRAND_IDENTITY.md`. | Local `pnpm run check:quality`, `pnpm build`, `pnpm test`, `xcodebuild` |

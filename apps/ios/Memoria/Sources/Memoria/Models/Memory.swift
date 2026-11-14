@@ -49,6 +49,8 @@ public struct Memory: Identifiable, Codable, Sendable {
     public let associatedProfileIds: [String]
     public let mediaIds: [String]
     public let tags: [String]
+    public let revision: Int?
+    public let clientMutationId: String?
     public let createdAt: String
     public let updatedAt: String?
 
@@ -67,6 +69,8 @@ public struct Memory: Identifiable, Codable, Sendable {
         associatedProfileIds: [String] = [],
         mediaIds: [String] = [],
         tags: [String] = [],
+        revision: Int? = nil,
+        clientMutationId: String? = nil,
         createdAt: String = ISO8601DateFormatter().string(from: Date()),
         updatedAt: String? = nil
     ) {
@@ -84,6 +88,8 @@ public struct Memory: Identifiable, Codable, Sendable {
         self.associatedProfileIds = associatedProfileIds
         self.mediaIds = mediaIds
         self.tags = tags
+        self.revision = revision
+        self.clientMutationId = clientMutationId
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }

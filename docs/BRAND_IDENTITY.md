@@ -61,12 +61,6 @@ The Memoria visual identity is anchored in the **Living Archive** light-only pal
 | **Canvas** | Warm Ivory | `#F7F4EE` | Main application canvas, light-mode background. |
 | **Subtle Border** | Natural Linen | `#E7E2DA` | Card dividers, section separators. |
 | **Strong Border** | Archival Stone | `#8D857A` | Form field boundaries, input focus borders. |
-| **Primary Brand** | Deep Emerald | `#123F35` | Dominant brand color, PWA theme color, book binding reference, header accents. |
-| **Secondary Brand**| Forest Green | `#304C43` | Borders, subtle card backgrounds, navigation outlines. |
-| **Accent / Luxury** | Antique Gold | `#C49A4A` | Foil stamping, badges, active states, key icons, tree-of-life highlights. |
-| **Surface / Light** | Warm Ivory | `#F7F4ED` | Primary typography on dark backgrounds, physical print page stock simulation. |
-| **Deep Neutral** | Dark Ink | `#0D1714` | Primary dark-mode backdrop, viewport container framing. |
-| **Muted Neutral** | Archival Sage | `#91A593` | Secondary metadata labels, timestamps, subtle dividers. |
 
 ---
 
@@ -83,8 +77,8 @@ The Memoria visual identity is anchored in the **Living Archive** light-only pal
 ### 5.1 PWA (Progressive Web Application)
 - **Manifest**: Located at `apps/web/src/app/manifest.ts` (serves `/manifest.webmanifest`).
 - **Display**: `standalone`.
-- **Theme Color**: `#123F35`.
-- **Background Color**: `#F7F4ED`.
+- **Theme Color**: `#76556F` (Muted Plum, Light-Only Living Archive).
+- **Background Color**: `#F7F4EE` (Warm Ivory).
 - **Icons**: Properly linked with both `any` and `maskable` variants.
 
 ### 5.2 Native iOS Application (Asset Catalog Guidance)

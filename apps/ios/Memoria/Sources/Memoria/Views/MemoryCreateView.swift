@@ -109,52 +109,104 @@ public struct MemoryCreateView: View {
         let cleanContent = content.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanLocation = location.trimmingCharacters(in: .whitespacesAndNewlines)
 
+        var attachedImageData: Data?
+        var attachedFileName: String?
+        var attachedMimeType: String?
+        if let selectedItem {
+            do {
+                if let imageData = try await selectedItem.loadTransferable(type: Data.self) {
+                    let detected = Self.detectImageFormat(data: imageData)
+                    attachedImageData = imageData
+                    attachedFileName = "memory_\(UUID().uuidString.prefix(8)).\(detected.ext)"
+                    attachedMimeType = detected.mimeType
+                }
+            } catch {
+                errorMessage = "Failed to load selected photo: \(error.localizedDescription)"
+                isSaving = false
+                return
+            }
+        }
+
+        let resolvedFormatEnum: MemoryFormat = attachedImageData != nil ? .image : .story
+        let accountId = await MemoriaAPIClient.shared.getCurrentUserId()
         let hasAuth = await MemoriaAPIClient.shared.getAuthToken() != nil
+
         guard hasAuth else {
-            let localMemory = Memory(
-                spaceId: spaceId,
-                authorId: "local-author",
-                title: cleanTitle,
-                content: cleanContent.isEmpty ? nil : cleanContent,
-                format: selectedItem != nil ? .image : .story,
-                location: cleanLocation.isEmpty ? nil : cleanLocation,
-                tags: tags
-            )
-            try? LocalStorageService.shared.upsertLocalMemory(localMemory)
-            onCreated?(localMemory)
-            isSaving = false
-            dismiss()
+            do {
+                let record = try OfflineSyncService.shared.saveOfflineMemory(
+                    spaceId: spaceId,
+                    authorId: accountId ?? "local-author",
+                    title: cleanTitle,
+                    content: cleanContent.isEmpty ? nil : cleanContent,
+                    format: resolvedFormatEnum,
+                    location: cleanLocation.isEmpty ? nil : cleanLocation,
+                    tags: tags,
+                    mediaData: attachedImageData,
+                    mediaFileName: attachedFileName,
+                    mediaMimeType: attachedMimeType,
+                    accountId: accountId
+                )
+                onCreated?(record.memory)
+                isSaving = false
+                dismiss()
+            } catch {
+                errorMessage = "Failed to save offline: \(error.localizedDescription)"
+                isSaving = false
+            }
             return
         }
 
         do {
             var uploadedMediaIds: [String] = []
-            if let selectedItem,
-               let imageData = try await selectedItem.loadTransferable(type: Data.self) {
-                let detected = Self.detectImageFormat(data: imageData)
+            if let attachedImageData, let attachedFileName, let attachedMimeType {
                 let mediaId = try await MemoriaAPIClient.shared.uploadMedia(
                     spaceId: spaceId,
-                    fileName: "memory_\(UUID().uuidString.prefix(8)).\(detected.ext)",
-                    mimeType: detected.mimeType,
-                    data: imageData
+                    fileName: attachedFileName,
+                    mimeType: attachedMimeType,
+                    data: attachedImageData,
+                    idempotencyKey: UUID().uuidString
                 )
                 uploadedMediaIds.append(mediaId)
             }
 
-            let resolvedFormat = uploadedMediaIds.isEmpty ? "story" : "image"
             let memory = try await MemoriaAPIClient.shared.createMemory(
                 spaceId: spaceId,
                 title: cleanTitle,
                 content: cleanContent.isEmpty ? nil : cleanContent,
-                format: resolvedFormat,
+                format: resolvedFormatEnum.rawValue,
                 location: cleanLocation.isEmpty ? nil : cleanLocation,
                 tags: tags,
-                mediaIds: uploadedMediaIds
+                mediaIds: uploadedMediaIds,
+                clientMutationId: UUID().uuidString
             )
             onCreated?(memory)
             dismiss()
         } catch {
-            errorMessage = "Failed to save: \(error.localizedDescription)"
+            if OfflineSyncService.isConnectivityError(error) {
+                do {
+                    let record = try OfflineSyncService.shared.saveOfflineMemory(
+                        spaceId: spaceId,
+                        authorId: accountId ?? "local-author",
+                        title: cleanTitle,
+                        content: cleanContent.isEmpty ? nil : cleanContent,
+                        format: resolvedFormatEnum,
+                        location: cleanLocation.isEmpty ? nil : cleanLocation,
+                        tags: tags,
+                        mediaData: attachedImageData,
+                        mediaFileName: attachedFileName,
+                        mediaMimeType: attachedMimeType,
+                        accountId: accountId
+                    )
+                    onCreated?(record.memory)
+                    isSaving = false
+                    dismiss()
+                    return
+                } catch let persistErr {
+                    errorMessage = "Offline save failed: \(persistErr.localizedDescription)"
+                }
+            } else {
+                errorMessage = "Failed to save: \(error.localizedDescription)"
+            }
         }
 
         isSaving = false

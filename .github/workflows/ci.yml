@@ -26,6 +26,10 @@ jobs:
 
     env:
       NODE_ENV: test
+      PGHOST: 127.0.0.1
+      PGPORT: "5432"
+      PGUSER: postgres
+      PGPASSWORD: memoria_ci_password
       DATABASE_URL: postgres://postgres:memoria_ci_password@127.0.0.1:5432/memory_capsule_ci
       IDENTITY_DATABASE_URL: postgres://postgres:memoria_ci_password@127.0.0.1:5432/memory_capsule_ci
       MEMORY_DATABASE_URL: postgres://postgres:memoria_ci_password@127.0.0.1:5432/memory_capsule_ci
@@ -58,6 +62,14 @@ jobs:
       - name: Install workspace dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Report toolchain & commit metadata
+        run: |
+          echo "Commit SHA: ${{ github.sha }}"
+          node -v
+          pnpm -v
+          psql --version
+          tesseract --version | head -n 2
+
       - name: Run Memoria Quality Gate
         run: pnpm run check:quality
 
@@ -70,8 +82,11 @@ jobs:
             PGPASSWORD=memoria_ci_password psql -h 127.0.0.1 -U postgres -d memory_capsule_ci -v ON_ERROR_STOP=1 -f "$file"
           done
 
-      - name: Run backend & integration test suite
+      - name: Run backend, security, and backup/restore test suite
         run: NODE_ENV=test node --import tsx --test --test-concurrency=1 tests/*.ts
+
+      - name: Install Playwright Chromium for Web E2E
+        run: pnpm exec playwright-core install chromium --with-deps
 
       - name: Run Web PWA E2E suite
         run: NODE_ENV=test node --import tsx --test tests/e2e/*.ts
@@ -80,5 +95,26 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+      - name: Report iOS toolchain & commit metadata
+        run: |
+          echo "Commit SHA: ${{ github.sha }}"
+          swift --version
+          xcodebuild -version
       - name: Run Swift Package tests
         run: cd apps/ios/Memoria && swift test
+      - name: Build iOS app for Simulator
+        run: |
+          xcodebuild -project apps/ios/Memoria.xcodeproj \
+            -scheme Memoria \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+      - name: Run iOS Simulator Unit & UI Tests
+        run: |
+          SIM_ID=$(xcrun simctl list devices available iPhone -j | python3 -c "import json,sys; d=json.load(sys.stdin)['devices']; print(next(x['udid'] for k,v in d.items() if 'iOS' in k for x in v if x['isAvailable']))")
+          echo "Using Simulator UDID: $SIM_ID"
+          xcodebuild -project apps/ios/Memoria.xcodeproj \
+            -scheme Memoria \
+            -destination "platform=iOS Simulator,id=$SIM_ID" \
+            CODE_SIGNING_ALLOWED=NO \
+            test

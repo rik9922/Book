@@ -244,6 +244,8 @@ export const MemorySchema = z.object({
   associatedProfileIds: z.array(z.string().uuid()).default([]),
   mediaIds: z.array(z.string().uuid()).default([]),
   tags: z.array(z.string()).default([]),
+  revision: z.number().int().positive().default(1).optional(),
+  clientMutationId: z.string().optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
@@ -253,7 +255,17 @@ export type Memory = z.infer<typeof MemorySchema>;
 // 4. MEDIA & UPLOAD SESSIONS
 // ==========================================
 
-export const MediaStatusSchema = z.enum(["pending_upload", "uploaded", "processing", "ready", "failed"]);
+export const MediaStatusSchema = z.enum([
+  "pending_upload",
+  "uploaded",
+  "original_verified",
+  "processing",
+  "ready",
+  "completed_partial",
+  "retryable_failure",
+  "permanent_failure",
+  "failed",
+]);
 export type MediaStatus = z.infer<typeof MediaStatusSchema>;
 
 export const CreateUploadSessionRequestSchema = z.object({
@@ -262,6 +274,7 @@ export const CreateUploadSessionRequestSchema = z.object({
   mimeType: z.string(),
   fileSizeBytes: z.number().positive(),
   checksumSha256: z.string().optional(),
+  idempotencyKey: z.string().max(128).optional(),
 });
 export type CreateUploadSessionRequest = z.infer<typeof CreateUploadSessionRequestSchema>;
 
@@ -285,6 +298,7 @@ export const MediaAssetSchema = z.object({
   publicUrl: z.string().optional(),
   derivatives: z.record(z.string(), z.string()).default({}), // e.g. { "thumb_sm": "...", "thumb_lg": "..." }
   metadata: z.record(z.string(), z.any()).default({}),       // EXIF, dimensions, duration
+  idempotencyKey: z.string().optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });

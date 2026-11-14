@@ -8,11 +8,11 @@ import { createDatabaseClient } from "@memory-capsule/database";
 
 const execFileAsync = promisify(execFile);
 
-const BACKUPS_ROOT = path.resolve(
+const DEFAULT_BACKUPS_ROOT = path.resolve(
   process.cwd(),
   process.env.MEMORIA_BACKUP_ROOT || "backups"
 );
-const STORAGE_LOCAL = path.resolve(
+const DEFAULT_STORAGE_LOCAL = path.resolve(
   process.cwd(),
   process.env.LOCAL_STORAGE_PATH || "storage_data"
 );
@@ -27,7 +27,7 @@ const DATABASES = [
   { name: "notification_db", envVar: "NOTIFICATION_DATABASE_URL" },
 ] as const;
 
-async function calculateFileSha256(filePath: string): Promise<string> {
+export async function calculateFileSha256(filePath: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const hash = crypto.createHash("sha256");
     const stream = createReadStream(filePath);
@@ -37,10 +37,17 @@ async function calculateFileSha256(filePath: string): Promise<string> {
   });
 }
 
+export interface AssetManifestEntry {
+  relativePath: string;
+  sizeBytes: number;
+  sha256: string;
+}
+
 export interface BackupManifest {
   backupId: string;
   createdAt: string;
   postgresVersion: string;
+  schemaVersion: string;
   databases: {
     name: string;
     dumpFile: string;
@@ -48,16 +55,23 @@ export interface BackupManifest {
     sha256: string;
     recordCounts: Record<string, number>;
   }[];
-  mediaArchive?: {
+  mediaArchive: {
     file: string;
     sizeBytes: number;
     sha256: string;
+    fileCount: number;
   };
+  assetManifest: AssetManifestEntry[];
   totalSizeBytes: number;
   status: "COMPLETE" | "VERIFIED" | "FAILED";
+  verificationResult: {
+    verified: boolean;
+    checkedAt: string;
+    errors: string[];
+  };
 }
 
-function resolvePgConnectionDefaults(): {
+export function resolvePgConnectionDefaults(): {
   pgUser: string;
   pgPass: string;
   pgHost: string;
@@ -100,10 +114,49 @@ async function getRecordCount(dbName: string, envVar: string, tableName: string)
   }
 }
 
-export async function createBackup(): Promise<string> {
+async function resolveSchemaVersion(): Promise<string> {
+  const migrationsDir = path.resolve(process.cwd(), "packages/database/migrations");
+  try {
+    const files = (await fs.readdir(migrationsDir)).filter((f) => f.endsWith(".sql")).sort();
+    return files.length > 0 ? files[files.length - 1] : "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
+async function collectAssetManifest(storageRoot: string): Promise<AssetManifestEntry[]> {
+  const results: AssetManifestEntry[] = [];
+  async function walk(currentDir: string) {
+    const entries = await fs.readdir(currentDir, { withFileTypes: true });
+    entries.sort((a, b) => a.name.localeCompare(b.name));
+    for (const entry of entries) {
+      const fullPath = path.join(currentDir, entry.name);
+      if (entry.isDirectory()) {
+        await walk(fullPath);
+      } else if (entry.isFile()) {
+        const stat = await fs.stat(fullPath);
+        const sha256 = await calculateFileSha256(fullPath);
+        const rel = path.relative(storageRoot, fullPath).split(path.sep).join("/");
+        results.push({ relativePath: rel, sizeBytes: stat.size, sha256 });
+      }
+    }
+  }
+  await walk(storageRoot);
+  return results;
+}
+
+export async function createBackup(options?: {
+  backupsRoot?: string;
+  storageLocal?: string;
+  databases?: readonly { name: string; envVar: string }[];
+}): Promise<string> {
+  const backupsRoot = path.resolve(options?.backupsRoot || DEFAULT_BACKUPS_ROOT);
+  const storageLocal = path.resolve(options?.storageLocal || DEFAULT_STORAGE_LOCAL);
+  const targetDatabases = options?.databases || DATABASES;
+
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
   const backupId = `memoria-backup-${timestamp}`;
-  const backupDir = path.join(BACKUPS_ROOT, backupId);
+  const backupDir = path.join(backupsRoot, backupId);
   const dbDumpsDir = path.join(backupDir, "databases");
 
   await fs.mkdir(dbDumpsDir, { recursive: true });
@@ -111,50 +164,72 @@ export async function createBackup(): Promise<string> {
   console.log(`\n📦 [Memoria Backup] Starting backup: ${backupId}`);
   console.log(`📁 Destination: ${backupDir}\n`);
 
-  // 1. Get PostgreSQL version
   let pgVersion = "PostgreSQL 17";
   try {
     const { stdout } = await execFileAsync("psql", ["-V"]);
     pgVersion = stdout.trim();
-  } catch {}
+  } catch {
+    // Keep fallback version label
+  }
+
+  const schemaVersion = await resolveSchemaVersion();
 
   const manifest: BackupManifest = {
     backupId,
     createdAt: new Date().toISOString(),
     postgresVersion: pgVersion,
+    schemaVersion,
     databases: [],
+    mediaArchive: {
+      file: "media-storage.tar.gz",
+      sizeBytes: 0,
+      sha256: "",
+      fileCount: 0,
+    },
+    assetManifest: [],
     totalSizeBytes: 0,
-    status: "COMPLETE",
+    status: "FAILED",
+    verificationResult: {
+      verified: false,
+      checkedAt: new Date().toISOString(),
+      errors: [],
+    },
   };
 
-  // 2. Dump each microservice database
+  const manifestPath = path.join(backupDir, "manifest.json");
   const { pgUser, pgPass, pgHost, pgPort } = resolvePgConnectionDefaults();
 
-  for (const dbEntry of DATABASES) {
-    const dbName = dbEntry.name;
-    const dumpFileName = `${dbName}.sql`;
-    const dumpFilePath = path.join(dbDumpsDir, dumpFileName);
-    process.stdout.write(`  ⏳ Dumping database '${dbName}'... `);
+  try {
+    for (const dbEntry of targetDatabases) {
+      const dbName = dbEntry.name;
+      const dumpFileName = `${dbName}.sql`;
+      const dumpFilePath = path.join(dbDumpsDir, dumpFileName);
+      process.stdout.write(`  ⏳ Dumping database '${dbName}'... `);
 
-    try {
-      await execFileAsync("pg_dump", [
-        "-h", pgHost,
-        "-p", pgPort,
-        "-U", pgUser,
-        "--clean",
-        "--if-exists",
-        "--no-owner",
-        "--no-privileges",
-        "-f", dumpFilePath,
-        dbName,
-      ], {
-        env: { ...process.env, ...(pgPass ? { PGPASSWORD: pgPass } : {}) },
-      });
+      await execFileAsync(
+        "pg_dump",
+        [
+          "-h", pgHost,
+          "-p", pgPort,
+          "-U", pgUser,
+          "--clean",
+          "--if-exists",
+          "--no-owner",
+          "--no-privileges",
+          "-f", dumpFilePath,
+          dbName,
+        ],
+        {
+          env: { ...process.env, ...(pgPass ? { PGPASSWORD: pgPass } : {}) },
+        }
+      );
 
       const stats = await fs.stat(dumpFilePath);
+      if (stats.size === 0) {
+        throw new Error(`Database dump for '${dbName}' is empty (0 bytes)`);
+      }
       const sha256 = await calculateFileSha256(dumpFilePath);
 
-      // Collect table counts
       const counts: Record<string, number> = {};
       if (dbName === "identity_db") {
         counts.users = await getRecordCount(dbName, dbEntry.envVar, "users");
@@ -177,58 +252,70 @@ export async function createBackup(): Promise<string> {
 
       manifest.totalSizeBytes += stats.size;
       process.stdout.write(`🟢 OK (${(stats.size / 1024).toFixed(1)} KB, SHA-256: ${sha256.slice(0, 10)}...)\n`);
-    } catch (dumpErr: any) {
-      process.stdout.write(`❌ FAILED: ${dumpErr.message}\n`);
-      manifest.status = "FAILED";
-      throw dumpErr;
     }
-  }
 
-  // 3. Backup local media storage
-  if (existsSync(STORAGE_LOCAL)) {
-    process.stdout.write(`  ⏳ Archiving media storage directory (${path.basename(STORAGE_LOCAL)})... `);
+    // Fail closed if media storage directory does not exist
+    if (!existsSync(storageLocal)) {
+      throw new Error(`Required media storage directory does not exist: ${storageLocal}`);
+    }
+
+    process.stdout.write(`  ⏳ Archiving media storage directory (${path.basename(storageLocal)})... `);
+    const assetManifest = await collectAssetManifest(storageLocal);
     const mediaTarName = "media-storage.tar.gz";
     const mediaTarPath = path.join(backupDir, mediaTarName);
 
-    try {
-      await execFileAsync("tar", [
-        "-czf",
-        mediaTarPath,
-        "-C",
-        path.dirname(STORAGE_LOCAL),
-        path.basename(STORAGE_LOCAL),
-      ]);
+    await execFileAsync("tar", [
+      "-czf",
+      mediaTarPath,
+      "-C",
+      path.dirname(storageLocal),
+      path.basename(storageLocal),
+    ]);
 
-      const mediaStats = await fs.stat(mediaTarPath);
-      const mediaSha256 = await calculateFileSha256(mediaTarPath);
+    // Verify archive can be listed/read immediately
+    await execFileAsync("tar", ["-tzf", mediaTarPath]);
 
-      manifest.mediaArchive = {
-        file: mediaTarName,
-        sizeBytes: mediaStats.size,
-        sha256: mediaSha256,
-      };
+    const mediaStats = await fs.stat(mediaTarPath);
+    const mediaSha256 = await calculateFileSha256(mediaTarPath);
 
-      manifest.totalSizeBytes += mediaStats.size;
-      process.stdout.write(`🟢 OK (${(mediaStats.size / 1024).toFixed(1)} KB, SHA-256: ${mediaSha256.slice(0, 10)}...)\n`);
-    } catch (tarErr: any) {
-      process.stdout.write(`⚠️ Warning: Media storage archive error: ${tarErr.message}\n`);
-    }
+    manifest.mediaArchive = {
+      file: mediaTarName,
+      sizeBytes: mediaStats.size,
+      sha256: mediaSha256,
+      fileCount: assetManifest.length,
+    };
+    manifest.assetManifest = assetManifest;
+    manifest.totalSizeBytes += mediaStats.size;
+    process.stdout.write(
+      `🟢 OK (${(mediaStats.size / 1024).toFixed(1)} KB, ${assetManifest.length} files, SHA-256: ${mediaSha256.slice(0, 10)}...)\n`
+    );
+
+    manifest.status = "COMPLETE";
+    manifest.verificationResult = {
+      verified: true,
+      checkedAt: new Date().toISOString(),
+      errors: [],
+    };
+    await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2), "utf-8");
+
+    await applyRetentionPolicy(backupsRoot);
+    console.log(`\n✨ Backup successfully created and verified! Manifest written to ${manifestPath}\n`);
+    return backupDir;
+  } catch (err: any) {
+    manifest.status = "FAILED";
+    manifest.verificationResult = {
+      verified: false,
+      checkedAt: new Date().toISOString(),
+      errors: [err?.message || String(err)],
+    };
+    await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2), "utf-8").catch(() => {});
+    throw err;
   }
-
-  // 4. Write manifest
-  const manifestPath = path.join(backupDir, "manifest.json");
-  await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2), "utf-8");
-
-  // 5. Apply Retention Policy (keep last 7 backups, never delete if fewer than 3)
-  await applyRetentionPolicy();
-
-  console.log(`\n✨ Backup successfully created and verified! Manifest written to ${manifestPath}\n`);
-  return backupDir;
 }
 
-async function applyRetentionPolicy(maxRetained = 7): Promise<void> {
+async function applyRetentionPolicy(backupsRoot: string, maxRetained = 7): Promise<void> {
   try {
-    const entries = await fs.readdir(BACKUPS_ROOT, { withFileTypes: true });
+    const entries = await fs.readdir(backupsRoot, { withFileTypes: true });
     const backupDirs = entries
       .filter((e) => e.isDirectory() && e.name.startsWith("memoria-backup-"))
       .map((e) => e.name)
@@ -238,10 +325,12 @@ async function applyRetentionPolicy(maxRetained = 7): Promise<void> {
       const toDelete = backupDirs.slice(0, backupDirs.length - maxRetained);
       for (const dirName of toDelete) {
         console.log(`  🧹 [Retention] Pruning expired backup: ${dirName}`);
-        await fs.rm(path.join(BACKUPS_ROOT, dirName), { recursive: true, force: true });
+        await fs.rm(path.join(backupsRoot, dirName), { recursive: true, force: true });
       }
     }
-  } catch {}
+  } catch {
+    // Non-fatal retention cleanup error
+  }
 }
 
 if (process.argv[1]?.endsWith("backup.ts")) {
@@ -250,4 +339,3 @@ if (process.argv[1]?.endsWith("backup.ts")) {
     process.exit(1);
   });
 }
-

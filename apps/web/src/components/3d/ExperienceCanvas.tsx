@@ -7,6 +7,7 @@ import {
   Float,
   useGLTF,
   ContactShadows,
+  PerformanceMonitor,
   useProgress,
 } from "@react-three/drei";
 import * as THREE from "three";
@@ -1513,6 +1514,30 @@ export default function ExperienceCanvas({
   );
   const [webglError, setWebglError] = useState<string | null>(null);
   const [reducedMotion, setReducedMotion] = useState(false);
+  const [qualityTier, setQualityTier] = useState<"high" | "balanced" | "low">("balanced");
+  const [isCanvasAnimating, setIsCanvasAnimating] = useState(true);
+
+  useEffect(() => {
+    if (typeof navigator === "undefined") return;
+    const cores = navigator.hardwareConcurrency ?? 4;
+    const memoryGb = (navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? 8;
+    if (cores <= 2 || memoryGb <= 2 || reducedMotion) {
+      setQualityTier("low");
+    } else if (cores <= 4 || memoryGb <= 4) {
+      setQualityTier("balanced");
+    } else {
+      setQualityTier("high");
+    }
+  }, [reducedMotion]);
+
+  useEffect(() => {
+    setIsCanvasAnimating(true);
+    if (dragTurnOffset > 0) return;
+    const timer = window.setTimeout(() => {
+      setIsCanvasAnimating(false);
+    }, 1800);
+    return () => window.clearTimeout(timer);
+  }, [isOpen, pageTurnNonce, cameraResetNonce, spreadIndex, dragTurnOffset, selectedLeather.id, selectedFoil.id]);
 
   useEffect(() => {
     if (selectedLeatherId) {
@@ -1959,9 +1984,15 @@ export default function ExperienceCanvas({
                 )}
               >
                 <Canvas
-                  frameloop={reducedMotion && !isOpen ? "demand" : "always"}
+                  frameloop={isCanvasAnimating ? "always" : "demand"}
                   shadows
-                  dpr={[1, 2]}
+                  dpr={
+                    qualityTier === "low"
+                      ? [1, 1.25]
+                      : qualityTier === "balanced"
+                      ? [1, 1.5]
+                      : [1, 2]
+                  }
                   style={{ width: "100%", height: "100%" }}
                   camera={{
                     position: BOOK_CAMERA_PRESETS[0].position,
@@ -1983,6 +2014,18 @@ export default function ExperienceCanvas({
                   }}
                   className="w-full h-full cursor-grab active:cursor-grabbing"
                 >
+                <PerformanceMonitor
+                  onDecline={() =>
+                    setQualityTier((prev) =>
+                      prev === "high" ? "balanced" : "low"
+                    )
+                  }
+                  onIncline={() =>
+                    setQualityTier((prev) =>
+                      prev === "low" ? "balanced" : prev
+                    )
+                  }
+                />
                 <StudioEnvironment />
                 <ambientLight intensity={BOOK_LIGHTING_INTENT.ambientIntensity} />
                 <directionalLight
@@ -1990,7 +2033,7 @@ export default function ExperienceCanvas({
                   intensity={BOOK_LIGHTING_INTENT.keyLight.intensity}
                   color={BOOK_LIGHTING_INTENT.keyLight.colorHex}
                   castShadow
-                  shadow-mapSize={[1024, 1024]}
+                  shadow-mapSize={qualityTier === "low" ? [512, 512] : [1024, 1024]}
                   shadow-bias={-0.0008}
                   shadow-normalBias={0.015}
                 />
@@ -2036,6 +2079,8 @@ export default function ExperienceCanvas({
                   scale={1.6}
                   blur={2.8}
                   far={0.35}
+                  frames={isCanvasAnimating ? 4 : 1}
+                  resolution={qualityTier === "low" ? 128 : 256}
                   color="#1A1816"
                 />
                 <CameraPresetController

@@ -717,6 +717,8 @@ export async function buildMemoryService(): Promise<FastifyInstance> {
 
   // 3. Create Memory (Story, Photo, Audio Note, Video)
   const CreateMemoryPayloadSchema = z.object({
+    id: z.string().uuid().optional(),
+    clientMutationId: z.string().max(128).optional(),
     title: z.string().min(1),
     content: z.string().optional().nullable(),
     format: z.enum(["image", "video", "audio", "story", "document", "mixed"]).default("image"),
@@ -726,6 +728,71 @@ export async function buildMemoryService(): Promise<FastifyInstance> {
     mediaIds: z.array(z.string().uuid()).optional(),
     tags: z.array(z.string()).optional(),
   });
+
+  async function createMemoryIdempotent(
+    req: FastifyRequest,
+    reply: FastifyReply,
+    spaceId: string,
+    userId: string,
+    data: z.infer<typeof CreateMemoryPayloadSchema>
+  ) {
+    const headerIdempotencyKey =
+      typeof req.headers["idempotency-key"] === "string"
+        ? req.headers["idempotency-key"].trim()
+        : undefined;
+    const clientMutationId = data.clientMutationId || headerIdempotencyKey || undefined;
+
+    if (clientMutationId && memoryRepo.findMemoryByClientMutationId) {
+      const existingByMutation = await memoryRepo.findMemoryByClientMutationId(spaceId, clientMutationId);
+      if (existingByMutation) {
+        return reply.status(200).send(createSuccessResponse(existingByMutation));
+      }
+    }
+
+    if (data.id) {
+      const existingById = await memoryRepo.findMemoryById(data.id, true);
+      if (existingById) {
+        if (existingById.spaceId !== spaceId) {
+          return reply
+            .status(409)
+            .send(createErrorResponse("MEMORY_ID_CONFLICT", "Memory ID already exists in another space"));
+        }
+        return reply.status(200).send(createSuccessResponse(existingById));
+      }
+    }
+
+    const memoryId = data.id || crypto.randomUUID();
+    const now = new Date().toISOString();
+
+    const memory: Memory = {
+      id: memoryId,
+      spaceId,
+      authorId: userId,
+      title: data.title,
+      content: data.content || undefined,
+      format: data.format,
+      capturedAt: data.capturedAt || now,
+      location: data.location || undefined,
+      isFavorite: false,
+      associatedProfileIds: data.associatedProfileIds || [],
+      mediaIds: data.mediaIds || [],
+      tags: data.tags || [],
+      revision: 1,
+      clientMutationId,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    await memoryRepo.createMemory(memory);
+    await publishDomainEvent("memory.memory.created", "memory.created", memoryId, {
+      memoryId,
+      spaceId,
+      authorId: userId,
+      format: memory.format,
+    });
+
+    return reply.status(201).send(createSuccessResponse(memory));
+  }
 
   app.post(
     "/api/v1/spaces/:spaceId/memories",
@@ -742,35 +809,7 @@ export async function buildMemoryService(): Promise<FastifyInstance> {
         return reply.status(400).send(createErrorResponse("VALIDATION_ERROR", "Invalid memory payload"));
       }
 
-      const memoryId = crypto.randomUUID();
-      const now = new Date().toISOString();
-
-      const memory: Memory = {
-        id: memoryId,
-        spaceId: req.params.spaceId,
-        authorId: userId,
-        title: parseResult.data.title,
-        content: parseResult.data.content || undefined,
-        format: parseResult.data.format,
-        capturedAt: parseResult.data.capturedAt || now,
-        location: parseResult.data.location || undefined,
-        isFavorite: false,
-        associatedProfileIds: parseResult.data.associatedProfileIds || [],
-        mediaIds: parseResult.data.mediaIds || [],
-        tags: parseResult.data.tags || [],
-        createdAt: now,
-        updatedAt: now,
-      };
-
-      await memoryRepo.createMemory(memory);
-      await publishDomainEvent("memory.memory.created", "memory.created", memoryId, {
-        memoryId,
-        spaceId: req.params.spaceId,
-        authorId: userId,
-        format: memory.format,
-      });
-
-      return reply.status(201).send(createSuccessResponse(memory));
+      return createMemoryIdempotent(req, reply, req.params.spaceId, userId, parseResult.data);
     }
   );
 
@@ -794,35 +833,7 @@ export async function buildMemoryService(): Promise<FastifyInstance> {
       return reply.status(400).send(createErrorResponse("VALIDATION_ERROR", "Invalid memory payload"));
     }
 
-    const memoryId = crypto.randomUUID();
-    const now = new Date().toISOString();
-
-    const memory: Memory = {
-      id: memoryId,
-      spaceId,
-      authorId: userId,
-      title: parseResult.data.title,
-      content: parseResult.data.content || undefined,
-      format: parseResult.data.format,
-      capturedAt: parseResult.data.capturedAt || now,
-      location: parseResult.data.location || undefined,
-      isFavorite: false,
-      associatedProfileIds: parseResult.data.associatedProfileIds || [],
-      mediaIds: parseResult.data.mediaIds || [],
-      tags: parseResult.data.tags || [],
-      createdAt: now,
-      updatedAt: now,
-    };
-
-    await memoryRepo.createMemory(memory);
-    await publishDomainEvent("memory.memory.created", "memory.created", memoryId, {
-      memoryId,
-      spaceId,
-      authorId: userId,
-      format: memory.format,
-    });
-
-    return reply.status(201).send(createSuccessResponse(memory));
+    return createMemoryIdempotent(req, reply, spaceId, userId, parseResult.data);
   });
 
   // GET /api/v1/memories?spaceId=... (alias)
@@ -911,6 +922,8 @@ export async function buildMemoryService(): Promise<FastifyInstance> {
     tags: z.array(z.string()).optional(),
     associatedProfileIds: z.array(z.string().uuid()).optional(),
     mediaIds: z.array(z.string().uuid()).optional(),
+    expectedRevision: z.number().int().positive().optional(),
+    expectedUpdatedAt: z.string().optional(),
   });
 
   app.patch(
@@ -928,10 +941,25 @@ export async function buildMemoryService(): Promise<FastifyInstance> {
         return reply.status(400).send(createErrorResponse("VALIDATION_ERROR", "Invalid memory update payload"));
       }
 
+      const { expectedRevision, expectedUpdatedAt, ...updateFields } = parseResult.data;
+      const currentRevision = memory.revision ?? 1;
+      if (
+        (expectedRevision !== undefined && currentRevision !== expectedRevision) ||
+        (expectedUpdatedAt !== undefined && memory.updatedAt !== expectedUpdatedAt)
+      ) {
+        return reply.status(409).send(
+          createErrorResponse("VERSION_CONFLICT", "Memory has been modified on another device", "corr-unknown", [{
+            serverMemory: memory,
+            expectedRevision,
+            currentRevision,
+          }])
+        );
+      }
+
       const updated = await memoryRepo.updateMemory(memory.id, {
-        ...parseResult.data,
-        content: parseResult.data.content === null ? undefined : parseResult.data.content,
-        location: parseResult.data.location === null ? undefined : parseResult.data.location,
+        ...updateFields,
+        content: updateFields.content === null ? undefined : updateFields.content,
+        location: updateFields.location === null ? undefined : updateFields.location,
       });
 
       if (updated) {
@@ -1596,7 +1624,41 @@ export async function buildMemoryService(): Promise<FastifyInstance> {
   app.get("/api/v1/admin/spaces", async (req: FastifyRequest, reply) => {
     await requireAdminUser(req);
     const spaces = await spaceRepo.listSpaces();
-    return reply.status(200).send(createSuccessResponse(spaces));
+
+    const memoryCounts = new Map<string, number>();
+    const memberCounts = new Map<string, number>();
+    let memberCountsAvailable = false;
+
+    if (dbUrl) {
+      const memRes = await db.query<{ space_id: string; count: string }>(
+        `SELECT space_id, COUNT(*)::text as count FROM memories WHERE deleted_at IS NULL GROUP BY space_id`
+      );
+      for (const row of memRes.rows) {
+        memoryCounts.set(row.space_id, parseInt(row.count, 10) || 0);
+      }
+    }
+
+    if (collabDb) {
+      try {
+        const membsRes = await collabDb.query<{ space_id: string; count: string }>(
+          `SELECT space_id, COUNT(*)::text as count FROM space_members GROUP BY space_id`
+        );
+        memberCountsAvailable = true;
+        for (const row of membsRes.rows) {
+          memberCounts.set(row.space_id, parseInt(row.count, 10) || 0);
+        }
+      } catch (err) {
+        logger.warn({ err }, "[Admin] Unable to query collab_db member counts");
+      }
+    }
+
+    const enriched = spaces.map((s) => ({
+      ...s,
+      memoryCount: dbUrl ? (memoryCounts.get(s.id) ?? 0) : null,
+      memberCount: memberCountsAvailable ? (memberCounts.get(s.id) ?? 0) : null,
+    }));
+
+    return reply.status(200).send(createSuccessResponse(enriched));
   });
 
   app.get("/api/v1/admin/moderation", async (req: FastifyRequest, reply) => {

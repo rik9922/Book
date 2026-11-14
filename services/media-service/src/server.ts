@@ -319,52 +319,97 @@ export async function buildMediaService(): Promise<FastifyInstance> {
     }
   }
 
-  async function runOcrForAsset(asset: MediaAsset, language = "eng") {
-    const buffer = await storage.getObject(asset.storageKey);
-    const ocrResult = await ocrEngine.processDocument(buffer, asset.mimeType, language);
+  const ocrInFlight = new Map<string, Promise<{ ocrResult: any; savedTranscripts: OcrTranscript[] }>>();
 
-    const savedTranscripts: OcrTranscript[] = [];
-    for (const page of ocrResult.pages) {
-      const transcript: OcrTranscript = {
-        id: crypto.randomUUID(),
-        mediaId: asset.id,
-        spaceId: asset.spaceId,
-        status: "completed",
-        extractedText: page.text,
-        confidence: page.confidence,
-        wordCount: page.wordCount,
-        language,
-        pageNumber: page.pageNumber,
-        metadata: {
-          engine: ocrResult.engine,
-          durationMs: ocrResult.durationMs,
-          words: page.words,
-        },
-        createdAt: new Date().toISOString(),
-      };
-      const saved = await mediaRepo.saveOcrTranscript(transcript);
-      savedTranscripts.push(saved);
+  async function runOcrForAsset(asset: MediaAsset, language = "eng", force = false) {
+    const dedupKey = `${asset.id}_${language}`;
+    const existingPromise = ocrInFlight.get(dedupKey);
+    if (existingPromise) {
+      return existingPromise;
     }
 
-    await mediaRepo.updateAsset(asset.id, {
-      metadata: {
-        ...asset.metadata,
-        ocrProcessed: true,
-        ocrConfidence: ocrResult.averageConfidence,
-        ocrWordCount: ocrResult.totalWords,
-        ocrProcessedAt: new Date().toISOString(),
-      },
-    });
+    const work = (async () => {
+      if (!force) {
+        const existingTranscripts = await mediaRepo.findOcrTranscriptByMediaId(asset.id);
+        const matching = existingTranscripts.filter((t) => t.language === language && t.status === "completed");
+        if (matching.length > 0) {
+          const totalWords = matching.reduce((sum, t) => sum + (t.wordCount || 0), 0);
+          const avgConf =
+            matching.reduce((sum, t) => sum + Number(t.confidence || 0), 0) / matching.length;
+          return {
+            ocrResult: {
+              engine: (matching[0].metadata as any)?.engine || "tesseract",
+              durationMs: 0,
+              pages: matching.map((m) => ({
+                pageNumber: m.pageNumber,
+                text: m.extractedText,
+                confidence: Number(m.confidence),
+                wordCount: m.wordCount,
+                words: (m.metadata as any)?.words || [],
+              })),
+              totalWords,
+              averageConfidence: avgConf,
+            },
+            savedTranscripts: matching,
+          };
+        }
+      }
 
-    await publishDomainEvent("media.ocr.completed", "media.ocr.completed", asset.id, {
-      mediaId: asset.id,
-      spaceId: asset.spaceId,
-      pageCount: ocrResult.pages.length,
-      totalWords: ocrResult.totalWords,
-      averageConfidence: ocrResult.averageConfidence,
-    });
+      const buffer = await storage.getObject(asset.storageKey);
+      const ocrResult = await ocrEngine.processDocument(buffer, asset.mimeType, language);
 
-    return { ocrResult, savedTranscripts };
+      const savedTranscripts: OcrTranscript[] = [];
+      for (const page of ocrResult.pages) {
+        const transcript: OcrTranscript = {
+          id: crypto.randomUUID(),
+          mediaId: asset.id,
+          spaceId: asset.spaceId,
+          status: "completed",
+          extractedText: page.text,
+          confidence: page.confidence,
+          wordCount: page.wordCount,
+          language,
+          pageNumber: page.pageNumber,
+          metadata: {
+            engine: ocrResult.engine,
+            durationMs: ocrResult.durationMs,
+            words: page.words,
+          },
+          createdAt: new Date().toISOString(),
+        };
+        const saved = await mediaRepo.saveOcrTranscript(transcript);
+        savedTranscripts.push(saved);
+      }
+
+      const latestAsset = (await mediaRepo.findAssetById(asset.id)) || asset;
+      await mediaRepo.updateAsset(asset.id, {
+        metadata: {
+          ...latestAsset.metadata,
+          ocrProcessed: true,
+          ocrStatus: "completed",
+          ocrConfidence: ocrResult.averageConfidence,
+          ocrWordCount: ocrResult.totalWords,
+          ocrProcessedAt: new Date().toISOString(),
+        },
+      });
+
+      await publishDomainEvent("media.ocr.completed", "media.ocr.completed", asset.id, {
+        mediaId: asset.id,
+        spaceId: asset.spaceId,
+        pageCount: ocrResult.pages.length,
+        totalWords: ocrResult.totalWords,
+        averageConfidence: ocrResult.averageConfidence,
+      });
+
+      return { ocrResult, savedTranscripts };
+    })();
+
+    ocrInFlight.set(dedupKey, work);
+    try {
+      return await work;
+    } finally {
+      ocrInFlight.delete(dedupKey);
+    }
   }
 
   // Health check
@@ -420,6 +465,32 @@ export async function buildMediaService(): Promise<FastifyInstance> {
     const { spaceId, fileName, mimeType, fileSizeBytes } = parseResult.data;
     await assertSpaceAccess(spaceId, userId, true);
 
+    const headerIdempotencyKey =
+      typeof req.headers["idempotency-key"] === "string"
+        ? req.headers["idempotency-key"].trim()
+        : undefined;
+    const idempotencyKey = parseResult.data.idempotencyKey || headerIdempotencyKey || undefined;
+    const normalizedMime = mimeType.toLowerCase().trim();
+
+    if (idempotencyKey && mediaRepo.findAssetByIdempotencyKey) {
+      const existing = await mediaRepo.findAssetByIdempotencyKey(spaceId, idempotencyKey);
+      if (existing) {
+        const uploadUrl = await storage.generateUploadUrl(existing.storageKey, existing.mimeType, 3600);
+        return reply.status(200).send(
+          createSuccessResponse({
+            mediaId: existing.id,
+            uploadUrl,
+            storageKey: existing.storageKey,
+            expiresAt: new Date(Date.now() + 3600 * 1000).toISOString(),
+            status: existing.status,
+            headers: {
+              "Content-Type": existing.mimeType,
+            },
+          })
+        );
+      }
+    }
+
     // Strict Zero-Budget File Size Limits
     if (fileSizeBytes > MAX_SINGLE_FILE_BYTES) {
       return reply.status(413).send(
@@ -431,7 +502,6 @@ export async function buildMediaService(): Promise<FastifyInstance> {
     }
 
     // Strict MIME Allowlist
-    const normalizedMime = mimeType.toLowerCase().trim();
     if (!ALLOWED_MIME_TYPES.has(normalizedMime)) {
       return reply.status(415).send(
         createErrorResponse(
@@ -468,6 +538,7 @@ export async function buildMediaService(): Promise<FastifyInstance> {
       storageKey,
       derivatives: {},
       metadata: {},
+      idempotencyKey,
       createdAt: now,
       updatedAt: now,
     };
@@ -631,7 +702,12 @@ export async function buildMediaService(): Promise<FastifyInstance> {
       }
       await assertSpaceAccess(asset.spaceId, userId, true);
 
-      if (asset.status === "processing" || asset.status === "ready") {
+      if (
+        asset.status === "original_verified" ||
+        asset.status === "processing" ||
+        asset.status === "ready" ||
+        asset.status === "completed_partial"
+      ) {
         return reply.status(200).send(createSuccessResponse(asset));
       }
 
@@ -663,6 +739,7 @@ export async function buildMediaService(): Promise<FastifyInstance> {
       const updatedMetadata = {
         ...asset.metadata,
         sha256: computedSha256,
+        originalVerified: true,
         verifiedAt: new Date().toISOString(),
       };
 
@@ -679,11 +756,16 @@ export async function buildMediaService(): Promise<FastifyInstance> {
         sha256: computedSha256,
       });
 
-      await jobManager.addJob("media-processing", "generate-derivatives", {
-        mediaId: asset.id,
-        storageKey: asset.storageKey,
-        mimeType: asset.mimeType,
-      });
+      await jobManager.addJob(
+        "media-processing",
+        "generate-derivatives",
+        {
+          mediaId: asset.id,
+          storageKey: asset.storageKey,
+          mimeType: asset.mimeType,
+        },
+        { jobId: `proc_${asset.id}` }
+      );
 
       return reply.status(200).send(createSuccessResponse(updated || asset));
     }
@@ -766,10 +848,15 @@ export async function buildMediaService(): Promise<FastifyInstance> {
         );
       }
 
-      await jobManager.addJob("media-ocr", "extract-ocr", {
-        mediaId: asset.id,
-        language,
-      });
+      await jobManager.addJob(
+        "media-ocr",
+        "extract-ocr",
+        {
+          mediaId: asset.id,
+          language,
+        },
+        { jobId: `ocr_${asset.id}_${language}` }
+      );
 
       return reply.status(202).send(
         createSuccessResponse({
@@ -944,9 +1031,10 @@ export async function buildMediaService(): Promise<FastifyInstance> {
   app.get("/api/v1/admin/storage/stats", async (req, reply) => {
     await requireAdmin(req);
     if (dbUrl) {
-      const [quotaRes, assetRes] = await Promise.all([
+      const [quotaRes, assetRes, perSpaceRes] = await Promise.all([
         db.query(`SELECT COALESCE(SUM(used_bytes), 0)::bigint as "totalUsedBytes", COUNT(*)::int as "spaceCount" FROM space_storage_quotas`),
         db.query(`SELECT COUNT(*)::int as "assetCount", COALESCE(SUM(size_bytes), 0)::bigint as "assetBytes" FROM media_assets`),
+        db.query(`SELECT space_id as "spaceId", used_bytes::bigint as "usedBytes", max_bytes::bigint as "maxBytes" FROM space_storage_quotas`),
       ]);
       return reply.status(200).send(
         createSuccessResponse({
@@ -955,6 +1043,11 @@ export async function buildMediaService(): Promise<FastifyInstance> {
           spaceCount: Number(quotaRes.rows[0]?.spaceCount || 0),
           assetCount: Number(assetRes.rows[0]?.assetCount || 0),
           assetBytes: Number(assetRes.rows[0]?.assetBytes || 0),
+          spaces: perSpaceRes.rows.map((r: any) => ({
+            spaceId: r.spaceId,
+            usedBytes: Number(r.usedBytes || 0),
+            maxBytes: Number(r.maxBytes || 500 * 1024 * 1024),
+          })),
         })
       );
     }
@@ -1009,12 +1102,25 @@ export async function buildMediaService(): Promise<FastifyInstance> {
       const asset = await mediaRepo.findAssetById(mediaId);
       if (!asset) return;
 
+      await mediaRepo.updateAsset(mediaId, { status: "processing" });
+
       let derivatives: Record<string, string> = {};
       let metadata: Record<string, any> = { ...asset.metadata };
+      let derivativeError: string | null = null;
+      let ocrError: string | null = null;
 
       if (mimeType && mimeType.startsWith("image/")) {
+        let originalBuffer: Buffer;
         try {
-          const originalBuffer = await storage.getObject(storageKey);
+          originalBuffer = await storage.getObject(storageKey);
+        } catch (readErr: any) {
+          await mediaRepo.updateAsset(mediaId, {
+            status: "retryable_failure",
+            metadata: { ...metadata, processingState: "retryable_failure", lastError: readErr?.message || "Failed to read original" },
+          });
+          throw readErr;
+        }
+        try {
           const processed = await storage.processImageDerivatives(originalBuffer);
 
           const thumbSmKey = `derivatives/${mediaId}/thumb_sm.webp`;
@@ -1033,8 +1139,9 @@ export async function buildMediaService(): Promise<FastifyInstance> {
             height: processed.height,
             format: "webp",
           };
-        } catch (procErr) {
-          logger.warn({ err: procErr }, "[Worker] Sharp derivative processing error");
+        } catch (procErr: any) {
+          derivativeError = procErr?.message || "Sharp derivative processing failed";
+          logger.warn({ err: procErr, mediaId }, "[Worker] Sharp derivative processing error");
         }
       } else if (mimeType && (mimeType.startsWith("video/") || mimeType.startsWith("audio/"))) {
         if (FFPROBE_PATH) {
@@ -1071,7 +1178,8 @@ export async function buildMediaService(): Promise<FastifyInstance> {
                 derivatives.poster = `/api/v1/media/files/${posterKey}`;
               }
             }
-          } catch (avErr) {
+          } catch (avErr: any) {
+            derivativeError = avErr?.message || "FFmpeg/FFprobe processing failed";
             logger.warn({ err: avErr, mediaId }, "[Worker] FFmpeg/FFprobe processing warning");
           } finally {
             await fs.rm(tempDir, { recursive: true, force: true }).catch((err) => {
@@ -1087,29 +1195,49 @@ export async function buildMediaService(): Promise<FastifyInstance> {
           metadata = {
             ...metadata,
             ocrProcessed: true,
+            ocrStatus: "completed",
             ocrConfidence: ocrResult.averageConfidence,
             ocrWordCount: ocrResult.totalWords,
             ocrProcessedAt: new Date().toISOString(),
           };
-        } catch (ocrErr) {
+        } catch (ocrErr: any) {
+          ocrError = ocrErr?.message || "OCR processing failed";
+          metadata = {
+            ...metadata,
+            ocrStatus: "failed",
+            ocrError,
+          };
           logger.warn({ err: ocrErr, mediaId }, "[Worker] OCR processing non-fatal error");
         }
       }
 
+      const finalStatus = derivativeError ? "completed_partial" : "ready";
+      if (derivativeError) {
+        metadata.derivativeError = derivativeError;
+        metadata.processingState = "completed_partial";
+      } else {
+        metadata.processingState = ocrError ? "completed_partial" : "completed";
+      }
+
       await mediaRepo.updateAsset(mediaId, {
-        status: "ready",
+        status: finalStatus,
         derivatives,
         metadata,
       });
 
       await publishDomainEvent("media.processed", "media.processed", mediaId, {
         mediaId,
+        status: finalStatus,
         derivatives,
         metadata,
       });
-      logger.info({ mediaId }, "[Worker] Media derivatives generated and persisted to database");
-    } catch (workerErr) {
+      logger.info({ mediaId, status: finalStatus }, "[Worker] Media derivatives generated and persisted to database");
+    } catch (workerErr: any) {
       logger.error({ err: workerErr, mediaId }, "[Worker] Fatal error in media worker");
+      await mediaRepo.updateAsset(mediaId, {
+        status: "permanent_failure",
+        metadata: { processingState: "permanent_failure", lastError: workerErr?.message || String(workerErr) },
+      }).catch(() => {});
     }
   });
 

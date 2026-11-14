@@ -55,6 +55,7 @@
 		C1E6E8EE7E30938A5873AE7B /* BookFallbackController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4259E5D122729F54096DDD6E /* BookFallbackController.swift */; };
 		C533AB8F4A84EBDAB4816DF4 /* MemoriaUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7FAF871CB89C4C489A1DE6BE /* MemoriaUITests.swift */; };
 		C77D2E7410DA646F2DD8F48A /* RenderingDiagnosticsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6DB032E0E14336BA93B0F7BB /* RenderingDiagnosticsView.swift */; };
+		C8E8E90790252722FC32B50D /* OfflineSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5DD063BE15FB957EB68737E /* OfflineSyncService.swift */; };
 		C9CF2C1401CA0C5DD78BEF10 /* MemoriaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E898BB538D5BB5026923F81 /* MemoriaTests.swift */; };
 		CB55140AE7FED28D277B6804 /* TrashRecoveryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6EE96248C502599755952991 /* TrashRecoveryView.swift */; };
 		CFD129035C66D827A944CC28 /* NotificationsCenterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8DD44A9EF83C72B0AB50C219 /* NotificationsCenterView.swift */; };
@@ -135,6 +136,7 @@
 		D11A2065512C9B4A02287C17 /* MemoriaUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = MemoriaUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		D1CE54765EA9105022D2F85F /* ThermalMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThermalMonitor.swift; sourceTree = "<group>"; };
 		D5B4C378C6DE635DF76551A1 /* LocalStorageService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalStorageService.swift; sourceTree = "<group>"; };
+		D5DD063BE15FB957EB68737E /* OfflineSyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineSyncService.swift; sourceTree = "<group>"; };
 		DBA06307A01578ADBB6EBF8F /* HomeFeedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeFeedView.swift; sourceTree = "<group>"; };
 		DFD369062855A6F431B743F4 /* MemoryDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryDetailView.swift; sourceTree = "<group>"; };
 		E0186D1525C9D289547C6651 /* MemoriaAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoriaAPIClient.swift; sourceTree = "<group>"; };
@@ -158,6 +160,7 @@
 				D5B4C378C6DE635DF76551A1 /* LocalStorageService.swift */,
 				C1BE195B60330E260358A724 /* MediaImportService.swift */,
 				E0186D1525C9D289547C6651 /* MemoriaAPIClient.swift */,
+				D5DD063BE15FB957EB68737E /* OfflineSyncService.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -509,6 +512,7 @@
 				375310215F76FC43B30FFD6D /* MemoryPressureManager.swift in Sources */,
 				95B67600F7FA5EF4B509A5A5 /* MetricKitDiagnosticsCollector.swift in Sources */,
 				CFD129035C66D827A944CC28 /* NotificationsCenterView.swift in Sources */,
+				C8E8E90790252722FC32B50D /* OfflineSyncService.swift in Sources */,
 				62D68F6ABE82F985A1C5CF59 /* OnboardingFlowView.swift in Sources */,
 				2D96C5B0000D118D191AB28D /* PageDeformationController.swift in Sources */,
 				1CE893993E1765427F5AE524 /* PerformanceMonitor.swift in Sources */,
