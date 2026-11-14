@@ -112,79 +112,87 @@ public struct Book3DRealityView: View {
     }
 
     public var body: some View {
-        ZStack {
+        let base = ZStack {
             Color(hex: BookLightingIntent.backgroundHexUInt)
             sceneCanvasLayer
             loadingOverlay
         }
-        .onAppear {
-            MetricKitDiagnosticsCollector.shared.startIfSupported()
-            coordinator.setSpreads(spreads)
-        }
-        .onChange(of: isSceneActive) { _, nextActive in
-            coordinator.setSceneActive(nextActive)
-        }
-        .onChange(of: scenePhase) { _, nextPhase in
-            coordinator.handleScenePhase(nextPhase)
-        }
-        .onChange(of: configuration) { _, nextConfig in
-            coordinator.syncConfiguration(
-                nextConfig,
-                turnNonce: pageTurnNonce,
-                turnDirection: pageTurnDirection
-            )
-        }
-        .onChange(of: pageTurnNonce) { _, nextNonce in
-            coordinator.syncConfiguration(
-                configuration,
-                turnNonce: nextNonce,
-                turnDirection: pageTurnDirection
-            )
-        }
-        .onChange(of: renderingManager.activeConfiguration) { _, _ in
-            coordinator.syncConfiguration(
-                configuration,
-                turnNonce: pageTurnNonce,
-                turnDirection: pageTurnDirection
-            )
-        }
-        .onDisappear {
-            coordinator.setSceneActive(false)
-            coordinator.detachScene()
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("3D Heirloom Book: \(configuration.coverTitle)")
-        .accessibilityValue(accessibilitySpreadDescription)
-        .accessibilityHint(
-            allowGestures
-                ? (configuration.isOpen ? "Book is open. Double tap to close cover, or swipe to turn pages." : "Book is closed. Double tap to open cover.")
-                : "Interactive 3D heirloom volume preview."
-        )
-        .accessibilityAddTraits(.isButton)
-        .accessibilityAction {
-            onToggleOpen()
-        }
-        .accessibilityAction(named: "Next Page") {
-            if allowGestures && configuration.isOpen && configuration.currentSpreadIndex + 1 < spreads.count {
-                onTurnPage(1)
+        return applyAccessibilityModifiers(applyLifecycleModifiers(base))
+    }
+
+    private func applyLifecycleModifiers<Content: View>(_ content: Content) -> some View {
+        content
+            .onAppear {
+                MetricKitDiagnosticsCollector.shared.startIfSupported()
+                coordinator.setSpreads(spreads)
             }
-        }
-        .accessibilityAction(named: "Previous Page") {
-            if allowGestures && configuration.isOpen && configuration.currentSpreadIndex > 0 {
-                onTurnPage(-1)
+            .onChange(of: isSceneActive) { _, nextActive in
+                coordinator.setSceneActive(nextActive)
             }
-        }
-        .accessibilityAdjustableAction { direction in
-            guard allowGestures, configuration.isOpen else { return }
-            switch direction {
-            case .increment:
-                onTurnPage(1)
-            case .decrement:
-                onTurnPage(-1)
-            @unknown default:
-                break
+            .onChange(of: scenePhase) { _, nextPhase in
+                coordinator.handleScenePhase(nextPhase)
             }
-        }
+            .onChange(of: configuration) { _, nextConfig in
+                coordinator.syncConfiguration(
+                    nextConfig,
+                    turnNonce: pageTurnNonce,
+                    turnDirection: pageTurnDirection
+                )
+            }
+            .onChange(of: pageTurnNonce) { _, nextNonce in
+                coordinator.syncConfiguration(
+                    configuration,
+                    turnNonce: nextNonce,
+                    turnDirection: pageTurnDirection
+                )
+            }
+            .onChange(of: renderingManager.activeConfiguration) { _, _ in
+                coordinator.syncConfiguration(
+                    configuration,
+                    turnNonce: pageTurnNonce,
+                    turnDirection: pageTurnDirection
+                )
+            }
+            .onDisappear {
+                coordinator.setSceneActive(false)
+                coordinator.detachScene()
+            }
+    }
+
+    private func applyAccessibilityModifiers<Content: View>(_ content: Content) -> some View {
+        let hintText = allowGestures
+            ? (configuration.isOpen ? "Book is open. Double tap to close cover, or swipe to turn pages." : "Book is closed. Double tap to open cover.")
+            : "Interactive 3D heirloom volume preview."
+        return content
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("3D Heirloom Book: \(configuration.coverTitle)")
+            .accessibilityValue(accessibilitySpreadDescription)
+            .accessibilityHint(hintText)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction {
+                onToggleOpen()
+            }
+            .accessibilityAction(named: "Next Page") {
+                if allowGestures && configuration.isOpen && configuration.currentSpreadIndex + 1 < spreads.count {
+                    onTurnPage(1)
+                }
+            }
+            .accessibilityAction(named: "Previous Page") {
+                if allowGestures && configuration.isOpen && configuration.currentSpreadIndex > 0 {
+                    onTurnPage(-1)
+                }
+            }
+            .accessibilityAdjustableAction { direction in
+                guard allowGestures, configuration.isOpen else { return }
+                switch direction {
+                case .increment:
+                    onTurnPage(1)
+                case .decrement:
+                    onTurnPage(-1)
+                @unknown default:
+                    break
+                }
+            }
     }
 
     private var accessibilitySpreadDescription: String {
