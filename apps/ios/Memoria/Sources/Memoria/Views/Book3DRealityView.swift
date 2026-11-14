@@ -59,68 +59,63 @@ public struct Book3DRealityView: View {
         )
     }
 
+    private func makeGestureModifier(useEntityTargetedTap: Bool) -> Book3DGestureModifier {
+        Book3DGestureModifier(
+            enabled: allowGestures && isSceneActive,
+            useEntityTargetedTap: useEntityTargetedTap,
+            coordinator: coordinator,
+            presentationMode: presentationMode,
+            isOpen: configuration.isOpen,
+            currentSpreadIndex: configuration.currentSpreadIndex,
+            totalSpreads: spreads.count,
+            reducedMotion: configuration.reducedMotion,
+            lastDragTranslation: $lastDragTranslation,
+            activePageDragDirection: $activePageDragDirection,
+            onToggleOpen: onToggleOpen,
+            onTurnPage: onTurnPage
+        )
+    }
+
+    @ViewBuilder
+    private var sceneCanvasLayer: some View {
+        if #available(iOS 18.0, *) {
+            realityKit18View
+                .modifier(makeGestureModifier(useEntityTargetedTap: true))
+        } else {
+            Book3DLegacyARView(
+                coordinator: coordinator,
+                configuration: configuration,
+                spreads: spreads,
+                pageTurnNonce: pageTurnNonce,
+                pageTurnDirection: pageTurnDirection,
+                isSceneActive: isSceneActive,
+                onFallbackRequired: onFallbackRequired
+            )
+            .modifier(makeGestureModifier(useEntityTargetedTap: false))
+        }
+    }
+
+    @ViewBuilder
+    private var loadingOverlay: some View {
+        if !coordinator.isModelLoaded && coordinator.loadErrorMessage == nil {
+            VStack(spacing: 10) {
+                ProgressView()
+                    .tint(MemoriaTheme.plum)
+                Text("Preparing 3D Heirloom Edition...")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(MemoriaTheme.textSecondary)
+            }
+            .padding(16)
+            .background(MemoriaTheme.surfacePrimary.opacity(0.92))
+            .clipShape(RoundedRectangle(cornerRadius: MemoriaTheme.radiusMd))
+        }
+    }
+
     public var body: some View {
         ZStack {
             Color(hex: BookLightingIntent.backgroundHexUInt)
-
-            if #available(iOS 18.0, *) {
-                realityKit18View
-                    .modifier(
-                        Book3DGestureModifier(
-                            enabled: allowGestures && isSceneActive,
-                            useEntityTargetedTap: true,
-                            coordinator: coordinator,
-                            presentationMode: presentationMode,
-                            isOpen: configuration.isOpen,
-                            currentSpreadIndex: configuration.currentSpreadIndex,
-                            totalSpreads: spreads.count,
-                            reducedMotion: configuration.reducedMotion,
-                            lastDragTranslation: $lastDragTranslation,
-                            activePageDragDirection: $activePageDragDirection,
-                            onToggleOpen: onToggleOpen,
-                            onTurnPage: onTurnPage
-                        )
-                    )
-            } else {
-                Book3DLegacyARView(
-                    coordinator: coordinator,
-                    configuration: configuration,
-                    spreads: spreads,
-                    pageTurnNonce: pageTurnNonce,
-                    pageTurnDirection: pageTurnDirection,
-                    isSceneActive: isSceneActive,
-                    onFallbackRequired: onFallbackRequired
-                )
-                .modifier(
-                    Book3DGestureModifier(
-                        enabled: allowGestures && isSceneActive,
-                        useEntityTargetedTap: false,
-                        coordinator: coordinator,
-                        presentationMode: presentationMode,
-                        isOpen: configuration.isOpen,
-                        currentSpreadIndex: configuration.currentSpreadIndex,
-                        totalSpreads: spreads.count,
-                        reducedMotion: configuration.reducedMotion,
-                        lastDragTranslation: $lastDragTranslation,
-                        activePageDragDirection: $activePageDragDirection,
-                        onToggleOpen: onToggleOpen,
-                        onTurnPage: onTurnPage
-                    )
-                )
-            }
-
-            if !coordinator.isModelLoaded && coordinator.loadErrorMessage == nil {
-                VStack(spacing: 10) {
-                    ProgressView()
-                        .tint(MemoriaTheme.plum)
-                    Text("Preparing 3D Heirloom Edition...")
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(MemoriaTheme.textSecondary)
-                }
-                .padding(16)
-                .background(MemoriaTheme.surfacePrimary.opacity(0.92))
-                .clipShape(RoundedRectangle(cornerRadius: MemoriaTheme.radiusMd))
-            }
+            sceneCanvasLayer
+            loadingOverlay
         }
         .onAppear {
             MetricKitDiagnosticsCollector.shared.startIfSupported()
