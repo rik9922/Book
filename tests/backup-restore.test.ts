@@ -189,7 +189,7 @@ describe("Phase C — Backup Fail-Closed Verification & Isolated Restore Rehears
     // 3e. Incomplete / empty SQL dump
     const copyEmptySql = path.join(tmpRoot, "empty-sql");
     await fs.cp(backupDir, copyEmptySql, { recursive: true });
-    await fs.writeFile(path.join(copyEmptySql, "databases", "memory_db.sql"), "");
+    await fs.writeFile(path.join(copyEmptySql, m.databases[0].dumpFile), "");
     await assert.rejects(
       () => restoreBackup({ backupDir: copyEmptySql, verifyOnly: true }),
       /empty \(0 bytes\)/
