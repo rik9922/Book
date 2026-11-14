@@ -95,7 +95,7 @@ export function buildGateway(options?: GatewayOptions): FastifyInstance {
   });
 
   app.register(rateLimit, {
-    max: 200,
+    max: process.env.NODE_ENV === "test" ? 2000 : 200,
     timeWindow: "1 minute",
   });
 

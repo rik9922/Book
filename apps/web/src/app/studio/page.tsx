@@ -530,7 +530,7 @@ export default function BookStudioPage() {
       setBooks((prev) => prev.map((b) => (b.id === nextBook.id ? nextBook : b)));
       syncSelectedBook(nextBook);
       setStudioSyncNonce((n) => n + 1);
-      setNotice(`Updated interior spread #${activeSpreadIndex + 1} layout.`);
+      setNotice("Updated interior spread layout.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to update spread.");
     }
@@ -699,11 +699,20 @@ export default function BookStudioPage() {
   const currentFoil = resolveFoilSwatch(editFoil);
 
   const activeSpreads = React.useMemo(() => {
-    if (selectedBook?.spreads && selectedBook.spreads.length > 0) {
-      return mapRawSpreadsToPreview(selectedBook.spreads, editTitle);
-    }
-    return CANONICAL_SAMPLE_SPREADS;
-  }, [selectedBook?.spreads, editTitle]);
+    const base =
+      selectedBook?.spreads && selectedBook.spreads.length > 0
+        ? mapRawSpreadsToPreview(selectedBook.spreads, editTitle)
+        : CANONICAL_SAMPLE_SPREADS.map((s) => ({ ...s }));
+    return base.map((sp, idx) =>
+      idx === activeSpreadIndex
+        ? {
+            ...sp,
+            rightHeading: spreadTitle || sp.rightHeading,
+            rightBody: spreadCaption || sp.rightBody,
+          }
+        : sp
+    );
+  }, [selectedBook?.spreads, editTitle, activeSpreadIndex, spreadTitle, spreadCaption]);
 
   return (
     <AppShell
@@ -893,6 +902,7 @@ export default function BookStudioPage() {
                 selectedFoilId={editFoil}
                 title={editTitle}
                 subtitle={editSubtitle}
+                spineText={editSpineText}
                 isOpen={isBookOpen}
                 onToggleOpen={() => setIsBookOpen((o) => !o)}
                 cameraPreset={cameraPreset}
@@ -1012,15 +1022,112 @@ export default function BookStudioPage() {
                 Leather: {currentLeather.name} • Foil: {currentFoil.shortLabel}
               </span>
             </div>
+
+            {/* Bind New Book Edition Card */}
+            <div className="bg-[#FFFFFF] rounded-2xl border border-[#E7E2DA] p-6 shadow-xs space-y-4">
+              <h2 className="font-serif text-lg font-bold text-[#20242C] flex items-center gap-2">
+                <Plus className="w-4 h-4 text-[#76556F]" aria-hidden="true" />
+                Bind New Book Edition
+              </h2>
+              <form onSubmit={handleCreateBook} className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label htmlFor="new-book-title" className="block text-xs font-semibold text-[#20242C] mb-1">
+                    Book Title
+                  </label>
+                  <input
+                    id="new-book-title"
+                    type="text"
+                    required
+                    value={newTitle}
+                    onChange={(e) => setNewTitle(e.target.value)}
+                    placeholder="The Vance Anthology"
+                    className="w-full px-3 py-2 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] text-xs text-[#20242C]"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="new-book-sub" className="block text-xs font-semibold text-[#20242C] mb-1">
+                    Subtitle (Optional)
+                  </label>
+                  <input
+                    id="new-book-sub"
+                    type="text"
+                    value={newSubtitle}
+                    onChange={(e) => setNewSubtitle(e.target.value)}
+                    placeholder="Volume I • 1994–2026"
+                    className="w-full px-3 py-2 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] text-xs text-[#20242C]"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="new-book-format" className="block text-xs font-semibold text-[#20242C] mb-1">
+                    Trim Size
+                  </label>
+                  <select
+                    id="new-book-format"
+                    value={newFormat}
+                    onChange={(e) => setNewFormat(e.target.value as BookDTO["format"])}
+                    className="w-full px-3 py-2 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] text-xs text-[#20242C]"
+                  >
+                    <option value="hardcover_standard_8x10">Standard 8x10&quot;</option>
+                    <option value="hardcover_square_8x8">Square 8x8&quot;</option>
+                    <option value="hardcover_grand_12x12">Grand 12x12&quot;</option>
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor="new-book-foil" className="block text-xs font-semibold text-[#20242C] mb-1">
+                    Foil Stamping
+                  </label>
+                  <select
+                    id="new-book-foil"
+                    value={newFoil}
+                    onChange={(e) => setNewFoil(e.target.value as BookDTO["foilStamping"])}
+                    className="w-full px-3 py-2 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] text-xs text-[#20242C]"
+                  >
+                    <option value="gold">Archival Gold</option>
+                    <option value="rose">Rose Copper</option>
+                    <option value="silver">Brushed Silver</option>
+                    <option value="blind_emboss">Blind Emboss</option>
+                  </select>
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-semibold text-[#20242C] mb-2">Cloth Color</label>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {BOOK_LEATHER_SWATCHES.map((swatch) => (
+                      <button
+                        key={swatch.hex}
+                        type="button"
+                        aria-label={swatch.name}
+                        onClick={() => setNewColor(swatch.hex)}
+                        className={`min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl border-2 transition-all cursor-pointer ${
+                          newColor === swatch.hex ? "border-[#20242C] scale-105" : "border-[#E7E2DA]"
+                        }`}
+                      >
+                        <span className="w-5 h-5 rounded-full" style={{ backgroundColor: swatch.hex }} />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="sm:col-span-2">
+                  <button
+                    type="submit"
+                    className="min-h-[44px] px-5 py-2.5 rounded-xl bg-[#20242C] hover:bg-[#343A46] text-white text-xs font-medium cursor-pointer shadow-xs transition-colors"
+                  >
+                    Create Hardcover Edition
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
 
-            {/* Right 5-Col: Structured Archival Studio Inspector */}
-            <aside className="lg:col-span-5 xl:col-span-5 space-y-4">
-              {/* Tab Navigation */}
-              <div className="bg-[#FFFFFF] rounded-2xl border border-[#E7E2DA] p-1.5 grid grid-cols-4 gap-1 shadow-xs">
+            {/* Right 5-Col: Structured Archival Studio Inspector (all sections continuously mounted) */}
+            <aside className="lg:col-span-5 xl:col-span-5 space-y-5">
+              {/* Sticky Quick-Jump Navigation */}
+              <div className="sticky top-4 z-20 bg-[#FFFFFF]/95 backdrop-blur-sm rounded-2xl border border-[#E7E2DA] p-1.5 grid grid-cols-4 gap-1 shadow-xs">
                 <button
                   type="button"
-                  onClick={() => setActiveTab("cover")}
+                  onClick={() => {
+                    setActiveTab("cover");
+                    document.getElementById("inspector-section-cover")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+                  }}
                   className={`min-h-[44px] flex flex-col items-center justify-center py-1.5 px-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
                     activeTab === "cover"
                       ? "bg-[#76556F] text-white shadow-xs"
@@ -1032,7 +1139,10 @@ export default function BookStudioPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setActiveTab("spreads")}
+                  onClick={() => {
+                    setActiveTab("spreads");
+                    document.getElementById("inspector-section-spreads")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+                  }}
                   className={`min-h-[44px] flex flex-col items-center justify-center py-1.5 px-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
                     activeTab === "spreads"
                       ? "bg-[#76556F] text-white shadow-xs"
@@ -1044,7 +1154,10 @@ export default function BookStudioPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setActiveTab("curation")}
+                  onClick={() => {
+                    setActiveTab("curation");
+                    document.getElementById("inspector-section-curation")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+                  }}
                   className={`min-h-[44px] flex flex-col items-center justify-center py-1.5 px-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
                     activeTab === "curation"
                       ? "bg-[#76556F] text-white shadow-xs"
@@ -1056,7 +1169,10 @@ export default function BookStudioPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setActiveTab("preflight")}
+                  onClick={() => {
+                    setActiveTab("preflight");
+                    document.getElementById("inspector-section-preflight")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+                  }}
                   className={`min-h-[44px] flex flex-col items-center justify-center py-1.5 px-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
                     activeTab === "preflight"
                       ? "bg-[#76556F] text-white shadow-xs"
@@ -1068,9 +1184,14 @@ export default function BookStudioPage() {
                 </button>
               </div>
 
-              {/* Tab 1: Binding & Cover Customization */}
-              {activeTab === "cover" && (
-                <div className="bg-[#FFFFFF] rounded-2xl border border-[#E7E2DA] p-6 space-y-5 shadow-xs">
+              {/* Section 1: Binding & Cover Customization */}
+              <section
+                id="inspector-section-cover"
+                onFocus={() => setActiveTab("cover")}
+                className={`bg-[#FFFFFF] rounded-2xl border p-6 space-y-5 shadow-xs transition-all ${
+                  activeTab === "cover" ? "border-[#76556F]/60 ring-2 ring-[#76556F]/15" : "border-[#E7E2DA]"
+                }`}
+              >
                   {books.length === 0 && (
                     <div className="p-4 rounded-xl bg-[#F4EEF3] border border-[#E2D2DF] space-y-2.5">
                       <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-[#76556F]">
@@ -1259,12 +1380,16 @@ export default function BookStudioPage() {
                       </button>
                     </div>
                   </form>
-                </div>
-              )}
+                </section>
 
-              {/* Tab 2: Interior Spreads & Layout Editor */}
-              {activeTab === "spreads" && (
-                <div className="bg-[#FFFFFF] rounded-2xl border border-[#E7E2DA] p-6 space-y-5 shadow-xs">
+              {/* Section 2: Interior Spreads & Layout Editor */}
+              <section
+                id="inspector-section-spreads"
+                onFocus={() => setActiveTab("spreads")}
+                className={`bg-[#FFFFFF] rounded-2xl border p-6 space-y-5 shadow-xs transition-all ${
+                  activeTab === "spreads" ? "border-[#76556F]/60 ring-2 ring-[#76556F]/15" : "border-[#E7E2DA]"
+                }`}
+              >
                   <div className="flex items-center justify-between border-b border-[#F0ECE1] pb-3">
                     <h2 className="font-serif text-lg font-bold text-[#20242C] flex items-center gap-2">
                       <Sparkles className="w-4 h-4 text-[#5F735E]" />
@@ -1408,43 +1533,68 @@ export default function BookStudioPage() {
                         disabled={selectedBook?.isFrozenForPrint}
                         className="min-h-[40px] px-5 py-2 rounded-xl bg-[#20242C] hover:bg-[#343A46] text-white text-xs font-semibold transition-colors cursor-pointer shadow-xs disabled:opacity-40"
                       >
-                        {selectedBook ? "Save Spread Layout" : "Bind First Edition to Save"}
+                        {selectedBook ? "Update Spread Layout" : "Bind First Edition to Save"}
                       </button>
                     </div>
                   </form>
-                </div>
-              )}
+                </section>
 
-              {/* Tab 3: Vault Curation & Chapters */}
-              {activeTab === "curation" && (
-                <div className="bg-[#FFFFFF] rounded-2xl border border-[#E7E2DA] p-6 space-y-5 shadow-xs">
+              {/* Section 3: Vault Curation & Chapters */}
+              <section
+                id="inspector-section-curation"
+                aria-label="Memory Curation"
+                onFocus={() => setActiveTab("curation")}
+                className={`bg-[#FFFFFF] rounded-2xl border p-6 space-y-5 shadow-xs transition-all ${
+                  activeTab === "curation" ? "border-[#76556F]/60 ring-2 ring-[#76556F]/15" : "border-[#E7E2DA]"
+                }`}
+              >
                   <div className="flex items-center justify-between border-b border-[#F0ECE1] pb-3">
                     <h2 className="font-serif text-lg font-bold text-[#20242C] flex items-center gap-2">
                       <Layers className="w-4 h-4 text-[#76556F]" />
-                      Vault Curation &amp; Chapters
+                      Memory Curation &amp; Vault Chapters
                     </h2>
                     <span className="text-xs font-medium text-[#5F735E]">
                       {spaceMemories.length} Memories Available
                     </span>
                   </div>
 
-                  <div>
-                    <label htmlFor="curate-profile" className="block text-xs font-semibold text-[#20242C] mb-1">
-                      Filter Memories by Member Profile
-                    </label>
-                    <select
-                      id="curate-profile"
-                      value={sourceProfileId}
-                      onChange={(e) => setSourceProfileId(e.target.value)}
-                      className="w-full min-h-[44px] px-3 py-2 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] text-xs text-[#20242C]"
-                    >
-                      <option value="">All Space Members &amp; Profiles</option>
-                      {spaceProfiles.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.name}
-                        </option>
-                      ))}
-                    </select>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label htmlFor="curate-profile" className="block text-xs font-semibold text-[#20242C] mb-1">
+                        Filter Memories by Member Profile
+                      </label>
+                      <select
+                        id="curate-profile"
+                        value={sourceProfileId}
+                        onChange={(e) => setSourceProfileId(e.target.value)}
+                        className="w-full min-h-[44px] px-3 py-2 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] text-xs text-[#20242C]"
+                      >
+                        <option value="">All Space Members &amp; Profiles</option>
+                        {spaceProfiles.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label htmlFor="curate-template" className="block text-xs font-semibold text-[#20242C] mb-1">
+                        Template Layout (PWA-62)
+                      </label>
+                      <select
+                        id="curate-template"
+                        value={templateLayout}
+                        onChange={(e) =>
+                          setTemplateLayout(e.target.value as "editorial_classic" | "photo_journal" | "fine_art_spread")
+                        }
+                        className="w-full min-h-[44px] px-3 py-2 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] text-xs text-[#20242C]"
+                      >
+                        <option value="editorial_classic">Editorial Classic</option>
+                        <option value="photo_journal">Photo-Journal</option>
+                        <option value="fine_art_spread">Fine-Art Spread</option>
+                      </select>
+                    </div>
                   </div>
 
                   {/* Memories Checklist */}
@@ -1517,12 +1667,16 @@ export default function BookStudioPage() {
                       </ul>
                     )}
                   </div>
-                </div>
-              )}
+                </section>
 
-              {/* Tab 4: Preflight & Physical Print Order */}
-              {activeTab === "preflight" && (
-                <div className="bg-[#FFFFFF] rounded-2xl border border-[#E7E2DA] p-6 space-y-5 shadow-xs">
+              {/* Section 4: Preflight & Physical Print Order */}
+              <section
+                id="inspector-section-preflight"
+                onFocus={() => setActiveTab("preflight")}
+                className={`bg-[#FFFFFF] rounded-2xl border p-6 space-y-5 shadow-xs transition-all ${
+                  activeTab === "preflight" ? "border-[#76556F]/60 ring-2 ring-[#76556F]/15" : "border-[#E7E2DA]"
+                }`}
+              >
                   <div className="flex items-center justify-between border-b border-[#F0ECE1] pb-3">
                     <h2 className="font-serif text-lg font-bold text-[#20242C] flex items-center gap-2">
                       <Package className="w-4 h-4 text-[#76556F]" />
@@ -1564,7 +1718,7 @@ export default function BookStudioPage() {
                         className="flex-1 min-h-[44px] inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-[#20242C] hover:bg-[#343A46] text-white text-xs font-semibold disabled:opacity-40 cursor-pointer shadow-xs transition-colors"
                       >
                         <Lock className="w-4 h-4" />
-                        {selectedBook?.isFrozenForPrint ? "Edition Frozen" : "Freeze for Press"}
+                        {selectedBook?.isFrozenForPrint ? "Edition Frozen" : "Freeze for Print"}
                       </button>
                     </div>
 
@@ -1685,8 +1839,7 @@ export default function BookStudioPage() {
                       ))}
                     </div>
                   )}
-                </div>
-              )}
+                </section>
             </aside>
           </div>
         </div>
