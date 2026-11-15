@@ -15,4 +15,19 @@
 | **Storage Containment & Infra** | `packages/storage/src/index.ts`, `docker-compose.yml` | `LocalDiskStorageDriver.resolvePath` rejects `..`, null bytes, and symlink escapes via `realpathSync`; Docker Compose ports bound to `127.0.0.1`. | `tests/security-and-processing.test.ts` |
 | **Admin Portal Real Aggregates** | `services/memory-service/src/server.ts`, `services/media-service/src/server.ts`, `apps/web/src/app/admin/page.tsx` | Replaced hardcoded placeholders (`memberCount: 1`, `memoryCount: 0`, `usedPercentage: 10`, `"Live DB"`) with real DB counts and quota stats (`"Unavailable"` fallback when unmeasured). | `pnpm build` + `tests/security-and-processing.test.ts` |
 | **Web 3D Adaptive Rendering** | `apps/web/src/components/3d/ExperienceCanvas.tsx` | Added hardware-aware `qualityTier` (`low`/`balanced`/`high`), `@react-three/drei` `PerformanceMonitor`, adaptive `dpr` & shadow map sizes, `ContactShadows` frame baking, and `frameloop="demand"` when idle. | `pnpm build` |
-| **CI Pipeline & Brand Reconciliation** | `.github/workflows/ci.yml`, `docs/BRAND_IDENTITY.md` | Added Playwright Chromium install in CI, toolchain/SHA logging, iOS Simulator `xcodebuild` build & test job, and removed contradictory legacy emerald/gold rows from `BRAND_IDENTITY.md`. | Local `pnpm run check:quality`, `pnpm build`, `pnpm test`, `xcodebuild` |
+| **CI Pipeline & Brand Reconciliation** | `.github/workflows/ci.yml`, `docs/BRAND_IDENTITY.md` | Added Playwright Chromium install in CI, toolchain/SHA logging, `macos-15` PostgreSQL 17 (`max_connections=300`) + Redis + NATS JetStream + Node microservices startup for live iOS E2E, `xcodebuild` build & test job, and removed contradictory legacy emerald/gold rows from `BRAND_IDENTITY.md`. | CI run `43709387139` (`354234c`): `backend-and-web` & `ios-swift-tests` green |
+| **iOS Toolbar & XCUITest Reliability** | `apps/ios/Memoria/Sources/Memoria/Views/HomeFeedView.swift`, `MemoryDetailView.swift`, `apps/ios/Memoria/Tests/MemoriaUITests/MemoriaUITests.swift` | Split `HomeFeedView` `HStack` toolbar containers into native `ToolbarItemGroup` items (`topBarLeading`/`topBarTrailing` on iOS) so `Switch Space` and `Capture Memory` expose valid `UIBarButtonItem` hit points; added `tapReliably`, `typeReliably`, sheet disappearance waits, and live backend health preflight in `MemoriaUITests`. | Local `xcodebuild test-without-building` (`37/37` `MemoriaTests`, `2/2` `MemoriaUITests`) + CI `macos-15` (`43709387139`) |
+
+## 2. Verified Test Counts (Commit `354234c`, CI Run `43709387139`)
+
+- **Quality Gate & Build:** `pnpm run check:quality` (`0` violations), `pnpm build` (`16/16` workspace projects built).
+- **Backend, Security & Backup/Restore Suite (`NODE_ENV=test pnpm test`):** `84/84` passed across `14` suites (`0` failed, `0` skipped).
+- **Web PWA E2E (`tests/e2e/*.ts`):** `30/30` passed (`6/6` Playwright Chromium browser E2E + `24/24` SSR/PWA route checks).
+- **Swift Package Tests (`cd apps/ios/Memoria && swift test`):** `34/34` passed across `4` suites.
+- **iOS Simulator Tests (`xcodebuild test`):** `37/37` `MemoriaTests` passed across `4` suites + `2/2` `MemoriaUITests` (`testLivingArchiveTabNavigationAndKeyWorkflows` and `testLiveAuthenticatedEndToEndWorkflow`) passed.
+
+## 3. Remaining Physical-Device Hardware Limitations
+
+- **Physical iOS Device Code Signing & Provisioning:** CI runs with `CODE_SIGNING_ALLOWED=NO` on the iOS Simulator; TestFlight / App Store distribution requires Apple Developer Team certificates and provisioning profiles.
+- **Hardware GPU / Thermal / Memory Pressure:** `DeviceCapabilityAnalyzer`, `ThermalMonitor`, and `MemoryPressureManager` are verified via deterministic unit/simulation tests, not under sustained physical iPhone thermal throttling or Metal/RealityKit hardware frame-pacing.
+- **Physical Camera, Microphone & APNs:** Camera/microphone hardware capture and live APNs push delivery are not available on the iOS Simulator; UI tests exercise the Simulator-compatible capture/recorder flows.
