@@ -110,6 +110,8 @@ jobs:
       JWT_SECRET: ci-jwt-secret-memory-capsule-2026-verify
       SESSION_SECRET: ci-session-secret-memory-capsule-2026-verify
       INTERNAL_SERVICE_KEY: ci-internal-secret-memory-capsule-2026
+      REDIS_URL: redis://127.0.0.1:6379
+      NATS_URL: nats://127.0.0.1:4222
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -128,8 +130,12 @@ jobs:
           pnpm -v
       - name: Run Swift Package tests
         run: cd apps/ios/Memoria && swift test
-      - name: Start PostgreSQL & apply migrations for live iOS E2E
+      - name: Start PostgreSQL, Redis & NATS for live iOS E2E
         run: |
+          mkdir -p /tmp/memoria_logs
+          brew install nats-server redis
+          nohup nats-server -js -p 4222 < /dev/null > /tmp/memoria_logs/nats.log 2>&1 &
+          nohup redis-server --port 6379 < /dev/null > /tmp/memoria_logs/redis.log 2>&1 &
           PG_BIN="$(brew --prefix postgresql@17 2>/dev/null || true)/bin"
           if [ ! -x "$PG_BIN/postgres" ]; then
             brew install postgresql@17
