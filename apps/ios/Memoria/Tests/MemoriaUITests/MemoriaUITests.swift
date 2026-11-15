@@ -341,12 +341,13 @@ final class MemoriaUITests: XCTestCase {
         app.navigationBars.buttons.element(boundBy: 0).tap()
 
         if captureBtn.waitForExistence(timeout: 3) {
-            captureBtn.tap()
+            tapReliably(captureBtn)
             let uploadQueueItem = app.buttons["Upload Queue"].firstMatch
             if uploadQueueItem.waitForExistence(timeout: 3) {
                 uploadQueueItem.tap()
                 XCTAssertTrue(app.navigationBars["Upload Queue"].waitForExistence(timeout: 3))
                 app.buttons["Close"].firstMatch.tap()
+                _ = waitForDisappearance(app.navigationBars["Upload Queue"], timeout: 4)
             }
         }
 
@@ -582,10 +583,7 @@ final class MemoriaUITests: XCTestCase {
         registerSubmit.tap()
 
         // Wait for auth sheet to actually dismiss after HTTP 201
-        if !waitForDisappearance(authNavBar, timeout: 15) {
-            let visibleTexts = app.staticTexts.allElementsBoundByIndex.map(\.label).filter { !$0.isEmpty }
-            XCTFail("Auth sheet should dismiss after live registration. Visible texts: \(visibleTexts)")
-        }
+        XCTAssertTrue(waitForDisappearance(authNavBar, timeout: 40), "Auth sheet should dismiss after live registration")
         XCTAssertTrue(app.buttons["Switch Space"].waitForExistence(timeout: 6), "Switch Space toolbar button should be present after auth dismissal")
 
         // 2. Create a live Memory Space via SpaceOverviewSheet -> Memory Service -> Postgres

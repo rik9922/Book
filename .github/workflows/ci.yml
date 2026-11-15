@@ -145,7 +145,7 @@ jobs:
           export PATH="$PG_BIN:$PATH"
           rm -rf /tmp/memoria_pgdata
           initdb -D /tmp/memoria_pgdata -U postgres --auth=trust
-          pg_ctl -D /tmp/memoria_pgdata -l /tmp/memoria_pg.log -o "-p 5432" start
+          pg_ctl -D /tmp/memoria_pgdata -l /tmp/memoria_pg.log -o "-p 5432 -N 300" start
           createdb -h 127.0.0.1 -p 5432 -U postgres memory_capsule_ci
           for file in packages/database/migrations/*.sql; do
             psql -h 127.0.0.1 -p 5432 -U postgres -d memory_capsule_ci -v ON_ERROR_STOP=1 -f "$file"
