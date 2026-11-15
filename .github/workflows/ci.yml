@@ -94,7 +94,7 @@ jobs:
   ios-swift-tests:
     runs-on: macos-15
     env:
-      NODE_ENV: test
+      NODE_ENV: development
       PGHOST: 127.0.0.1
       PGPORT: "5432"
       PGUSER: postgres
@@ -161,7 +161,7 @@ jobs:
             services/notification-service/src/server.ts \
             services/api-gateway/src/server.ts; do
             name=$(echo "$svc" | cut -d/ -f2)
-            nohup node --import tsx "$svc" > "/tmp/memoria_logs/$name.log" 2>&1 &
+            nohup node --import tsx "$svc" < /dev/null > "/tmp/memoria_logs/$name.log" 2>&1 &
           done
           for i in $(seq 1 30); do
             if curl -sf http://127.0.0.1:4000/health >/dev/null; then
