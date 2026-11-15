@@ -147,7 +147,7 @@ jobs:
       - name: Install & build backend services for live iOS E2E
         run: |
           pnpm install --frozen-lockfile
-          pnpm build
+          pnpm --filter '!@memory-capsule/web' build
       - name: Start backend microservices & API Gateway
         run: |
           mkdir -p /tmp/memoria_logs
