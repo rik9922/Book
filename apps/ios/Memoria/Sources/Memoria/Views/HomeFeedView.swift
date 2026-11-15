@@ -215,6 +215,8 @@ public struct HomeFeedView: View {
                         Image(systemName: "plus.circle.fill")
                             .font(.title3)
                             .foregroundStyle(MemoriaTheme.plum)
+                            .frame(minWidth: 28, minHeight: 28)
+                            .contentShape(Rectangle())
                     }
                     .accessibilityLabel("Capture Memory")
                 }
@@ -277,6 +279,8 @@ public struct HomeFeedView: View {
                         Image(systemName: "plus.circle.fill")
                             .font(.title3)
                             .foregroundStyle(MemoriaTheme.plum)
+                            .frame(minWidth: 28, minHeight: 28)
+                            .contentShape(Rectangle())
                     }
                     .accessibilityLabel("Capture Memory")
                 }

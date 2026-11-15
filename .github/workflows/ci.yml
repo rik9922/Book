@@ -164,13 +164,20 @@ jobs:
             nohup node --import tsx "$svc" < /dev/null > "/tmp/memoria_logs/$name.log" 2>&1 &
           done
           for i in $(seq 1 30); do
-            if curl -sf http://127.0.0.1:4000/health >/dev/null; then
-              echo "API Gateway healthy on attempt $i"
+            all_up=true
+            for port in 4000 4001 4002 4003 4004 4005 4007 4008; do
+              if ! curl -sf "http://127.0.0.1:$port/health" >/dev/null; then
+                all_up=false
+                break
+              fi
+            done
+            if [ "$all_up" = true ]; then
+              echo "All backend services & API Gateway healthy on attempt $i"
               exit 0
             fi
             sleep 1
           done
-          echo "API Gateway failed to start"
+          echo "Backend services failed to start"
           tail -n 50 /tmp/memoria_logs/*.log || true
           exit 1
       - name: Build iOS app for Simulator
@@ -189,3 +196,6 @@ jobs:
             -destination "platform=iOS Simulator,id=$SIM_ID" \
             CODE_SIGNING_ALLOWED=NO \
             test
+      - name: Dump backend service logs on failure
+        if: failure()
+        run: tail -n 80 /tmp/memoria_logs/*.log || true

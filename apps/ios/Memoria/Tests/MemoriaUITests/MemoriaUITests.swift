@@ -8,16 +8,10 @@ final class MemoriaUITests: XCTestCase {
     @MainActor
     private func tapReliably(_ element: XCUIElement, timeout: TimeInterval = 4, file: StaticString = #filePath, line: UInt = #line) {
         XCTAssertTrue(element.waitForExistence(timeout: timeout), "Expected element \(element) to exist before tap", file: file, line: line)
-        let hittablePredicate = NSPredicate(format: "isHittable == true")
-        let expectation = XCTNSPredicateExpectation(predicate: hittablePredicate, object: element)
-        let result = XCTWaiter.wait(for: [expectation], timeout: min(timeout, 3.0))
-        if result == .completed {
-            element.tap()
-        } else {
-            let frame = element.frame
-            XCTAssertFalse(frame.isEmpty, "Element \(element) has empty frame and is not hittable", file: file, line: line)
-            element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
-        }
+        RunLoop.current.run(until: Date().addingTimeInterval(0.15))
+        let frame = element.frame
+        XCTAssertFalse(frame.isEmpty, "Element \(element) has empty frame", file: file, line: line)
+        element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
     }
 
     @MainActor
@@ -588,7 +582,10 @@ final class MemoriaUITests: XCTestCase {
         registerSubmit.tap()
 
         // Wait for auth sheet to actually dismiss after HTTP 201
-        XCTAssertTrue(waitForDisappearance(authNavBar, timeout: 10), "Auth sheet should dismiss after live registration")
+        if !waitForDisappearance(authNavBar, timeout: 15) {
+            let visibleTexts = app.staticTexts.allElementsBoundByIndex.map(\.label).filter { !$0.isEmpty }
+            XCTFail("Auth sheet should dismiss after live registration. Visible texts: \(visibleTexts)")
+        }
         XCTAssertTrue(app.buttons["Switch Space"].waitForExistence(timeout: 6), "Switch Space toolbar button should be present after auth dismissal")
 
         // 2. Create a live Memory Space via SpaceOverviewSheet -> Memory Service -> Postgres
