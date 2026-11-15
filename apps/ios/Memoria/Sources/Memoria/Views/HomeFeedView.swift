@@ -156,71 +156,131 @@ public struct HomeFeedView: View {
             }
             .navigationTitle("Memoria")
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    HStack(spacing: 12) {
-                        Button {
-                            isShowingAuth = true
-                        } label: {
-                            Image(systemName: "person.crop.circle")
-                                .foregroundStyle(MemoriaTheme.plum)
-                        }
-                        .accessibilityLabel("Account Access")
-                        Button {
-                            isShowingSpaceSwitcher = true
-                        } label: {
-                            Image(systemName: "square.stack.3d.up")
-                                .foregroundStyle(MemoriaTheme.sageFunc)
-                        }
-                        .accessibilityLabel("Switch Space")
+                #if os(iOS)
+                ToolbarItemGroup(placement: .topBarLeading) {
+                    Button {
+                        isShowingAuth = true
+                    } label: {
+                        Image(systemName: "person.crop.circle")
+                            .foregroundStyle(MemoriaTheme.plum)
                     }
-                }
-                ToolbarItem(placement: .primaryAction) {
-                    HStack(spacing: 12) {
-                        NavigationLink {
-                            TimelineCalendarView(spaceId: activeSpaceId, localMemories: memories)
-                        } label: {
-                            Image(systemName: "calendar")
-                                .foregroundStyle(MemoriaTheme.ink)
-                        }
-                        .accessibilityLabel("Timeline & Calendar")
-                        NavigationLink {
-                            CollectionsView(spaceId: activeSpaceId)
-                        } label: {
-                            Image(systemName: "folder")
-                                .foregroundStyle(MemoriaTheme.sageFunc)
-                        }
-                        .accessibilityLabel("Collections")
-                        NavigationLink {
-                            TrashRecoveryView(spaceId: activeSpaceId)
-                        } label: {
-                            Image(systemName: "trash")
-                                .foregroundStyle(MemoriaTheme.textSecondary)
-                        }
-                        .accessibilityLabel("Trash Recovery")
-                        Menu {
-                            Button("Photo or Story", systemImage: "square.and.pencil") {
-                                isCreatingMemory = true
-                            }
-                            Button("Video Trim Studio", systemImage: "video") {
-                                isCapturingVideo = true
-                            }
-                            Button("Voice Oral History", systemImage: "mic") {
-                                isRecordingVoice = true
-                            }
-                            Button("Upload Queue", systemImage: "arrow.up.circle") {
-                                isShowingUploadQueue = true
-                            }
-                            Button("Guided Archive Setup", systemImage: "sparkles") {
-                                isShowingOnboarding = true
-                            }
-                        } label: {
-                            Image(systemName: "plus.circle.fill")
-                                .font(.title3)
-                                .foregroundStyle(MemoriaTheme.plum)
-                        }
-                        .accessibilityLabel("Capture Memory")
+                    .accessibilityLabel("Account Access")
+                    Button {
+                        isShowingSpaceSwitcher = true
+                    } label: {
+                        Image(systemName: "square.stack.3d.up")
+                            .foregroundStyle(MemoriaTheme.sageFunc)
                     }
+                    .accessibilityLabel("Switch Space")
                 }
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    NavigationLink {
+                        TimelineCalendarView(spaceId: activeSpaceId, localMemories: memories)
+                    } label: {
+                        Image(systemName: "calendar")
+                            .foregroundStyle(MemoriaTheme.ink)
+                    }
+                    .accessibilityLabel("Timeline & Calendar")
+                    NavigationLink {
+                        CollectionsView(spaceId: activeSpaceId)
+                    } label: {
+                        Image(systemName: "folder")
+                            .foregroundStyle(MemoriaTheme.sageFunc)
+                    }
+                    .accessibilityLabel("Collections")
+                    NavigationLink {
+                        TrashRecoveryView(spaceId: activeSpaceId)
+                    } label: {
+                        Image(systemName: "trash")
+                            .foregroundStyle(MemoriaTheme.textSecondary)
+                    }
+                    .accessibilityLabel("Trash Recovery")
+                    Menu {
+                        Button("Photo or Story", systemImage: "square.and.pencil") {
+                            isCreatingMemory = true
+                        }
+                        Button("Video Trim Studio", systemImage: "video") {
+                            isCapturingVideo = true
+                        }
+                        Button("Voice Oral History", systemImage: "mic") {
+                            isRecordingVoice = true
+                        }
+                        Button("Upload Queue", systemImage: "arrow.up.circle") {
+                            isShowingUploadQueue = true
+                        }
+                        Button("Guided Archive Setup", systemImage: "sparkles") {
+                            isShowingOnboarding = true
+                        }
+                    } label: {
+                        Image(systemName: "plus.circle.fill")
+                            .font(.title3)
+                            .foregroundStyle(MemoriaTheme.plum)
+                    }
+                    .accessibilityLabel("Capture Memory")
+                }
+                #else
+                ToolbarItemGroup(placement: .cancellationAction) {
+                    Button {
+                        isShowingAuth = true
+                    } label: {
+                        Image(systemName: "person.crop.circle")
+                            .foregroundStyle(MemoriaTheme.plum)
+                    }
+                    .accessibilityLabel("Account Access")
+                    Button {
+                        isShowingSpaceSwitcher = true
+                    } label: {
+                        Image(systemName: "square.stack.3d.up")
+                            .foregroundStyle(MemoriaTheme.sageFunc)
+                    }
+                    .accessibilityLabel("Switch Space")
+                }
+                ToolbarItemGroup(placement: .primaryAction) {
+                    NavigationLink {
+                        TimelineCalendarView(spaceId: activeSpaceId, localMemories: memories)
+                    } label: {
+                        Image(systemName: "calendar")
+                            .foregroundStyle(MemoriaTheme.ink)
+                    }
+                    .accessibilityLabel("Timeline & Calendar")
+                    NavigationLink {
+                        CollectionsView(spaceId: activeSpaceId)
+                    } label: {
+                        Image(systemName: "folder")
+                            .foregroundStyle(MemoriaTheme.sageFunc)
+                    }
+                    .accessibilityLabel("Collections")
+                    NavigationLink {
+                        TrashRecoveryView(spaceId: activeSpaceId)
+                    } label: {
+                        Image(systemName: "trash")
+                            .foregroundStyle(MemoriaTheme.textSecondary)
+                    }
+                    .accessibilityLabel("Trash Recovery")
+                    Menu {
+                        Button("Photo or Story", systemImage: "square.and.pencil") {
+                            isCreatingMemory = true
+                        }
+                        Button("Video Trim Studio", systemImage: "video") {
+                            isCapturingVideo = true
+                        }
+                        Button("Voice Oral History", systemImage: "mic") {
+                            isRecordingVoice = true
+                        }
+                        Button("Upload Queue", systemImage: "arrow.up.circle") {
+                            isShowingUploadQueue = true
+                        }
+                        Button("Guided Archive Setup", systemImage: "sparkles") {
+                            isShowingOnboarding = true
+                        }
+                    } label: {
+                        Image(systemName: "plus.circle.fill")
+                            .font(.title3)
+                            .foregroundStyle(MemoriaTheme.plum)
+                    }
+                    .accessibilityLabel("Capture Memory")
+                }
+                #endif
             }
             .sheet(isPresented: $isCreatingMemory) {
                 MemoryCreateView(spaceId: activeSpaceId) { newMemory in

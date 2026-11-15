@@ -565,6 +565,7 @@ public struct MemoryCommentsSheetView: View {
                 HStack(spacing: 10) {
                     TextField("Share a memory or reflection...", text: $draftComment)
                         .textFieldStyle(.roundedBorder)
+                        .autocorrectionDisabled()
                     Button {
                         Task { await submitReflection() }
                     } label: {

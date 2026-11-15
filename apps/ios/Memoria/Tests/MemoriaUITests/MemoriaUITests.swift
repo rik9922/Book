@@ -6,6 +6,64 @@ final class MemoriaUITests: XCTestCase {
     }
 
     @MainActor
+    private func tapReliably(_ element: XCUIElement, timeout: TimeInterval = 4, file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertTrue(element.waitForExistence(timeout: timeout), "Expected element \(element) to exist before tap", file: file, line: line)
+        let hittablePredicate = NSPredicate(format: "isHittable == true")
+        let expectation = XCTNSPredicateExpectation(predicate: hittablePredicate, object: element)
+        let result = XCTWaiter.wait(for: [expectation], timeout: min(timeout, 3.0))
+        if result == .completed {
+            element.tap()
+        } else {
+            let frame = element.frame
+            XCTAssertFalse(frame.isEmpty, "Element \(element) has empty frame and is not hittable", file: file, line: line)
+            element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        }
+    }
+
+    @MainActor
+    private func typeReliably(_ element: XCUIElement, text: String, timeout: TimeInterval = 4, file: StaticString = #filePath, line: UInt = #line) {
+        tapReliably(element, timeout: timeout, file: file, line: line)
+        // Allow Simulator keyboard presentation & SwiftUI layout pass to settle before synthesizing keystrokes
+        RunLoop.current.run(until: Date().addingTimeInterval(0.35))
+        element.typeText(text)
+    }
+
+    @MainActor
+    private func waitForDisappearance(_ element: XCUIElement, timeout: TimeInterval = 8) -> Bool {
+        if !element.exists { return true }
+        let predicate = NSPredicate(format: "exists == false")
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: element)
+        return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
+    }
+
+    private func verifyLiveBackendReachable(file: StaticString = #filePath, line: UInt = #line) {
+        guard let url = URL(string: "http://127.0.0.1:4000/health") else {
+            XCTFail("Invalid backend health URL", file: file, line: line)
+            return
+        }
+        let semaphore = DispatchSemaphore(value: 0)
+        var reachable = false
+        var statusCode = 0
+        var lastError: Error?
+        let task = URLSession.shared.dataTask(with: url) { _, response, error in
+            if let http = response as? HTTPURLResponse {
+                statusCode = http.statusCode
+                reachable = (200..<500).contains(http.statusCode)
+            }
+            lastError = error
+            semaphore.signal()
+        }
+        task.resume()
+        _ = semaphore.wait(timeout: .now() + 5.0)
+        XCTAssertTrue(
+            reachable,
+            "Live backend at http://127.0.0.1:4000/health is not reachable (status=\(statusCode), error=\(lastError?.localizedDescription ?? "timeout")). Start backend services before running testLiveAuthenticatedEndToEndWorkflow.",
+            file: file,
+            line: line
+        )
+    }
+
+    @MainActor
     func testLivingArchiveTabNavigationAndKeyWorkflows() throws {
         let app = XCUIApplication()
         app.launchArguments = ["-UITestResetLocalArchive"]
@@ -125,33 +183,34 @@ final class MemoriaUITests: XCTestCase {
 
         let switchSpaceBtn = app.buttons["Switch Space"].firstMatch
         if switchSpaceBtn.waitForExistence(timeout: 3) {
-            switchSpaceBtn.tap()
+            tapReliably(switchSpaceBtn)
             XCTAssertTrue(app.navigationBars["Memory Spaces"].waitForExistence(timeout: 3))
             app.buttons["Close"].firstMatch.tap()
+            _ = waitForDisappearance(app.navigationBars["Memory Spaces"], timeout: 4)
         }
 
         let captureBtn = app.buttons["Capture Memory"].firstMatch
         if captureBtn.waitForExistence(timeout: 3) {
-            captureBtn.tap()
+            tapReliably(captureBtn)
             let photoOrStoryItem = app.buttons["Photo or Story"].firstMatch
             if photoOrStoryItem.waitForExistence(timeout: 3) {
                 photoOrStoryItem.tap()
                 XCTAssertTrue(app.navigationBars["New Memory"].waitForExistence(timeout: 3))
                 app.buttons["Cancel"].firstMatch.tap()
+                _ = waitForDisappearance(app.navigationBars["New Memory"], timeout: 4)
             }
         }
 
         // IOS-18: Video Capture & Trim -> create trimmed video memory
         if captureBtn.waitForExistence(timeout: 3) {
-            captureBtn.tap()
+            tapReliably(captureBtn)
             let videoItem = app.buttons["Video Trim Studio"].firstMatch
             if videoItem.waitForExistence(timeout: 3) {
                 videoItem.tap()
                 XCTAssertTrue(app.navigationBars["Video Capture & Trim"].waitForExistence(timeout: 3))
                 let videoTitleField = app.textFields["Video Title"].firstMatch
                 if videoTitleField.waitForExistence(timeout: 2) {
-                    videoTitleField.tap()
-                    videoTitleField.typeText("Birthday Trim Clip")
+                    typeReliably(videoTitleField, text: "Birthday Trim Clip")
                 }
                 let archiveClipBtn = app.buttons["Archive Clip"].firstMatch
                 if archiveClipBtn.waitForExistence(timeout: 2) && archiveClipBtn.isEnabled {
@@ -159,12 +218,13 @@ final class MemoriaUITests: XCTestCase {
                 } else {
                     app.buttons["Cancel"].firstMatch.tap()
                 }
+                _ = waitForDisappearance(app.navigationBars["Video Capture & Trim"], timeout: 4)
             }
         }
 
         // IOS-19: Oral History Voice Recorder -> create voice note memory
         if captureBtn.waitForExistence(timeout: 3) {
-            captureBtn.tap()
+            tapReliably(captureBtn)
             let voiceItem = app.buttons["Voice Oral History"].firstMatch
             if voiceItem.waitForExistence(timeout: 3) {
                 voiceItem.tap()
@@ -490,6 +550,8 @@ final class MemoriaUITests: XCTestCase {
 
     @MainActor
     func testLiveAuthenticatedEndToEndWorkflow() throws {
+        verifyLiveBackendReachable()
+
         let app = XCUIApplication()
         app.launchArguments = ["-UITestResetLocalArchive"]
         app.launchEnvironment["MEMORIA_API_URL"] = "http://127.0.0.1:4000/api/v1"
@@ -500,9 +562,9 @@ final class MemoriaUITests: XCTestCase {
 
         // 1. Register a brand-new user via live API Gateway -> Identity Service -> Postgres
         let accountBtn = app.buttons["Account Access"].firstMatch
-        XCTAssertTrue(accountBtn.waitForExistence(timeout: 4))
-        accountBtn.tap()
-        XCTAssertTrue(app.navigationBars["Memoria Access"].waitForExistence(timeout: 4))
+        tapReliably(accountBtn, timeout: 4)
+        let authNavBar = app.navigationBars["Memoria Access"]
+        XCTAssertTrue(authNavBar.waitForExistence(timeout: 4))
 
         let accessModePicker = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Access Mode' OR label CONTAINS 'Sign In'")).firstMatch
         XCTAssertTrue(accessModePicker.waitForExistence(timeout: 3))
@@ -513,58 +575,54 @@ final class MemoriaUITests: XCTestCase {
 
         let uniqueEmail = "ios_live_\(Int(Date().timeIntervalSince1970))@memoria.internal"
         let fullNameField = app.textFields["Full Name"].firstMatch
-        XCTAssertTrue(fullNameField.waitForExistence(timeout: 3))
-        fullNameField.tap()
-        fullNameField.typeText("Elena Bennett")
+        typeReliably(fullNameField, text: "Elena Bennett", timeout: 3)
 
         let emailField = app.textFields["Email Address"].firstMatch
-        emailField.tap()
-        emailField.typeText(uniqueEmail)
+        typeReliably(emailField, text: uniqueEmail, timeout: 3)
 
         let passwordField = app.secureTextFields["Password (min 8 chars)"].firstMatch
-        passwordField.tap()
-        passwordField.typeText("HeirloomPass123!")
+        typeReliably(passwordField, text: "HeirloomPass123!", timeout: 3)
 
         let registerSubmit = app.buttons["Create Archival Account"].firstMatch
         XCTAssertTrue(registerSubmit.waitForExistence(timeout: 2) && registerSubmit.isEnabled)
         registerSubmit.tap()
 
-        // Wait for auth sheet to dismiss after HTTP 201
-        XCTAssertTrue(app.buttons["Switch Space"].waitForExistence(timeout: 8), "Auth sheet should dismiss after live registration")
+        // Wait for auth sheet to actually dismiss after HTTP 201
+        XCTAssertTrue(waitForDisappearance(authNavBar, timeout: 10), "Auth sheet should dismiss after live registration")
+        XCTAssertTrue(app.buttons["Switch Space"].waitForExistence(timeout: 6), "Switch Space toolbar button should be present after auth dismissal")
 
         // 2. Create a live Memory Space via SpaceOverviewSheet -> Memory Service -> Postgres
-        app.buttons["Switch Space"].firstMatch.tap()
-        XCTAssertTrue(app.navigationBars["Memory Spaces"].waitForExistence(timeout: 4))
+        tapReliably(app.buttons["Switch Space"].firstMatch, timeout: 4)
+        let spacesNavBar = app.navigationBars["Memory Spaces"]
+        XCTAssertTrue(spacesNavBar.waitForExistence(timeout: 4))
         let vaultNameField = app.textFields["Vault Name (e.g. Rivera Family)"].firstMatch
-        XCTAssertTrue(vaultNameField.waitForExistence(timeout: 3))
-        vaultNameField.tap()
-        vaultNameField.typeText("Live Bennett Vault")
+        typeReliably(vaultNameField, text: "Live Bennett Vault", timeout: 3)
         let createVaultBtn = app.buttons["Create Vault"].firstMatch
         XCTAssertTrue(createVaultBtn.waitForExistence(timeout: 2) && createVaultBtn.isEnabled)
         createVaultBtn.tap()
         XCTAssertTrue(app.staticTexts["Vault created and selected."].waitForExistence(timeout: 6))
         app.buttons["Close"].firstMatch.tap()
+        XCTAssertTrue(waitForDisappearance(spacesNavBar, timeout: 6), "Memory Spaces sheet should dismiss")
 
         // 3. Create 2 live memories via MemoryCreateView -> Memory Service -> Postgres
         func createLiveMemory(title: String, story: String) {
             let captureBtn = app.buttons["Capture Memory"].firstMatch
-            XCTAssertTrue(captureBtn.waitForExistence(timeout: 4))
-            captureBtn.tap()
+            tapReliably(captureBtn, timeout: 4)
             let photoStoryBtn = app.buttons["Photo or Story"].firstMatch
             XCTAssertTrue(photoStoryBtn.waitForExistence(timeout: 3))
             photoStoryBtn.tap()
-            XCTAssertTrue(app.navigationBars["New Memory"].waitForExistence(timeout: 3))
+            let newMemNavBar = app.navigationBars["New Memory"]
+            XCTAssertTrue(newMemNavBar.waitForExistence(timeout: 3))
             let titleInput = app.textFields["Title (e.g. Anniversary Dinner)"].firstMatch
-            titleInput.tap()
-            titleInput.typeText(title)
+            typeReliably(titleInput, text: title, timeout: 3)
             let storyInput = app.textFields["Story / Content"].firstMatch
             if storyInput.exists {
-                storyInput.tap()
-                storyInput.typeText(story)
+                typeReliably(storyInput, text: story, timeout: 3)
             }
             let saveBtn = app.buttons["Save Memory"].firstMatch
             XCTAssertTrue(saveBtn.waitForExistence(timeout: 2) && saveBtn.isEnabled)
             saveBtn.tap()
+            _ = waitForDisappearance(newMemNavBar, timeout: 6)
             XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label CONTAINS %@", title)).firstMatch.waitForExistence(timeout: 6))
         }
 
@@ -588,14 +646,14 @@ final class MemoriaUITests: XCTestCase {
         let reflectionsBtn = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Reactions & Family Reflections'")).firstMatch
         XCTAssertTrue(reflectionsBtn.waitForExistence(timeout: 3))
         reflectionsBtn.tap()
-        XCTAssertTrue(app.navigationBars["Reflections & Notes"].waitForExistence(timeout: 3))
+        let reflectionsNavBar = app.navigationBars["Reflections & Notes"]
+        XCTAssertTrue(reflectionsNavBar.waitForExistence(timeout: 3))
         let reflectionField = app.textFields["Share a memory or reflection..."].firstMatch
-        XCTAssertTrue(reflectionField.waitForExistence(timeout: 2))
-        reflectionField.tap()
-        reflectionField.typeText("Server persisted reflection!")
-        app.buttons["Send Reflection"].firstMatch.tap()
+        typeReliably(reflectionField, text: "Server persisted reflection!", timeout: 3)
+        tapReliably(app.buttons["Send Reflection"].firstMatch, timeout: 3)
         XCTAssertTrue(app.staticTexts["Server persisted reflection!"].waitForExistence(timeout: 6))
         app.buttons["Close"].firstMatch.tap()
+        _ = waitForDisappearance(reflectionsNavBar, timeout: 4)
 
         // Navigate back and re-open to prove server persistence of reaction + comment
         app.navigationBars.buttons.element(boundBy: 0).tap()
@@ -609,11 +667,10 @@ final class MemoriaUITests: XCTestCase {
         app.navigationBars.buttons.element(boundBy: 0).tap()
 
         // 5. Collection curation & reorder via live API
-        app.buttons["Collections"].firstMatch.tap()
+        tapReliably(app.buttons["Collections"].firstMatch, timeout: 4)
         XCTAssertTrue(app.navigationBars["Collections"].waitForExistence(timeout: 4))
         let colTitleField = app.textFields["Collection Title"].firstMatch
-        colTitleField.tap()
-        colTitleField.typeText("Live Heritage Album")
+        typeReliably(colTitleField, text: "Live Heritage Album", timeout: 3)
         app.buttons["Add Collection"].firstMatch.tap()
         let colCell = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Live Heritage Album'")).firstMatch
         XCTAssertTrue(colCell.waitForExistence(timeout: 6))
