@@ -146,24 +146,6 @@ export async function runDoctor(): Promise<boolean> {
     });
   }
 
-  // 8. Xcode Project & Native App Target
-  const xcodeProjExists = existsSync(path.resolve(process.cwd(), "apps/ios/Memoria.xcodeproj"));
-  if (xcodeProjExists) {
-    checks.push({
-      category: "Mobile iOS",
-      name: "Xcode Project (Memoria.xcodeproj)",
-      passed: true,
-      message: "Configured with native SwiftUI App target & assets",
-    });
-  } else {
-    checks.push({
-      category: "Mobile iOS",
-      name: "Xcode Project (Memoria.xcodeproj)",
-      passed: false,
-      message: "Run 'pnpm run ios:generate' to create Memoria.xcodeproj",
-    });
-  }
-
   // Display Doctor Summary Table
   console.log("CATEGORY".padEnd(18) + "CHECK".padEnd(36) + "RESULT".padEnd(12) + "DETAILS");
   console.log("-".repeat(95));

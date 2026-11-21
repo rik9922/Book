@@ -64,10 +64,9 @@ describe("Memoria Unified Cross-Platform 3D Book Engine Consistency Suite", () =
   const webGlbPath = path.resolve("apps/web/public/models/memoria_heirloom_book.glb");
   const legacyGlbPath = path.resolve("apps/web/public/models/heirloom_book.glb");
   const webUsdzPath = path.resolve("apps/web/public/models/MemoriaHeirloomBook.usdz");
-  const iosUsdzPath = path.resolve("apps/ios/Memoria/Resources/Models/MemoriaHeirloomBook.usdz");
   const manifestPath = path.resolve("packages/contracts/src/book-3d-manifest.json");
 
-  test("1. Manifest Checksums & Binary Byte-Size Parity (GLB + USDZ)", () => {
+  test("1. Manifest Checksums & Binary Byte-Size Parity (Web GLB + USDZ)", () => {
     assert.ok(fs.existsSync(manifestPath), "book-3d-manifest.json must exist");
     const manifestJson = JSON.parse(fs.readFileSync(manifestPath, "utf-8"));
     const parsed = Book3DManifestSchema.parse(manifestJson);
@@ -82,12 +81,10 @@ describe("Memoria Unified Cross-Platform 3D Book Engine Consistency Suite", () =
     assert.equal(sha256File(webGlbPath), parsed.assets.glb.sha256);
     assert.equal(sha256File(legacyGlbPath), parsed.assets.glb.sha256);
 
-    // USDZ targets
+    // Web USDZ target
     assert.ok(fs.existsSync(webUsdzPath));
-    assert.ok(fs.existsSync(iosUsdzPath));
     assert.equal(fs.statSync(webUsdzPath).size, parsed.assets.usdz.byteSize);
     assert.equal(sha256File(webUsdzPath), parsed.assets.usdz.sha256);
-    assert.equal(sha256File(iosUsdzPath), parsed.assets.usdz.sha256);
   });
 
   test("2. GLB Binary Structure, Node Hierarchy, PBR & CCW Winding Verification", () => {
@@ -442,30 +439,5 @@ describe("Memoria Unified Cross-Platform 3D Book Engine Consistency Suite", () =
     assert.ok(longBook3dBody.data.configuration.spineText.length <= 40);
 
     await app.close();
-  });
-
-  test("6. Swift Book3DContract.swift Parity Lock Against Manifest & TS Contracts", () => {
-    const swiftPath = path.resolve("apps/ios/Memoria/Sources/Memoria/Models/Book3DContract.swift");
-    const swiftSrc = fs.readFileSync(swiftPath, "utf-8");
-
-    for (const nodeName of BOOK_3D_REQUIRED_NODES) {
-      assert.ok(swiftSrc.includes(`"${nodeName}"`), `Swift contract missing node ${nodeName}`);
-    }
-    for (const swatch of BOOK_LEATHER_SWATCHES) {
-      assert.ok(
-        swiftSrc.includes(`"${swatch.hex}"`),
-        `Swift contract missing leather swatch hex ${swatch.hex}`
-      );
-    }
-    for (const preset of BOOK_CAMERA_PRESETS) {
-      assert.ok(
-        swiftSrc.includes(`"${preset.label}"`),
-        `Swift contract missing camera preset ${preset.label}`
-      );
-    }
-    assert.ok(swiftSrc.includes(`openAngleRadians: Float = ${BOOK_ANIMATION_CONTRACT.openAngleRadians}`));
-    assert.ok(swiftSrc.includes(`pageTurnEndRadians: Float = ${BOOK_ANIMATION_CONTRACT.pageTurnEndRadians}`));
-    assert.ok(swiftSrc.includes(`"${CANONICAL_BOOK_3D_MANIFEST.version}"`));
-    assert.ok(swiftSrc.includes('"The Bennett Heritage"'));
   });
 });

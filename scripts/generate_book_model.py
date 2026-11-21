@@ -685,27 +685,9 @@ def main():
     glb_builder.build_glb(glb_target_1)
     glb_builder.build_glb(glb_target_2)
 
-    # 7. Build and Export Canonical USDZ + iOS Runtime LOD Variants
+    # 7. Build and Export Canonical Web USDZ
     usdz_web_target = os.path.join(repo_root, "apps/web/public/models/MemoriaHeirloomBook.usdz")
-    usdz_ios_target = os.path.join(repo_root, "apps/ios/Memoria/Resources/Models/MemoriaHeirloomBook.usdz")
     export_usdz_variant(usdz_web_target, canonical_geom)
-
-    os.makedirs(os.path.dirname(usdz_ios_target), exist_ok=True)
-    import shutil
-    shutil.copyfile(usdz_web_target, usdz_ios_target)
-    print(f"✓ Mirrored USDZ to Native iOS Resources: {usdz_ios_target}")
-
-    # iOS Runtime Variants (Premium & Efficient) preserving identical 11-node hierarchy & dimensions
-    premium_geom = build_book_geometry(spine_steps=36, emblem_segments=48, page_steps=24)
-    usdz_ios_premium = os.path.join(repo_root, "apps/ios/Memoria/Resources/Models/MemoriaHeirloomBook_Premium.usdz")
-    prem_v, prem_t = export_usdz_variant(usdz_ios_premium, premium_geom)
-
-    efficient_geom = build_book_geometry(spine_steps=8, emblem_segments=12, page_steps=6)
-    usdz_ios_efficient = os.path.join(repo_root, "apps/ios/Memoria/Resources/Models/MemoriaHeirloomBook_Efficient.usdz")
-    eff_v, eff_t = export_usdz_variant(usdz_ios_efficient, efficient_geom)
-
-    print(f"✓ iOS Premium Variant  : {prem_v} verts, {prem_t} tris ({os.path.getsize(usdz_ios_premium):,} bytes)")
-    print(f"✓ iOS Efficient Variant: {eff_v} verts, {eff_t} tris ({os.path.getsize(usdz_ios_efficient):,} bytes)")
 
     # 8. Compute Telemetry & Manifest
     total_vertices = (len(spine_v) + len(back_v) + len(tb_v) + len(front_v) + len(emblem_v) + len(corners_v) + len(page_v) + len(ribbon_v)) // 3

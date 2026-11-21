@@ -10,9 +10,9 @@ This document governs the operational rules, architectural constraints, clean co
 ## 1. CORE OPERATIONAL DIRECTIVES
 
 ### 1.1 Never Lose Project / Product Context
-- **Product Vision**: Heirloom memory preservation ecosystem across Web/PWA (82 views), Native iOS (56 views), Admin Portal (26 views), Fastify microservices, and 3D reading engine (Three.js/R3F on Web, RealityKit on iOS).
-- **Single Source of Truth**: All architectures, contracts, and view specs are formally documented in `docs/` and `docs/SCREEN_INVENTORY.md`.
-- **Zero Scope Drift**: Never silently deprecate, replace, or skip views, features, or architectural layers.
+- **Product Vision**: Heirloom memory preservation and professional book authoring ecosystem across Web/PWA (including Memoria Author Studio), Admin Portal (`/admin`, 11 operational sections), Fastify microservices, and Web 3D reading engine (Three.js/R3F Book Theater). Native mobile apps (`apps/ios`) are retired; no native iOS or Android clients are developed.
+- **Single Source of Truth**: All architectures, contracts, and view specs are formally documented in `docs/`, `docs/SCREEN_INVENTORY.md`, and `docs/MEMORIA_AUTHOR_STUDIO_BLUEPRINT.md`.
+- **Zero Scope Drift**: Never silently deprecate, replace, or skip Web/PWA views, Admin Portal sections, Author Studio features, or backend architectural layers.
 
 ### 1.2 Anti-Hallucination & Truthfulness (Zero Fabrication)
 - **No Simulated Progress**: Never report tasks as complete unless verified by executable code, applied migrations, passing unit/integration tests, or compiled builds.

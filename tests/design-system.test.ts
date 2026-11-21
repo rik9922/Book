@@ -76,29 +76,21 @@ describe("Memoria Living Archive — Design System & Contrast Verification Suite
     const rootLayout = fs.readFileSync(path.resolve("apps/web/src/app/layout.tsx"), "utf-8");
     assert.ok(rootLayout.includes('style={{ colorScheme: "light" }}') || rootLayout.includes('colorScheme: "light"'), "RootLayout must force light color-scheme");
     assert.ok(!rootLayout.includes('className="dark"'), "RootLayout must not have dark className");
-
-    // iOS MemoriaApp.swift
-    const iosApp = fs.readFileSync(path.resolve("apps/ios/Memoria/App/MemoriaApp.swift"), "utf-8");
-    assert.ok(iosApp.includes(".preferredColorScheme(.light)"), "MemoriaApp.swift must enforce .preferredColorScheme(.light)");
-    assert.ok(!iosApp.includes(".preferredColorScheme(.dark)"), "MemoriaApp.swift must not have .preferredColorScheme(.dark)");
   });
 
-  test("4. Cross-Platform Token Consistency", () => {
+  test("4. Design Token JSON & Web CSS Consistency", () => {
     // Verify JSON tokens file exists
     const jsonPath = path.resolve("packages/contracts/src/design-tokens.json");
     assert.ok(fs.existsSync(jsonPath), "design-tokens.json must exist");
     const jsonTokens = JSON.parse(fs.readFileSync(jsonPath, "utf-8"));
     assert.equal(jsonTokens.color.brand.plum.value, "#76556F");
     assert.equal(jsonTokens.color.brand.ivory.value, "#F7F4EE");
+    assert.equal(jsonTokens.color.brand.ink.value, "#20242C");
 
-    // Verify iOS MemoriaTheme.swift exists
-    const swiftThemePath = path.resolve("apps/ios/Memoria/Sources/Memoria/Theme/MemoriaTheme.swift");
-    assert.ok(fs.existsSync(swiftThemePath), "MemoriaTheme.swift must exist");
-    const swiftCode = fs.readFileSync(swiftThemePath, "utf-8");
-    assert.ok(swiftCode.includes("0x76556F"), "MemoriaTheme.swift must define plum 0x76556F");
-    assert.ok(swiftCode.includes("0xF7F4EE"), "MemoriaTheme.swift must define ivory 0xF7F4EE");
-    assert.ok(swiftCode.includes("0x20242C"), "MemoriaTheme.swift must define ink 0x20242C");
-    assert.ok(swiftCode.includes("0x5F735E"), "MemoriaTheme.swift must define sageFunc 0x5F735E");
+    // Verify Web globals.css includes Living Archive tokens
+    const globalsCss = fs.readFileSync(path.resolve("apps/web/src/app/globals.css"), "utf-8");
+    assert.ok(globalsCss.includes("#F7F4EE") || globalsCss.includes("#f7f4ee"), "globals.css must reference Ivory #F7F4EE");
+    assert.ok(globalsCss.includes("#76556F") || globalsCss.includes("#76556f"), "globals.css must reference Plum #76556F");
   });
 });
 

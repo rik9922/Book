@@ -16,9 +16,11 @@
 
 ### Core Product Capabilities
 - **Heirloom Life Story Archives**: Multi-format memories (high-resolution photographs, videos, audio voice notes, letters, and rich markdown narratives).
+- **Memoria Author Studio (Web PWA)**: Unified 5-environment book authoring studio (Write, Structure, Design & Format, 3D Book Theater Preview, Publish) with Tiptap rich-text editing, IndexedDB offline drafts, exact resume state, and lossless `.memoria`, DOCX, EPUB 3.3, Markdown, HTML, TXT, and print PDF import/export.
 - **Collaborative Family Spaces**: Multi-user permissions, secure tokenized family invites, and profile tagging for children, parents, and ancestors.
-- **Interactive 3D Book Studio**: Realistic book-turning physics, Three.js PBR cloth and leather textures, and foil-stamped typography.
-- **Physical Book Publishing**: Frozen cryptographic editions (`sha256`), press-ready PDF layout export, and physical bindery order dispatch.
+- **Interactive 3D Book Theater**: Realistic book-turning physics, Three.js PBR cloth and leather textures, foil-stamped typography, and live manuscript pagination.
+- **Admin Operations Portal (`/admin`)**: Full 11-section administrative control plane for users, spaces, books, commerce, moderation, feature flags, queues, and audit logs.
+- **Web-PWA-Only Architecture**: Focused on Web/PWA + Admin Panel + Fastify microservices (native mobile apps retired).
 - **Absolute $0 Budget / Local-First Policy**: Powered by local PostgreSQL 17, Redis 7, NATS JetStream, and `LocalDiskStorageDriver` with zero card-gated services.
 
 ---
