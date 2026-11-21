@@ -35,6 +35,7 @@ import {
   startServiceServer,
 } from "@memory-capsule/contracts";
 import { createEventBus, EventBus } from "@memory-capsule/events";
+import { registerAuthorStudioRoutes } from "./author-studio-routes.js";
 import {
   createDatabaseClient,
   DatabaseClient,
@@ -1273,6 +1274,16 @@ export async function buildBookService(): Promise<FastifyInstance> {
       );
     }
   );
+
+  // Register Memoria Author Studio Semantic Manuscript, Resume, Revision & Import/Export API
+  registerAuthorStudioRoutes({
+    app,
+    db,
+    dbUrl,
+    bookRepo,
+    requireAuthUser,
+    assertSpaceAccess,
+  });
 
   return app;
 }

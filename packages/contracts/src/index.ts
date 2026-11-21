@@ -407,5 +407,6 @@ export * from "./ports.js";
 export * from "./server-launcher.js";
 export * from "./design-tokens.js";
 export * from "./book-3d.js";
+export * from "./author-studio.js";
 
 

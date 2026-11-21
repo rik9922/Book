@@ -1357,3 +1357,286 @@ export async function registerAdminSecurityKey(name: string, keyType = "fido2") 
 export async function deleteAdminSecurityKey(keyId: string) {
   return apiRequest(`/admin/profile/security-keys/${keyId}`, { method: "DELETE" });
 }
+
+// ==========================================
+// MEMORIA AUTHOR STUDIO — MANUSCRIPT API
+// ==========================================
+
+export type AuthorEnvironment = "write" | "structure" | "design" | "preview" | "publish";
+export type ChapterSectionType = "front_matter" | "part" | "chapter" | "epilogue" | "back_matter";
+export type ChapterStatus = "draft" | "revised" | "final";
+export type TrimSize = "5x8_pocket" | "5.5x8.5_digest" | "6x9_trade" | "8x10_heirloom" | "8.5x11_archival";
+export type TypographyPreset = "living_archive_serif" | "editorial_classic" | "modern_memoir" | "poetic_wide";
+export type ImportFormat = "memoria" | "docx" | "markdown" | "txt" | "html" | "epub" | "pdf";
+export type ExportFormat = "memoria" | "docx" | "epub" | "html" | "markdown" | "txt" | "pdf";
+export type MergeStrategy = "append" | "replace" | "merge_by_title";
+
+export interface ManuscriptChapterDTO {
+  id: string;
+  bookId: string;
+  parentId?: string | null;
+  sectionType: ChapterSectionType;
+  title: string;
+  subtitle?: string | null;
+  slug: string;
+  sortOrder: number;
+  contentJson: Record<string, unknown>;
+  contentHtml: string;
+  contentText: string;
+  wordCount: number;
+  status: ChapterStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ManuscriptDocumentDTO {
+  id: string;
+  bookId: string;
+  spaceId: string;
+  schemaVersion: string;
+  trimSize: TrimSize;
+  typographyPreset: TypographyPreset;
+  themePreset: string;
+  languageCode: string;
+  authorName: string;
+  dedication: string;
+  epigraph: string;
+  metadata: Record<string, unknown>;
+  totalWordCount: number;
+  chapters: ManuscriptChapterDTO[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BookEditorStateDTO {
+  bookId: string;
+  userId: string;
+  activeEnvironment: AuthorEnvironment;
+  activeChapterId?: string | null;
+  cursorOffset: number;
+  scrollOffset: number;
+  panelState: Record<string, unknown>;
+  updatedAt: string;
+}
+
+export interface BookRevisionDTO {
+  id: string;
+  bookId: string;
+  createdBy: string;
+  label: string;
+  sourceType: "manual" | "autosave" | "import" | "publish";
+  wordCount: number;
+  checksumSha256: string;
+  createdAt: string;
+}
+
+export async function fetchBooks(spaceId: string): Promise<BookDTO[]> {
+  const res = await apiRequest<BookDTO[] | { items?: BookDTO[]; books?: BookDTO[] }>(
+    `/spaces/${spaceId}/books`
+  );
+  return Array.isArray(res) ? res : res.books || res.items || [];
+}
+
+export async function createBook(
+  spaceId: string,
+  payload: {
+    title: string;
+    subtitle?: string;
+    coverTitle?: string;
+    spineText?: string;
+    format?: string;
+    coverColor?: string;
+    foilStamping?: string;
+  }
+): Promise<BookDTO> {
+  return apiRequest<BookDTO>("/books", {
+    method: "POST",
+    body: JSON.stringify({
+      spaceId,
+      title: payload.title,
+      subtitle: payload.subtitle,
+      coverTitle: payload.coverTitle || payload.title,
+      spineText: payload.spineText,
+      format: payload.format,
+      coverColor: payload.coverColor,
+      foilStamping: payload.foilStamping,
+    }),
+  });
+}
+
+export async function getBookManuscript(bookId: string): Promise<{
+  book: BookDTO;
+  manuscript: ManuscriptDocumentDTO;
+  editorState: BookEditorStateDTO | null;
+}> {
+  return apiRequest(`/books/${bookId}/manuscript`);
+}
+
+export async function updateBookManuscript(
+  bookId: string,
+  payload: Partial<{
+    trimSize: TrimSize;
+    typographyPreset: TypographyPreset;
+    themePreset: string;
+    languageCode: string;
+    authorName: string;
+    dedication: string;
+    epigraph: string;
+    metadata: Record<string, unknown>;
+  }>
+): Promise<ManuscriptDocumentDTO> {
+  return apiRequest(`/books/${bookId}/manuscript`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function createManuscriptChapter(
+  bookId: string,
+  payload: {
+    title: string;
+    subtitle?: string | null;
+    sectionType?: ChapterSectionType;
+    contentHtml?: string;
+    contentJson?: Record<string, unknown>;
+    status?: ChapterStatus;
+  }
+): Promise<ManuscriptChapterDTO> {
+  return apiRequest(`/books/${bookId}/manuscript/chapters`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateManuscriptChapter(
+  bookId: string,
+  chapterId: string,
+  payload: Partial<{
+    title: string;
+    subtitle: string | null;
+    sectionType: ChapterSectionType;
+    contentHtml: string;
+    contentJson: Record<string, unknown>;
+    status: ChapterStatus;
+    sortOrder: number;
+  }>
+): Promise<ManuscriptChapterDTO> {
+  return apiRequest(`/books/${bookId}/manuscript/chapters/${chapterId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteManuscriptChapter(
+  bookId: string,
+  chapterId: string
+): Promise<{ deleted: boolean }> {
+  return apiRequest(`/books/${bookId}/manuscript/chapters/${chapterId}`, {
+    method: "DELETE",
+  });
+}
+
+export async function reorderManuscriptChapters(
+  bookId: string,
+  chapterIds: string[]
+): Promise<ManuscriptChapterDTO[]> {
+  return apiRequest(`/books/${bookId}/manuscript/chapters/reorder`, {
+    method: "PUT",
+    body: JSON.stringify({ chapterIds }),
+  });
+}
+
+export async function syncManuscriptSpreads(bookId: string): Promise<{
+  book: BookDTO;
+  spreadsGenerated: number;
+}> {
+  return apiRequest(`/books/${bookId}/manuscript/sync-spreads`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
+export async function saveManuscriptResumeState(
+  bookId: string,
+  payload: {
+    activeEnvironment?: AuthorEnvironment;
+    activeChapterId?: string | null;
+    cursorOffset?: number;
+    scrollOffset?: number;
+    panelState?: Record<string, unknown>;
+  }
+): Promise<BookEditorStateDTO> {
+  return apiRequest(`/books/${bookId}/manuscript/resume`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function listManuscriptRevisions(bookId: string): Promise<BookRevisionDTO[]> {
+  return apiRequest(`/books/${bookId}/manuscript/revisions`);
+}
+
+export async function createManuscriptRevision(
+  bookId: string,
+  label: string,
+  sourceType: "manual" | "autosave" | "import" | "publish" = "manual"
+): Promise<BookRevisionDTO> {
+  return apiRequest(`/books/${bookId}/manuscript/revisions`, {
+    method: "POST",
+    body: JSON.stringify({ label, sourceType }),
+  });
+}
+
+export async function restoreManuscriptRevision(
+  bookId: string,
+  revisionId: string
+): Promise<ManuscriptDocumentDTO> {
+  return apiRequest(`/books/${bookId}/manuscript/revisions/${revisionId}/restore`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
+export async function importManuscriptFile(
+  bookId: string,
+  payload: {
+    format: ImportFormat;
+    fileName: string;
+    contentBase64?: string;
+    contentText?: string;
+    mergeStrategy?: MergeStrategy;
+  }
+): Promise<{
+  manuscript: ManuscriptDocumentDTO;
+  importedChapters: number;
+  importedWordCount: number;
+  warnings: string[];
+}> {
+  return apiRequest(`/books/${bookId}/manuscript/import`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function downloadManuscriptExport(bookId: string, format: ExportFormat): Promise<{
+  blob: Blob;
+  fileName: string;
+  checksum: string | null;
+}> {
+  const { accessToken } = getStoredSession();
+  const base = getApiBaseUrl();
+  const res = await fetch(`${base}/books/${bookId}/manuscript/export?format=${encodeURIComponent(format)}`, {
+    method: "GET",
+    headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+    credentials: "include",
+  });
+  if (!res.ok) {
+    throw new Error(`Export failed (${res.status})`);
+  }
+  const blob = await res.blob();
+  const disposition = res.headers.get("content-disposition") || "";
+  const match = disposition.match(/filename="([^"]+)"/);
+  const fileName = match ? match[1] : `memoria-manuscript.${format === "markdown" ? "md" : format}`;
+  const checksum = res.headers.get("x-memoria-checksum-sha256");
+  return { blob, fileName, checksum };
+}

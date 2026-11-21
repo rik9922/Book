@@ -12,6 +12,11 @@
     "@memory-capsule/contracts": "workspace:*",
     "@react-three/drei": "^10.7.9",
     "@react-three/fiber": "^9.8.2",
+    "@tiptap/extension-character-count": "^3.35.0",
+    "@tiptap/extension-placeholder": "^3.35.0",
+    "@tiptap/pm": "^3.35.0",
+    "@tiptap/react": "^3.35.0",
+    "@tiptap/starter-kit": "^3.35.0",
     "@types/three": "^0.187.0",
     "clsx": "^2.1.1",
     "framer-motion": "^14.10.1",
@@ -36,4 +41,3 @@
     "typescript": "^7.0.2"
   }
 }
-

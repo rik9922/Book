@@ -17,6 +17,8 @@
     "@memory-capsule/events": "workspace:*",
     "@memory-capsule/logger": "workspace:*",
     "fastify": "^5.2.1",
+    "jszip": "^3.10.2",
+    "mammoth": "^1.13.0",
     "zod": "^4.6.7"
   },
   "devDependencies": {
