@@ -93,9 +93,14 @@ import {
   type TypographyPreset,
 } from "@/lib/api";
 import {
+  extractFocalPointFromSpread,
   mapBookSpreadsToTheaterPreview,
+  mapPageLayoutToTemplate,
   mergeSpreadPageElementsNonLossy,
+  updateImageFocalPointsNonLossy,
   type RawSpreadElement,
+  type SpreadFocalPreset,
+  type SpreadTemplateLayout,
 } from "@/lib/author-spread-utils";
 import {
   getOfflineChapterDraft,
@@ -350,10 +355,8 @@ export function AuthorStudioWorkspace({
   const [studioSyncNonce, setStudioSyncNonce] = useState(0);
   const [spreadHeadingInput, setSpreadHeadingInput] = useState("");
   const [spreadCaptionInput, setSpreadCaptionInput] = useState("");
-  const [templateLayout, setTemplateLayout] = useState<
-    "editorial_classic" | "photo_journal" | "fine_art_spread"
-  >("editorial_classic");
-  const [focalPreset, setFocalPreset] = useState<"50% 50%" | "50% 20%" | "50% 80%">("50% 50%");
+  const [templateLayout, setTemplateLayout] = useState<SpreadTemplateLayout>("editorial_classic");
+  const [focalPreset, setFocalPreset] = useState<SpreadFocalPreset>("50% 50%");
 
   // Memory Archive curation state (in Structure environment)
   const [spaceMemories, setSpaceMemories] = useState<MemoryDTO[]>([]);
@@ -547,8 +550,22 @@ export function AuthorStudioWorkspace({
         if (cancelled) return;
         setSpaces(userSpaces);
 
-        const primarySpace =
+        let primarySpace =
           (initialSpaceId && userSpaces.find((s) => s.id === initialSpaceId)) || userSpaces[0];
+
+        // Resolve owning space for deep-linked bookId (e.g. /author?bookId=... or /studio?bookId=...)
+        // when the book lives in a secondary space and spaceId was not supplied in the URL.
+        if (initialBookId && !initialSpaceId && userSpaces.length > 1) {
+          const directBook = await getBookManuscript(initialBookId).catch(() => null);
+          const ownerSpaceId = directBook?.book?.spaceId;
+          if (ownerSpaceId) {
+            const matchedSpace = userSpaces.find((s) => s.id === ownerSpaceId);
+            if (matchedSpace) {
+              primarySpace = matchedSpace;
+            }
+          }
+        }
+
         if (primarySpace) {
           setIsGuest(false);
           await loadSpaceBooks(primarySpace.id, initialBookId, initialEnvironment);
@@ -628,16 +645,12 @@ export function AuthorStudioWorkspace({
       )?.content;
       setSpreadHeadingInput(heading || activeBook?.title || `Spread ${spreadIndex + 1}`);
       setSpreadCaptionInput(caption || "Preserved from your Memoria Living Archive.");
-      if (
-        currentSpread.rightPage?.layoutType === "editorial_classic" ||
-        currentSpread.rightPage?.layoutType === "photo_journal" ||
-        currentSpread.rightPage?.layoutType === "fine_art_spread"
-      ) {
-        setTemplateLayout(currentSpread.rightPage.layoutType);
-      }
+      setTemplateLayout(mapPageLayoutToTemplate(currentSpread.rightPage?.layoutType));
+      setFocalPreset(extractFocalPointFromSpread(currentSpread));
     } else if (theaterSpreads[spreadIndex]) {
       setSpreadHeadingInput(theaterSpreads[spreadIndex].rightHeading);
       setSpreadCaptionInput(theaterSpreads[spreadIndex].rightBody);
+      setFocalPreset("50% 50%");
     }
   }, [activeBook, spreadIndex, theaterSpreads]);
 
@@ -1143,6 +1156,7 @@ export function AuthorStudioWorkspace({
           title: m.title,
           content: m.content,
           capturedAt: m.capturedAt,
+          mediaIds: m.mediaIds,
         })),
         templateLayout
       );
@@ -1167,11 +1181,21 @@ export function AuthorStudioWorkspace({
     setErrorMessage(null);
     setStatusMessage(null);
 
-    const existingSpread = activeBook.spreads?.[spreadIndex] || activeBook.spreads?.[0];
+    const existingSpread = activeBook.spreads?.[spreadIndex];
     const spreadId = existingSpread?.id || crypto.randomUUID();
     const rightPageId = existingSpread?.rightPage?.id || crypto.randomUUID();
 
-    // Non-lossy merge: preserves all existing images, shapes, extra text elements, and crops!
+    // Non-lossy merge: preserves all existing images, shapes, extra text elements, and crops on BOTH pages!
+    const nextLeftPage = existingSpread?.leftPage
+      ? {
+          ...existingSpread.leftPage,
+          elements: updateImageFocalPointsNonLossy(
+            existingSpread.leftPage.elements as RawSpreadElement[] | undefined,
+            focalPreset
+          ),
+        }
+      : null;
+
     const mergedElements = mergeSpreadPageElementsNonLossy(
       existingSpread?.rightPage?.elements as RawSpreadElement[] | undefined,
       {
@@ -1195,7 +1219,7 @@ export function AuthorStudioWorkspace({
           method: "PUT",
           body: JSON.stringify({
             spreadIndex: existingSpread?.spreadIndex ?? spreadIndex,
-            leftPage: existingSpread?.leftPage ?? null,
+            leftPage: nextLeftPage,
             rightPage: {
               id: rightPageId,
               pageNumber: existingSpread?.rightPage?.pageNumber ?? spreadIndex * 2 + 2,
@@ -1212,7 +1236,8 @@ export function AuthorStudioWorkspace({
       if (existingIdx >= 0) {
         spreadsCopy[existingIdx] = updatedSpread;
       } else {
-        spreadsCopy[spreadIndex] = updatedSpread;
+        spreadsCopy.push(updatedSpread);
+        spreadsCopy.sort((a, b) => a.spreadIndex - b.spreadIndex);
       }
       const nextBook: BookDTO = { ...activeBook, spreads: spreadsCopy };
       setActiveBook(nextBook);
@@ -1327,6 +1352,7 @@ export function AuthorStudioWorkspace({
     if (!sourceProfileId) return spaceMemories;
     return spaceMemories.filter(
       (m) =>
+        m.associatedProfileIds?.includes(sourceProfileId) ||
         (m as unknown as { profileId?: string }).profileId === sourceProfileId ||
         m.tags?.includes(sourceProfileId)
     );
@@ -2259,8 +2285,9 @@ export function AuthorStudioWorkspace({
               </button>
               <button
                 type="button"
+                disabled={activeBook.isFrozenForPrint}
                 onClick={() => void handleSyncToBookTheater()}
-                className="inline-flex items-center gap-1.5 text-xs font-medium px-3.5 py-1.5 rounded-lg bg-[#76556F] text-[#FFFFFF] hover:bg-[#64465E]"
+                className="inline-flex items-center gap-1.5 text-xs font-medium px-3.5 py-1.5 rounded-lg bg-[#76556F] text-[#FFFFFF] hover:bg-[#64465E] disabled:opacity-50"
               >
                 <RefreshCw className="w-3.5 h-3.5" />
                 Sync Spreads to Server

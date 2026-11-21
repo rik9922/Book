@@ -1142,7 +1142,13 @@ export async function submitAbuseReport(payload: {
 
 export async function curateBookMemories(
   bookId: string,
-  memories: Array<{ id: string; title: string; content?: string; capturedAt?: string }>,
+  memories: Array<{
+    id: string;
+    title: string;
+    content?: string;
+    capturedAt?: string;
+    mediaIds?: string[];
+  }>,
   template?: string
 ) {
   return apiRequest<BookDTO>(`/books/${bookId}/curate`, {

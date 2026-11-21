@@ -534,8 +534,29 @@ describe("Interactive Chrome / Playwright DOM, WebGL, SW Offline & 401 Refresh E
     await page.click('button:has-text("Update Spread")');
     await page.getByText("Updated interior spread layout.").waitFor({ state: "visible", timeout: 10000 });
 
+    // Verify focal-point & layout template hydrate faithfully across reload
+    await page.reload({ waitUntil: "networkidle" });
+    await page.locator('[data-testid="author-studio-workspace"]').waitFor({ state: "visible", timeout: 15000 });
+    await page.click('[data-testid="author-env-preview"]');
+    const hydratedFocal = await page.locator("#spread-focal").inputValue();
+    assert.equal(hydratedFocal, "50% 20%", "Saved spread focal point must hydrate across reload");
+
+    // Verify legacy /studio?bookId=<id>&tab=preflight deep-link redirect opens Publish environment directly
+    const activeBookSelectVal = await page.locator('select[aria-label="Select book manuscript"]').inputValue();
+    assert.ok(activeBookSelectVal, "Expected active book ID in Author Studio selector");
+    await page.goto(`${WEB_BASE}/studio?bookId=${activeBookSelectVal}&tab=preflight`, {
+      waitUntil: "networkidle",
+    });
+    await page.waitForURL(
+      (url) =>
+        url.pathname === "/author" &&
+        url.searchParams.get("bookId") === activeBookSelectVal &&
+        url.searchParams.get("env") === "publish",
+      { timeout: 15000 }
+    );
+    await page.getByRole("button", { name: "Run Preflight" }).waitFor({ state: "visible", timeout: 15000 });
+
     // Real preflight & Freeze for Print in Publish environment
-    await page.click('[data-testid="author-env-publish"]');
     await page.click('button:has-text("Run Preflight")');
     await page.getByText(/Print preflight passed/i).waitFor({ state: "visible", timeout: 10000 });
     await page.click('button:has-text("Freeze for Print")');

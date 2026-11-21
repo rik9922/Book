@@ -154,9 +154,14 @@ describe("3D Heirloom Book Studio Workstation Layout & Component Verification", 
     );
 
     // Unit-test non-lossy spread element merging directly
-    const { mergeSpreadPageElementsNonLossy, mapLegacyStudioTabToEnvironment } = await import(
-      "../apps/web/src/lib/author-spread-utils"
-    );
+    const {
+      mergeSpreadPageElementsNonLossy,
+      updateImageFocalPointsNonLossy,
+      mapPageLayoutToTemplate,
+      extractFocalPointFromSpread,
+      mapBookSpreadsToTheaterPreview,
+      mapLegacyStudioTabToEnvironment,
+    } = await import("../apps/web/src/lib/author-spread-utils");
     const merged = mergeSpreadPageElementsNonLossy(
       [
         {
@@ -214,5 +219,68 @@ describe("3D Heirloom Book Studio Workstation Layout & Component Verification", 
     assert.equal(mapLegacyStudioTabToEnvironment("spreads"), "preview");
     assert.equal(mapLegacyStudioTabToEnvironment("curation"), "structure");
     assert.equal(mapLegacyStudioTabToEnvironment("preflight"), "publish");
+
+    // Left-page curated photo focal-point update preserves cropShape and non-image elements
+    const leftUpdated = updateImageFocalPointsNonLossy(
+      [
+        {
+          id: "left-h",
+          type: "heading",
+          x: 10,
+          y: 10,
+          width: 80,
+          height: 12,
+          rotation: 0,
+          zIndex: 1,
+          content: "Curated Memory",
+        },
+        {
+          id: "left-img",
+          type: "image",
+          x: 10,
+          y: 30,
+          width: 80,
+          height: 55,
+          rotation: 0,
+          zIndex: 2,
+          content: "media-curated-1",
+          style: { cropShape: "arch", objectPosition: "50% 50%" },
+        },
+      ],
+      "50% 80%"
+    );
+    assert.equal(leftUpdated.length, 2);
+    assert.equal(leftUpdated[1].style?.objectPosition, "50% 80%");
+    assert.equal(leftUpdated[1].style?.cropShape, "arch");
+    assert.equal(leftUpdated[0].content, "Curated Memory");
+
+    // Reverse layout & focal-point hydration for reload/spread-switch fidelity
+    assert.equal(mapPageLayoutToTemplate("full_bleed_single"), "fine_art_spread");
+    assert.equal(mapPageLayoutToTemplate("photo_with_story"), "photo_journal");
+    assert.equal(mapPageLayoutToTemplate("editorial_chapter_title"), "editorial_classic");
+    assert.equal(
+      extractFocalPointFromSpread({
+        leftPage: { elements: leftUpdated },
+        rightPage: { elements: [{ type: "caption", style: { focalPoint: "50% 20%" } }] },
+      }),
+      "50% 80%",
+      "Image focal point must take precedence when hydrating spread focal preset"
+    );
+
+    // Theater preview mapper must not duplicate a text-only element into both heading and body
+    const previewSpreads = mapBookSpreadsToTheaterPreview(
+      [
+        {
+          spreadIndex: 0,
+          leftPage: { pageNumber: 1, elements: [{ type: "text", content: "Unique body paragraph." }] },
+          rightPage: { pageNumber: 2, elements: [{ type: "text", content: "Right body paragraph." }] },
+        },
+      ],
+      "Fallback Title"
+    );
+    assert.equal(previewSpreads[0].leftHeading, "Page 1");
+    assert.equal(previewSpreads[0].leftBody, "Unique body paragraph.");
+    assert.equal(previewSpreads[0].rightHeading, "Fallback Title");
+    assert.equal(previewSpreads[0].rightBody, "Right body paragraph.");
   });
 });

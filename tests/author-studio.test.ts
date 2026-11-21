@@ -809,6 +809,28 @@ describe("Memoria Author Studio — Manuscript, Resume, Revisions, 3D Sync & Imp
         false,
         "dpi_resolution must fail when image is below 300 DPI"
       );
+
+      // 5. Frozen edition immutability: sync-spreads MUST return 409 BOOK_FROZEN and preserve frozen spreads
+      const freezeRes = await app.inject({
+        method: "POST",
+        url: `/api/v1/books/${legacyBook.id}/freeze`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: {},
+      });
+      assert.equal(freezeRes.statusCode, 200);
+
+      const frozenSyncRes = await app.inject({
+        method: "POST",
+        url: `/api/v1/books/${legacyBook.id}/manuscript/sync-spreads`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: {},
+      });
+      assert.equal(
+        frozenSyncRes.statusCode,
+        409,
+        "sync-spreads must reject frozen print editions with 409 BOOK_FROZEN"
+      );
+      assert.equal(JSON.parse(frozenSyncRes.body).error.code, "BOOK_FROZEN");
     } finally {
       await app.close();
     }

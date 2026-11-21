@@ -54,6 +54,54 @@ export function mapLegacyStudioTabToEnvironment(tab?: string | null): AuthorEnvi
   }
 }
 
+export type SpreadTemplateLayout = "editorial_classic" | "photo_journal" | "fine_art_spread";
+export type SpreadFocalPreset = "50% 50%" | "50% 20%" | "50% 80%";
+
+/**
+ * Maps persisted PageLayoutType values back to the Spread Composer template selector.
+ */
+export function mapPageLayoutToTemplate(layoutType?: string | null): SpreadTemplateLayout {
+  switch (layoutType) {
+    case "full_bleed_single":
+    case "fine_art_spread":
+      return "fine_art_spread";
+    case "photo_with_story":
+    case "two_photo_grid":
+    case "photo_journal":
+      return "photo_journal";
+    default:
+      return "editorial_classic";
+  }
+}
+
+/**
+ * Extracts the persisted image/caption focal point from either page of a spread.
+ */
+export function extractFocalPointFromSpread(
+  spread?: {
+    leftPage?: { elements?: Array<{ type?: string; style?: Record<string, unknown> }> } | null;
+    rightPage?: { elements?: Array<{ type?: string; style?: Record<string, unknown> }> } | null;
+  } | null
+): SpreadFocalPreset {
+  const allElements = [
+    ...(spread?.leftPage?.elements || []),
+    ...(spread?.rightPage?.elements || []),
+  ];
+  const imageFirst = [
+    ...allElements.filter((el) => el.type === "image"),
+    ...allElements.filter((el) => el.type !== "image"),
+  ];
+  for (const el of imageFirst) {
+    const raw =
+      (el.style?.focalPoint as string | undefined) ||
+      (el.style?.objectPosition as string | undefined);
+    if (raw === "50% 50%" || raw === "50% 20%" || raw === "50% 80%") {
+      return raw;
+    }
+  }
+  return "50% 50%";
+}
+
 /**
  * Converts persisted BookDocument spreads into 3D Book Theater preview spreads.
  */
@@ -73,19 +121,24 @@ export function mapBookSpreadsToTheaterPreview(
   fallbackTitle: string
 ): BookSpreadPreview[] {
   return rawSpreads.map((sp, idx) => {
+    const leftHeadingEl = sp.leftPage?.elements?.find((e) => e.type === "heading");
+    const leftCaptionEl = sp.leftPage?.elements?.find((e) => e.type === "caption");
+    const leftTextEl = sp.leftPage?.elements?.find((e) => e.type === "text");
     const leftHeading =
-      sp.leftPage?.elements?.find((e) => e.type === "heading")?.content ||
-      sp.leftPage?.elements?.find((e) => e.type === "text")?.content ||
+      leftHeadingEl?.content ||
       (sp.leftPage ? `Page ${sp.leftPage.pageNumber ?? idx * 2 + 1}` : "Inside Front Cover");
     const leftBody =
-      sp.leftPage?.elements?.find((e) => e.type === "caption" || e.type === "text")?.content ||
+      leftCaptionEl?.content ||
+      leftTextEl?.content ||
       "Preserved in your Memoria Living Archive.";
-    const rightHeading =
-      sp.rightPage?.elements?.find((e) => e.type === "heading")?.content ||
-      sp.rightPage?.elements?.find((e) => e.type === "text")?.content ||
-      fallbackTitle;
+
+    const rightHeadingEl = sp.rightPage?.elements?.find((e) => e.type === "heading");
+    const rightCaptionEl = sp.rightPage?.elements?.find((e) => e.type === "caption");
+    const rightTextEl = sp.rightPage?.elements?.find((e) => e.type === "text");
+    const rightHeading = rightHeadingEl?.content || fallbackTitle;
     const rightBody =
-      sp.rightPage?.elements?.find((e) => e.type === "caption" || e.type === "text")?.content ||
+      rightCaptionEl?.content ||
+      rightTextEl?.content ||
       "Crafted for generational safekeeping.";
 
     return {
@@ -102,6 +155,31 @@ export function mapBookSpreadsToTheaterPreview(
       rightLocation: "Memoria Vault",
       rightBody,
     };
+  });
+}
+
+/**
+ * Non-lossy focal-point updater for pages (such as curated leftPage photo spreads).
+ * Preserves every element and style property while updating image objectPosition/focalPoint.
+ */
+export function updateImageFocalPointsNonLossy(
+  existingElements: RawSpreadElement[] | undefined,
+  focalPoint: string
+): RawSpreadElement[] {
+  if (!Array.isArray(existingElements)) return [];
+  return existingElements.map((el) => {
+    const nextStyle = el.style ? { ...el.style } : undefined;
+    if (el.type === "image") {
+      return {
+        ...el,
+        style: {
+          ...(nextStyle || {}),
+          objectPosition: focalPoint,
+          focalPoint,
+        },
+      };
+    }
+    return { ...el, style: nextStyle };
   });
 }
 

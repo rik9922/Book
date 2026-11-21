@@ -967,15 +967,38 @@ export function registerAuthorStudioRoutes(deps: AuthorStudioRouteDeps): void {
       const book = await bookRepo.findBookById(req.params.id);
       if (!book) return reply.status(404).send(createErrorResponse("BOOK_NOT_FOUND", "Book does not exist"));
       await assertSpaceAccess(book.spaceId, userId, true);
+      if (book.isFrozenForPrint) {
+        return reply
+          .status(409)
+          .send(createErrorResponse("BOOK_FROZEN", "Cannot overwrite spreads on a frozen print edition"));
+      }
 
       const ms = await ensureManuscript(book);
       const generatedSpreads = buildSpreadsFromChapters(book, ms.chapters);
 
       if (dbUrl) {
-        await db.query(`DELETE FROM book_spreads WHERE book_id = $1`, [book.id]);
-      }
-      for (const spread of generatedSpreads) {
-        await bookRepo.saveSpread(book.id, spread);
+        await db.transaction(async (client) => {
+          await client.query(`DELETE FROM book_spreads WHERE book_id = $1`, [book.id]);
+          for (const spread of generatedSpreads) {
+            await client.query(
+              `INSERT INTO book_spreads (id, book_id, spread_index, left_page, right_page, created_at)
+               VALUES ($1, $2, $3, $4, $5, NOW())
+               ON CONFLICT (id)
+               DO UPDATE SET spread_index = $3, left_page = $4, right_page = $5`,
+              [
+                spread.id,
+                book.id,
+                spread.spreadIndex,
+                spread.leftPage ? JSON.stringify(spread.leftPage) : null,
+                spread.rightPage ? JSON.stringify(spread.rightPage) : null,
+              ]
+            );
+          }
+        });
+      } else {
+        for (const spread of generatedSpreads) {
+          await bookRepo.saveSpread(book.id, spread);
+        }
       }
 
       const updatedBook = (await bookRepo.findBookById(book.id)) || {

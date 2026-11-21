@@ -58,6 +58,7 @@ describe("Web PWA Production Server & Routes E2E Suite", () => {
     "/archive",
     "/trash",
     "/circles",
+    "/author",
     "/studio",
     "/billing",
     "/orders",
