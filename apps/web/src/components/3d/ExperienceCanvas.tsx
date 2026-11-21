@@ -1225,7 +1225,24 @@ function Heirloom3DBook({
     };
   }, []);
 
-  const spreadFingerprint = `${textureRevisionKey}:${currentSpread.spreadIndex}:${currentSpread.leftHeading}:${currentSpread.leftBody.slice(0, 64)}:${currentSpread.rightHeading}:${currentSpread.rightBody.slice(0, 64)}`;
+  const spreadFingerprint = [
+    textureRevisionKey,
+    currentSpread.spreadIndex,
+    currentSpread.chapterTitle,
+    currentSpread.leftHeading,
+    currentSpread.leftDate,
+    currentSpread.leftLocation,
+    currentSpread.leftBody.length,
+    currentSpread.leftBody.slice(0, 64),
+    currentSpread.leftBody.slice(-48),
+    currentSpread.rightHeading,
+    currentSpread.rightDate,
+    currentSpread.rightLocation,
+    currentSpread.rightBody.length,
+    currentSpread.rightBody.slice(0, 64),
+    currentSpread.rightBody.slice(-48),
+    currentSpread.ocrInscription || "",
+  ].join(":");
 
   const leftSpreadTexture = useMemo(
     () =>
@@ -1310,42 +1327,42 @@ function Heirloom3DBook({
           </mesh>
         )}
 
-        {/* Subtle Raised Archival Spine Bands (5 Smyth-sewn cord hubs) */}
+        {/* Subtle Raised Archival Spine Bands (5 Smyth-sewn cord hubs spanning spine thickness along Y) */}
         {showSpineBands && !openSpreadVisible && (
           <group name="RaisedSpineBands">
             {[-0.092, -0.046, 0.0, 0.046, 0.092].map((bandZ) => (
               <mesh
                 key={bandZ}
                 position={[-0.0124, 0, bandZ]}
-                rotation={[0, 0, Math.PI / 2]}
+                rotation={[0, 0, 0]}
                 material={materialsBundle.leather}
                 castShadow
                 receiveShadow
               >
-                <cylinderGeometry args={[0.0021, 0.0021, 0.024, 12]} />
+                <cylinderGeometry args={[0.0018, 0.0018, 0.024, 12]} />
               </mesh>
             ))}
           </group>
         )}
 
-        {/* Top & Bottom Woven Cloth Headbands (Endbands) */}
+        {/* Top & Bottom Woven Cloth Headbands (Endbands spanning textblock thickness along Y) */}
         {showHeadbands && (
           <group name="ClothHeadbands">
             <mesh
               position={[-0.001, 0, -0.1235]}
-              rotation={[0, 0, Math.PI / 2]}
+              rotation={[0, 0, 0]}
               material={materialsBundle.headband}
               castShadow
             >
-              <cylinderGeometry args={[0.0024, 0.0024, 0.022, 10]} />
+              <cylinderGeometry args={[0.0022, 0.0022, 0.0216, 10]} />
             </mesh>
             <mesh
               position={[-0.001, 0, 0.1235]}
-              rotation={[0, 0, Math.PI / 2]}
+              rotation={[0, 0, 0]}
               material={materialsBundle.headband}
               castShadow
             >
-              <cylinderGeometry args={[0.0024, 0.0024, 0.022, 10]} />
+              <cylinderGeometry args={[0.0022, 0.0022, 0.0216, 10]} />
             </mesh>
           </group>
         )}

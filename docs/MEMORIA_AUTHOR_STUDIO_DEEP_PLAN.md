@@ -124,7 +124,7 @@ Upgrades to `ExperienceCanvas.tsx` and `packages/contracts/src/book-3d.ts`:
 1. **Title & Author Metadata**: Validates cover title length (2–80 chars; `fail` otherwise) and author attribution (`warning` if blank).
 2. **Manuscript Chapter Completeness**: Inspects actual manuscript chapters; flags empty chapters (0 words) as `fail` with `targetChapterId` for Jump-to-Fix.
 3. **Media Asset References**: Detects missing/empty image references on spreads (`fail`).
-4. **Image Resolution & Effective DPI**: Measures real pixel dimensions via `sharp` when source media is on local disk (or explicit pixel/DPI metadata), computing effective DPI against physical trim dimensions (`< 150 DPI` = `fail`, `150–299 DPI` = `warning`, `>= 300 DPI` = `pass`). When placed images exist but source binaries cannot be inspected, reports explicit `not_checked` rather than faking green.
+4. **Image Resolution & Effective DPI**: Measures real pixel dimensions via `sharp` when source media is on local disk (or explicit pixel/DPI metadata), computing effective DPI against physical trim dimensions (`< 200 DPI` = `fail`, `200–299 DPI` = `warning`, `>= 300 DPI` = `pass`). When placed images exist but source binaries cannot be inspected, reports explicit `not_checked` rather than faking green.
 5. **Trim, Bleed & Gutter Geometry**: Verifies all layout elements remain within printable bounds and reports trim dimensions, 3mm bleed, and gutter clearance.
 
 ---

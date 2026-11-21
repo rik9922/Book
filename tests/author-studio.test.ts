@@ -1014,6 +1014,53 @@ describe("Memoria Author Studio — Manuscript, Resume, Revisions, 3D Sync & Imp
       assert.equal(dpiCheck.status, "fail", `Expected sharp-measured low-DPI image to fail, got: ${JSON.stringify(dpiCheck)}`);
       assert.equal(dpiCheck.passed, false);
 
+      // 4b. High-res 1600x2000 PNG stored under originals/<spaceId>/<mediaId>/hi-res.png referenced via /api/v1/media/files/... URL -> 400 DPI -> PASS!
+      const hiResDir = path.join(tmpStorage, "originals", spaceId, "media-hi-res-1");
+      fs.mkdirSync(hiResDir, { recursive: true });
+      await sharp({
+        create: { width: 1600, height: 2000, channels: 3, background: { r: 132, g: 148, b: 131 } },
+      })
+        .png()
+        .toFile(path.join(hiResDir, "hi-res.png"));
+      await app.inject({
+        method: "PUT",
+        url: `/api/v1/books/${book.id}/spreads/${spreadId}`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: {
+          spreadIndex: 1,
+          leftPage: {
+            id: crypto.randomUUID(),
+            pageNumber: 3,
+            layoutType: "photo_with_story",
+            backgroundColor: "#F7F4EE",
+            elements: [
+              {
+                id: crypto.randomUUID(),
+                type: "image",
+                x: 10,
+                y: 10,
+                width: 50,
+                height: 50,
+                rotation: 0,
+                zIndex: 1,
+                content: `/api/v1/media/files/originals/${spaceId}/media-hi-res-1/hi-res.png`,
+              },
+            ],
+          },
+          rightPage: null,
+        },
+      });
+      const sharpPassRes = await app.inject({
+        method: "POST",
+        url: `/api/v1/books/${book.id}/preflight`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: {},
+      });
+      const sharpPass = JSON.parse(sharpPassRes.body).data;
+      const dpiPassCheck = sharpPass.checks.find((c: any) => c.id === "dpi_resolution");
+      assert.equal(dpiPassCheck.status, "pass", `Expected /api/v1/media/files/... 400 DPI image to pass, got: ${JSON.stringify(dpiPassCheck)}`);
+      assert.equal(dpiPassCheck.measuredValue, "400 DPI min");
+
       // 5. Immutable freeze records full component hashes + rendererVersion
       const freezeRes = await app.inject({
         method: "POST",
@@ -1205,8 +1252,52 @@ describe("Memoria Author Studio — Manuscript, Resume, Revisions, 3D Sync & Imp
       });
       assert.equal(archRes.statusCode, 200);
       assert.equal(JSON.parse(archRes.body).data.archived, true);
+
+      // Verify GET /api/v1/spaces/:spaceId/books persists archived flag for Project Shelf reloads
+      const listRes = await app.inject({
+        method: "GET",
+        url: `/api/v1/spaces/${spaceId}/books`,
+        headers: { authorization: `Bearer ${token}` },
+      });
+      assert.equal(listRes.statusCode, 200);
+      const listedBooks = JSON.parse(listRes.body).data as Array<{ id: string; archived?: boolean }>;
+      const listedDup = listedBooks.find((b) => b.id === dupBook.id);
+      const listedOrig = listedBooks.find((b) => b.id === book.id);
+      assert.equal(listedDup?.archived, true, "Archived book must report archived: true in space book listing");
+      assert.equal(listedOrig?.archived, false, "Active book must report archived: false in space book listing");
     } finally {
       await app.close();
     }
+  });
+
+  test("10. Regression: PDF Mixed FlateDecode + Uncompressed Streams, 'upstream' Comment Boundary & Escaped Backslash", async () => {
+    const flateBody = "BT /F1 12 Tf (Flate Stream Memory \\\\n Literal) Tj ET";
+    const compressed = zlib.deflateSync(Buffer.from(flateBody, "latin1"));
+    const plainBody = "BT /F1 12 Tf (Uncompressed Second Stream Note) Tj ET";
+    const mixedPdf = Buffer.concat([
+      Buffer.from(
+        `%PDF-1.4\n% upstream comment containing word stream should not misalign parser\n1 0 obj\n<< /Length ${compressed.length} /Filter /FlateDecode >>\nstream\n`,
+        "latin1"
+      ),
+      compressed,
+      Buffer.from(
+        `\nendstream\nendobj\n2 0 obj\n<< /Length ${plainBody.length} >>\nstream\n${plainBody}\nendstream\nendobj\n%%EOF\n`,
+        "latin1"
+      ),
+    ]);
+
+    const extracted = extractAssistedPdfText(mixedPdf);
+    assert.ok(
+      extracted.includes("Flate Stream Memory"),
+      `Expected FlateDecode stream text despite 'upstream' comment, got: "${extracted}"`
+    );
+    assert.ok(
+      extracted.includes("\\n Literal"),
+      `Expected escaped backslash \\\\n to remain literal \\n (not newline), got: "${extracted}"`
+    );
+    assert.ok(
+      extracted.includes("Uncompressed Second Stream Note"),
+      `Expected mixed uncompressed stream text to be extracted alongside FlateDecode stream, got: "${extracted}"`
+    );
   });
 });

@@ -1046,6 +1046,35 @@ describe("Interactive Chrome / Playwright DOM, WebGL, SW Offline & 401 Refresh E
     await page.locator('[data-testid="author-project-shelf"] button:has-text("Duplicate")').first().click();
     await page.getByText(/Duplicated project/i).waitFor({ state: "visible", timeout: 10000 });
 
+    // Archive the duplicated copy and verify archive status persists across full page reload
+    await page
+      .locator('[data-testid="author-project-shelf"]')
+      .getByRole("button", { name: "Archive", exact: true })
+      .first()
+      .click();
+    await page.getByText("Moved project to Archived shelf.").waitFor({ state: "visible", timeout: 10000 });
+    await page.reload({ waitUntil: "networkidle" });
+    await page.locator('[data-testid="author-studio-workspace"]').waitFor({ state: "visible", timeout: 15000 });
+    await page.click('[data-testid="author-project-shelf-toggle"]');
+    await page
+      .locator('[data-testid="author-project-shelf"]')
+      .getByRole("button", { name: "archived", exact: true })
+      .click();
+    await page.locator('[data-testid="author-project-shelf"]').getByText("(Copy)").first().waitFor({ state: "visible", timeout: 10000 });
+
+    // 11. Cold Offline Reload Recovery from IndexedDB project_shells (must recover real book, never guest sandbox)
+    await page.click('[data-testid="author-project-shelf-toggle"]');
+    await page.route("**/api/v1/**", (route) => route.abort("internetdisconnected"));
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.locator('[data-testid="author-offline-recovered-banner"]').waitFor({ state: "visible", timeout: 15000 });
+    const recoveredBannerText = await page.locator('[data-testid="author-offline-recovered-banner"]').innerText();
+    assert.ok(
+      recoveredBannerText.includes("Offline Continuation Active") &&
+        recoveredBannerText.includes("Deep Plan Guided Memoir"),
+      `Expected offline continuation banner with real book title, got: "${recoveredBannerText}"`
+    );
+    await page.unroute("**/api/v1/**");
+
     assert.equal(pageErrors.length, 0, `Unexpected page errors on /author: ${pageErrors.join("; ")}`);
     await context.close();
   });

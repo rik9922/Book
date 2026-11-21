@@ -127,6 +127,7 @@ import {
   getMostRecentOfflineProjectShell,
   getOfflineChapterDraft,
   getOfflineResumeCheckpoint,
+  listOfflineProjectShells,
   listPendingOfflineDrafts,
   markOfflineDraftSynced,
   saveOfflineChapterDraft,
@@ -576,8 +577,16 @@ export function AuthorStudioWorkspace({
         loadedBooks = [created];
       }
       setBooks(loadedBooks);
+      const nextArchivedMap: Record<string, boolean> = {};
+      for (const b of loadedBooks) {
+        if (b.archived === true) {
+          nextArchivedMap[b.id] = true;
+        }
+      }
+      setArchivedBookIds(nextArchivedMap);
       const targetId =
         (preferredBookId && loadedBooks.some((b) => b.id === preferredBookId) && preferredBookId) ||
+        loadedBooks.find((b) => !b.archived)?.id ||
         loadedBooks[0]?.id;
       if (targetId) {
         await loadBookManuscript(targetId, overrideEnv);
@@ -588,6 +597,54 @@ export function AuthorStudioWorkspace({
 
   useEffect(() => {
     let cancelled = false;
+
+    const recoverFromOfflineCache = async (): Promise<boolean> => {
+      const cachedShell = await getMostRecentOfflineProjectShell(initialBookId);
+      if (!cachedShell || cancelled) return false;
+      const allShells = await listOfflineProjectShells();
+      const pendingDrafts = await listPendingOfflineDrafts(cachedShell.bookId);
+      const draftMap = new Map(pendingDrafts.map((d) => [d.chapterId, d]));
+      const mergedChapters = cachedShell.manuscript.chapters.map((ch) => {
+        const draft = draftMap.get(ch.id);
+        if (!draft) return ch;
+        const plainText = draft.contentHtml.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+        const words = plainText ? plainText.split(/\s+/).filter(Boolean).length : 0;
+        return {
+          ...ch,
+          title: draft.title || ch.title,
+          contentHtml: draft.contentHtml,
+          contentJson: draft.contentJson,
+          contentText: plainText,
+          wordCount: words,
+          updatedAt: draft.updatedAt,
+        };
+      });
+      const recoveredTotalWords = mergedChapters.reduce((sum, ch) => sum + ch.wordCount, 0);
+      const recoveredMs: ManuscriptDocumentDTO = {
+        ...cachedShell.manuscript,
+        chapters: mergedChapters,
+        totalWordCount: recoveredTotalWords,
+      };
+      const offlineResume = await getOfflineResumeCheckpoint(cachedShell.bookId);
+      if (cancelled) return false;
+      const cachedBooks = allShells.length > 0 ? allShells.map((s) => s.book) : [cachedShell.book];
+      setIsGuest(false);
+      setIsOfflineRecovered(true);
+      setActiveSpaceId(cachedShell.spaceId);
+      setBooks(cachedBooks);
+      setActiveBook(cachedShell.book);
+      setManuscript(recoveredMs);
+      syncCoverFieldsFromBook(cachedShell.book);
+      setActiveEnv(initialEnvironment || offlineResume?.activeEnvironment || "write");
+      setActiveChapterId(offlineResume?.activeChapterId || recoveredMs.chapters[0]?.id || null);
+      setSaveState("offline_saved");
+      setStatusMessage(
+        `Offline Mode: recovered "${cachedShell.book.title}" from local IndexedDB cache.`
+      );
+      setLoading(false);
+      return true;
+    };
+
     const initWorkspace = async () => {
       const session = getStoredSession();
       if (!session.user) {
@@ -605,6 +662,12 @@ export function AuthorStudioWorkspace({
           setLoading(false);
         }
         return;
+      }
+
+      // Cold offline reload fast-path: recover real project immediately from IndexedDB
+      if (typeof navigator !== "undefined" && !navigator.onLine) {
+        const recovered = await recoverFromOfflineCache();
+        if (recovered) return;
       }
 
       try {
@@ -654,46 +717,8 @@ export function AuthorStudioWorkspace({
       } catch {
         if (!cancelled) {
           // Durable offline continuation: recover cached real project shell from IndexedDB
-          const cachedShell = await getMostRecentOfflineProjectShell(initialBookId);
-          if (cachedShell) {
-            const pendingDrafts = await listPendingOfflineDrafts(cachedShell.bookId);
-            const draftMap = new Map(pendingDrafts.map((d) => [d.chapterId, d]));
-            const mergedChapters = cachedShell.manuscript.chapters.map((ch) => {
-              const draft = draftMap.get(ch.id);
-              if (!draft) return ch;
-              return {
-                ...ch,
-                title: draft.title || ch.title,
-                contentHtml: draft.contentHtml,
-                contentJson: draft.contentJson,
-                updatedAt: draft.updatedAt,
-              };
-            });
-            const recoveredMs: ManuscriptDocumentDTO = {
-              ...cachedShell.manuscript,
-              chapters: mergedChapters,
-            };
-            const offlineResume = await getOfflineResumeCheckpoint(cachedShell.bookId);
-            setIsGuest(false);
-            setIsOfflineRecovered(true);
-            setActiveSpaceId(cachedShell.spaceId);
-            setBooks([cachedShell.book]);
-            setActiveBook(cachedShell.book);
-            setManuscript(recoveredMs);
-            syncCoverFieldsFromBook(cachedShell.book);
-            setActiveEnv(
-              initialEnvironment || offlineResume?.activeEnvironment || "write"
-            );
-            setActiveChapterId(
-              offlineResume?.activeChapterId || recoveredMs.chapters[0]?.id || null
-            );
-            setSaveState("offline_saved");
-            setStatusMessage(
-              `Offline Mode: recovered "${cachedShell.book.title}" from local IndexedDB cache.`
-            );
-            setLoading(false);
-            return;
-          }
+          const recovered = await recoverFromOfflineCache();
+          if (recovered) return;
 
           const guest = createGuestManuscript();
           setIsGuest(true);

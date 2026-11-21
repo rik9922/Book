@@ -85,6 +85,12 @@ export interface BookDTO {
   isFrozenForPrint: boolean;
   frozenEditionHash?: string;
   spreads: any[];
+  archived?: boolean;
+  genre?: string;
+  layoutMode?: string;
+  authorName?: string;
+  totalWordCount?: number;
+  chapterCount?: number;
   createdAt: string;
   updatedAt: string;
 }

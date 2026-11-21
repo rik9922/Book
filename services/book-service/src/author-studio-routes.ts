@@ -48,8 +48,18 @@ export interface AuthorStudioRouteDeps {
   assertSpaceAccess(spaceId: string, userId: string, requireWrite?: boolean): Promise<void>;
 }
 
+export interface BookShelfMetadata {
+  archived: boolean;
+  genre?: string;
+  layoutMode?: string;
+  authorName?: string;
+  totalWordCount?: number;
+  chapterCount?: number;
+}
+
 export interface AuthorStudioHandles {
   getManuscriptForBook(book: BookDocument): Promise<ManuscriptDocument>;
+  getShelfMetadataForBooks(bookIds: string[]): Promise<Map<string, BookShelfMetadata>>;
 }
 
 const UpdateManuscriptSchema = z.object({
@@ -1743,7 +1753,62 @@ export function registerAuthorStudioRoutes(deps: AuthorStudioRouteDeps): AuthorS
     }
   );
 
+  async function getShelfMetadataForBooks(bookIds: string[]): Promise<Map<string, BookShelfMetadata>> {
+    const result = new Map<string, BookShelfMetadata>();
+    if (bookIds.length === 0) return result;
+
+    if (!dbUrl) {
+      for (const id of bookIds) {
+        const ms = memManuscripts.get(id);
+        if (!ms) continue;
+        const meta = (ms.metadata || {}) as Record<string, unknown>;
+        result.set(id, {
+          archived: meta.archived === true,
+          genre: typeof meta.genre === "string" ? meta.genre : undefined,
+          layoutMode: typeof meta.layoutMode === "string" ? meta.layoutMode : undefined,
+          authorName: ms.authorName || undefined,
+          totalWordCount: ms.totalWordCount,
+          chapterCount: ms.chapters.length,
+        });
+      }
+      return result;
+    }
+
+    const rows = await db.query(
+      `SELECT m.book_id as "bookId",
+              m.author_name as "authorName",
+              m.total_word_count as "totalWordCount",
+              m.metadata_json as "metadataJson",
+              COALESCE(c.cnt, 0)::int as "chapterCount"
+       FROM book_manuscripts m
+       LEFT JOIN (
+         SELECT book_id, COUNT(*)::int as cnt FROM book_chapters GROUP BY book_id
+       ) c ON c.book_id = m.book_id
+       WHERE m.book_id = ANY($1)`,
+      [bookIds]
+    );
+    for (const row of rows.rows as Array<{
+      bookId: string;
+      authorName?: string;
+      totalWordCount?: number;
+      metadataJson?: Record<string, unknown>;
+      chapterCount?: number;
+    }>) {
+      const meta = row.metadataJson && typeof row.metadataJson === "object" ? row.metadataJson : {};
+      result.set(row.bookId, {
+        archived: meta.archived === true,
+        genre: typeof meta.genre === "string" ? meta.genre : undefined,
+        layoutMode: typeof meta.layoutMode === "string" ? meta.layoutMode : undefined,
+        authorName: row.authorName || undefined,
+        totalWordCount: Number(row.totalWordCount ?? 0),
+        chapterCount: Number(row.chapterCount ?? 0),
+      });
+    }
+    return result;
+  }
+
   return {
     getManuscriptForBook: ensureManuscript,
+    getShelfMetadataForBooks,
   };
 }

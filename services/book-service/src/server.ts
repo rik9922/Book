@@ -779,7 +779,22 @@ export async function buildBookService(): Promise<FastifyInstance> {
       const userId = await requireAuthUser(req);
       await assertSpaceAccess(req.params.spaceId, userId, false);
       const list = await bookRepo.listBooks(req.params.spaceId);
-      return reply.status(200).send(createSuccessResponse(list));
+      const shelfMeta = authorStudioHandles
+        ? await authorStudioHandles.getShelfMetadataForBooks(list.map((b) => b.id)).catch(() => new Map())
+        : new Map();
+      const enriched = list.map((b) => {
+        const meta = shelfMeta.get(b.id);
+        return {
+          ...b,
+          archived: meta?.archived ?? false,
+          ...(meta?.genre ? { genre: meta.genre } : {}),
+          ...(meta?.layoutMode ? { layoutMode: meta.layoutMode } : {}),
+          ...(meta?.authorName ? { authorName: meta.authorName } : {}),
+          ...(typeof meta?.totalWordCount === "number" ? { totalWordCount: meta.totalWordCount } : {}),
+          ...(typeof meta?.chapterCount === "number" ? { chapterCount: meta.chapterCount } : {}),
+        };
+      });
+      return reply.status(200).send(createSuccessResponse(enriched));
     }
   );
 
@@ -805,15 +820,29 @@ export async function buildBookService(): Promise<FastifyInstance> {
     if (!trimmed || trimmed.includes("..") || trimmed.includes("\0")) return null;
     const root = resolveStorageRoot();
     if (!fs.existsSync(root)) return null;
+    const rootPrefix = root.endsWith(path.sep) ? root : `${root}${path.sep}`;
+
+    // Strip /api/v1/media/files/ URL prefix (or full origin + prefix) if present
+    const normalizedRel = trimmed
+      .replace(/^https?:\/\/[^/]+/i, "")
+      .replace(/^\/?api\/v1\/media\/files\//i, "")
+      .replace(/^\/+/, "")
+      .split("?")[0];
 
     // 1. Direct relative path inside local storage root
-    const directCandidate = path.resolve(root, trimmed.replace(/^\/+/, ""));
-    if (directCandidate.startsWith(root) && fs.existsSync(directCandidate) && fs.statSync(directCandidate).isFile()) {
-      return directCandidate;
+    if (normalizedRel) {
+      const directCandidate = path.resolve(root, normalizedRel);
+      if (
+        directCandidate.startsWith(rootPrefix) &&
+        fs.existsSync(directCandidate) &&
+        fs.statSync(directCandidate).isFile()
+      ) {
+        return directCandidate;
+      }
     }
 
     // 2. Search shallow subdirectories for matching media UUID or filename
-    const baseToken = path.basename(trimmed);
+    const baseToken = path.basename(normalizedRel || trimmed);
     if (!baseToken || baseToken.length < 6) return null;
     const queue: Array<{ dir: string; depth: number }> = [{ dir: root, depth: 0 }];
     while (queue.length > 0) {

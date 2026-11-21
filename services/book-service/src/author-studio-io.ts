@@ -477,13 +477,18 @@ function splitHtmlIntoChapters(rawHtml: string, fallbackTitle: string): ParsedIm
 const MAX_PDF_INFLATED_STREAM_BYTES = 8 * 1024 * 1024; // 8 MB per stream safety ceiling
 
 function decodePdfLiteralString(raw: string): string {
-  return raw
-    .replace(/\\n/g, "\n")
-    .replace(/\\r/g, "\r")
-    .replace(/\\t/g, "\t")
-    .replace(/\\\(/g, "(")
-    .replace(/\\\)/g, ")")
-    .replace(/\\\\/g, "\\");
+  return raw.replace(/\\([nrt()\\])/g, (_m, ch: string) => {
+    switch (ch) {
+      case "n":
+        return "\n";
+      case "r":
+        return "\r";
+      case "t":
+        return "\t";
+      default:
+        return ch;
+    }
+  });
 }
 
 function extractPdfTextTokens(content: string): string[] {
@@ -511,7 +516,7 @@ export function extractAssistedPdfText(buffer: Buffer): string {
   const latin = buffer.toString("latin1");
   const collected: string[] = [];
 
-  // 1. Scan for PDF stream ... endstream blocks and inflate /FlateDecode streams
+  // 1. Scan for valid PDF `stream ... endstream` blocks and extract both /FlateDecode and uncompressed streams
   const streamToken = "stream";
   const endStreamToken = "endstream";
   let searchPos = 0;
@@ -520,14 +525,29 @@ export function extractAssistedPdfText(buffer: Buffer): string {
   while (searchPos < latin.length && streamsChecked < 200) {
     const streamIdx = latin.indexOf(streamToken, searchPos);
     if (streamIdx === -1) break;
-    const endIdx = latin.indexOf(endStreamToken, streamIdx + streamToken.length);
+
+    const prevCh = streamIdx > 0 ? latin[streamIdx - 1] : "\n";
+    const afterIdx = streamIdx + streamToken.length;
+    const nextCh = latin[afterIdx];
+    const validBoundary =
+      (prevCh === "\n" || prevCh === "\r" || prevCh === " " || prevCh === "\t" || prevCh === ">") &&
+      (nextCh === "\n" || nextCh === "\r");
+    if (!validBoundary) {
+      searchPos = afterIdx;
+      continue;
+    }
+
+    const endIdx = latin.indexOf(endStreamToken, afterIdx);
     if (endIdx === -1) break;
     streamsChecked += 1;
 
-    // Inspect preceding dictionary window for /FlateDecode
-    const dictStart = Math.max(0, streamIdx - 512);
-    const dictWindow = latin.slice(dictStart, streamIdx);
-    let dataStart = streamIdx + streamToken.length;
+    // Inspect preceding object dictionary (bounded by last `<<` before `stream`) for /FlateDecode
+    const dictSearchStart = Math.max(0, streamIdx - 512);
+    const recentSlice = latin.slice(dictSearchStart, streamIdx);
+    const lastDictOpen = recentSlice.lastIndexOf("<<");
+    const dictWindow = lastDictOpen >= 0 ? recentSlice.slice(lastDictOpen) : recentSlice;
+
+    let dataStart = afterIdx;
     if (latin[dataStart] === "\r" && latin[dataStart + 1] === "\n") {
       dataStart += 2;
     } else if (latin[dataStart] === "\n" || latin[dataStart] === "\r") {
@@ -538,28 +558,33 @@ export function extractAssistedPdfText(buffer: Buffer): string {
       dataEnd -= 1;
     }
 
-    if (dictWindow.includes("/FlateDecode") && dataEnd > dataStart) {
-      const compressed = buffer.subarray(dataStart, dataEnd);
-      let inflated: Buffer | null = null;
-      try {
-        inflated = zlib.inflateSync(compressed, { maxOutputLength: MAX_PDF_INFLATED_STREAM_BYTES });
-      } catch {
+    if (dataEnd > dataStart) {
+      if (dictWindow.includes("/FlateDecode")) {
+        const compressed = buffer.subarray(dataStart, dataEnd);
+        let inflated: Buffer | null = null;
         try {
-          inflated = zlib.inflateRawSync(compressed, { maxOutputLength: MAX_PDF_INFLATED_STREAM_BYTES });
+          inflated = zlib.inflateSync(compressed, { maxOutputLength: MAX_PDF_INFLATED_STREAM_BYTES });
         } catch {
-          inflated = null;
+          try {
+            inflated = zlib.inflateRawSync(compressed, { maxOutputLength: MAX_PDF_INFLATED_STREAM_BYTES });
+          } catch {
+            inflated = null;
+          }
         }
-      }
-      if (inflated && inflated.length > 0) {
-        const streamText = inflated.toString("latin1");
-        collected.push(...extractPdfTextTokens(streamText));
+        if (inflated && inflated.length > 0) {
+          const streamText = inflated.toString("latin1");
+          collected.push(...extractPdfTextTokens(streamText));
+        }
+      } else {
+        const plainStream = latin.slice(dataStart, dataEnd);
+        collected.push(...extractPdfTextTokens(plainStream));
       }
     }
 
     searchPos = endIdx + endStreamToken.length;
   }
 
-  // 2. Also extract any uncompressed text tokens from the PDF body
+  // 2. Fallback: extract any uncompressed text tokens from the PDF body if no streams yielded text
   if (collected.length === 0) {
     collected.push(...extractPdfTextTokens(latin));
   }
