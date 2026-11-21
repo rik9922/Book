@@ -9,6 +9,8 @@ import {
   validateServiceConfig,
   createFastifyErrorHandler,
   UnauthorizedError,
+  buildCorsOriginValidator,
+  timingSafeEqualStrings,
   createSuccessResponse,
   createErrorResponse,
   startServiceServer,
@@ -110,7 +112,10 @@ export async function buildNotificationService(): Promise<FastifyInstance> {
     await db.close().catch((err) => logger.warn({ err }, "[Notification] DB close warning"));
   });
 
-  await app.register(cors, { origin: true, credentials: true });
+  await app.register(cors, {
+    origin: buildCorsOriginValidator(cfg.ALLOWED_ORIGINS, cfg.NODE_ENV),
+    credentials: true,
+  });
   await app.register(fastifyJwt, { secret: cfg.JWT_SECRET });
 
   async function requireAuthUser(req: FastifyRequest): Promise<string> {
@@ -158,7 +163,7 @@ export async function buildNotificationService(): Promise<FastifyInstance> {
 
   app.post("/api/v1/notifications", async (req: FastifyRequest, reply: FastifyReply) => {
     const internalKey = req.headers["x-internal-service-key"] as string | undefined;
-    const isInternalCall = Boolean(internalKey && internalKey === cfg.INTERNAL_SERVICE_KEY);
+    const isInternalCall = Boolean(internalKey && timingSafeEqualStrings(internalKey, cfg.INTERNAL_SERVICE_KEY));
     const actorId = isInternalCall ? null : await requireAuthUser(req);
     const parseResult = CreateNotificationSchema.safeParse(req.body);
     if (!parseResult.success) {

@@ -13,6 +13,7 @@ import {
   createFastifyErrorHandler,
   UnauthorizedError,
   ForbiddenError,
+  buildCorsOriginValidator,
   BookDocument,
   BookFormatSchema,
   BookPageSchema,
@@ -234,21 +235,8 @@ export async function buildBookService(): Promise<FastifyInstance> {
     await db.close().catch((err) => logger.warn({ err }, "[Book] DB close warning"));
   });
 
-  const allowedOrigins = [
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    "http://localhost:4000",
-    "http://127.0.0.1:4000",
-  ];
-
   await app.register(cors, {
-    origin: (origin, cb) => {
-      if (!origin || allowedOrigins.includes(origin) || origin.startsWith("http://localhost:") || origin.startsWith("http://127.0.0.1:")) {
-        cb(null, true);
-        return;
-      }
-      cb(new Error("CORS origin not allowed"), false);
-    },
+    origin: buildCorsOriginValidator(cfg.ALLOWED_ORIGINS, cfg.NODE_ENV),
     credentials: true,
   });
 
@@ -273,6 +261,9 @@ export async function buildBookService(): Promise<FastifyInstance> {
     requireWrite = false
   ): Promise<void> {
     if (!spaceRepo && !collabRepo) {
+      if (cfg.NODE_ENV !== "test") {
+        throw new ForbiddenError("Space authorization database is not configured");
+      }
       return;
     }
     if (spaceRepo) {

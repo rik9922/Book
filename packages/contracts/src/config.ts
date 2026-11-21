@@ -23,6 +23,8 @@ export const BaseServiceConfigSchema = z
     REDIS_URL: z.string().default("redis://localhost:6379"),
     NATS_URL: z.string().default("nats://localhost:4222"),
     LOCAL_STORAGE_PATH: z.string().optional(),
+    ALLOWED_ORIGINS: z.string().optional(),
+    ADMIN_BOOTSTRAP_TOKEN: z.string().optional(),
   })
   .superRefine((cfg, ctx) => {
     if (cfg.NODE_ENV === "production") {

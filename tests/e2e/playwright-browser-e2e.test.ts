@@ -541,7 +541,10 @@ describe("Interactive Chrome / Playwright DOM, WebGL, SW Offline & 401 Refresh E
     await page.fill("#ship-city", "Portland");
     await page.fill("#ship-zip", "97205");
     await page.click('button:has-text("Place Sandbox Print Order")');
-    await page.getByText("Sandbox print order").waitFor({ state: "visible", timeout: 10000 });
+    await page
+      .getByRole("status")
+      .filter({ hasText: /Sandbox print order .* submitted/i })
+      .waitFor({ state: "visible", timeout: 10000 });
 
     await page.goto(`${WEB_BASE}/orders`, { waitUntil: "networkidle" });
     await page.waitForSelector('button:has-text("Proof Receipt")', { timeout: 10000 });

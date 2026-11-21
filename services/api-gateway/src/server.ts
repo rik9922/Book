@@ -11,6 +11,8 @@ import {
   BaseServiceConfigSchema,
   validateServiceConfig,
   createFastifyErrorHandler,
+  buildCorsOriginValidator,
+  timingSafeEqualStrings,
   createSuccessResponse,
   createErrorResponse,
   startServiceServer,
@@ -85,18 +87,58 @@ export function buildGateway(options?: GatewayOptions): FastifyInstance {
 
   // 2. Security Plugins
   app.register(cors, {
-    origin: true,
+    origin: buildCorsOriginValidator(gwCfg.ALLOWED_ORIGINS, gwCfg.NODE_ENV),
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   });
 
   app.register(helmet, {
-    contentSecurityPolicy: false,
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        objectSrc: ["'none'"],
+        frameAncestors: ["'none'"],
+      },
+    },
+    crossOriginResourcePolicy: { policy: "cross-origin" },
   });
 
   app.register(rateLimit, {
     max: process.env.NODE_ENV === "test" ? 2000 : 200,
     timeWindow: "1 minute",
+  });
+
+  // Strict per-IP rate limiting for high-value authentication endpoints in non-test environments
+  const authRateTracker = new Map<string, { count: number; resetAt: number }>();
+  const AUTH_SENSITIVE_PATHS = new Set([
+    "/api/v1/auth/login",
+    "/api/v1/auth/register",
+    "/api/v1/auth/forgot-password",
+    "/api/v1/auth/reset-password",
+    "/api/v1/auth/resend-verification",
+  ]);
+  app.addHook("onRequest", async (req, reply) => {
+    if (gwCfg.NODE_ENV === "test") return;
+    const pathname = req.url.split("?")[0];
+    if (!AUTH_SENSITIVE_PATHS.has(pathname)) return;
+    const key = `${pathname}:${req.ip}`;
+    const now = Date.now();
+    const entry = authRateTracker.get(key);
+    if (!entry || entry.resetAt <= now) {
+      authRateTracker.set(key, { count: 1, resetAt: now + 60_000 });
+    } else {
+      entry.count += 1;
+      if (entry.count > 10) {
+        return reply
+          .status(429)
+          .send(createErrorResponse("RATE_LIMITED", "Too many authentication requests. Please wait a minute."));
+      }
+    }
+    if (authRateTracker.size > 10000) {
+      for (const [k, v] of authRateTracker) {
+        if (v.resetAt <= now) authRateTracker.delete(k);
+      }
+    }
   });
 
   // Helper: validate Bearer JWT via Identity gRPC
@@ -546,7 +588,7 @@ export function buildGateway(options?: GatewayOptions): FastifyInstance {
       .createHmac("sha256", gwCfg.JWT_SECRET)
       .update(`${headerB64}.${payloadB64}`)
       .digest("base64url");
-    if (expectedSig !== sigB64) {
+    if (!timingSafeEqualStrings(expectedSig, sigB64)) {
       reply.status(401).send(createErrorResponse("UNAUTHORIZED", "Invalid JWT signature"));
       return null;
     }

@@ -488,9 +488,28 @@ public actor MemoriaAPIClient {
             return envUrl
         }
 
-        if let plistHost = Bundle.main.infoDictionary?["MemoriaAPIHost"] as? String,
-           let plistUrl = URL(string: "http://\(plistHost)/api/v1") {
-            return plistUrl
+        if let plistBaseURL = Bundle.main.infoDictionary?["MemoriaAPIBaseURL"] as? String,
+           let url = URL(string: plistBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)),
+           url.scheme != nil {
+            return url
+        }
+
+        if let plistHost = Bundle.main.infoDictionary?["MemoriaAPIHost"] as? String {
+            let trimmed = plistHost.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.hasPrefix("https://") || trimmed.hasPrefix("http://") {
+                let normalized = trimmed.hasSuffix("/api/v1") ? trimmed : "\(trimmed.trimmingCharacters(in: CharacterSet(charactersIn: "/")))/api/v1"
+                if let url = URL(string: normalized) {
+                    return url
+                }
+            } else if !trimmed.isEmpty {
+                let isLocalHost = trimmed.hasPrefix("localhost")
+                    || trimmed.hasPrefix("127.0.0.1")
+                    || trimmed.contains(".local")
+                let scheme = isLocalHost ? "http" : "https"
+                if let plistUrl = URL(string: "\(scheme)://\(trimmed)/api/v1") {
+                    return plistUrl
+                }
+            }
         }
 
         #if targetEnvironment(simulator)

@@ -305,7 +305,8 @@ export function saveStoredSession(accessToken: string, refreshToken: string, use
 
   try {
     if (typeof document !== "undefined") {
-      document.cookie = `memoria_access_token=${encodeURIComponent(accessToken)}; path=/; max-age=86400; SameSite=Lax`;
+      // Never write raw bearer JWTs into JS-readable cookies; refresh tokens are stored in HttpOnly cookies by identity-service.
+      document.cookie = `memoria_session_active=1; path=/; max-age=86400; SameSite=Lax`;
       document.cookie = `memoria_user=${encodeURIComponent(JSON.stringify(user))}; path=/; max-age=86400; SameSite=Lax`;
     }
   } catch (err) {
@@ -332,6 +333,7 @@ export function clearStoredSession(): void {
   try {
     if (typeof document !== "undefined") {
       document.cookie = "memoria_access_token=; path=/; max-age=0; SameSite=Lax";
+      document.cookie = "memoria_session_active=; path=/; max-age=0; SameSite=Lax";
       document.cookie = "memoria_user=; path=/; max-age=0; SameSite=Lax";
     }
   } catch (err) {
@@ -408,8 +410,9 @@ async function refreshAccessToken(): Promise<string | null> {
     try {
       const res = await fetch(`${getApiBaseUrl()}/auth/refresh`, {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ refreshToken }),
+        body: JSON.stringify(refreshToken ? { refreshToken } : {}),
       });
       const json = await res.json().catch(() => null);
       if (!res.ok || !json?.success || !json?.data?.accessToken) {
@@ -438,13 +441,12 @@ async function refreshAccessToken(): Promise<string | null> {
 
 export async function logoutCurrentSession(): Promise<void> {
   const { refreshToken } = getStoredSession();
-  if (refreshToken) {
-    await fetch(`${getApiBaseUrl()}/auth/logout`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ refreshToken }),
-    }).catch(() => undefined);
-  }
+  await fetch(`${getApiBaseUrl()}/auth/logout`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(refreshToken ? { refreshToken } : {}),
+  }).catch(() => undefined);
   clearStoredSession();
 }
 
@@ -467,6 +469,7 @@ export async function apiRequest<T>(
   try {
     res = await fetch(`${baseUrl}${path}`, {
       ...options,
+      credentials: options.credentials ?? "include",
       headers,
     });
   } catch (fetchErr) {
@@ -474,6 +477,7 @@ export async function apiRequest<T>(
     if (baseUrl === "/api/v1" && typeof window !== "undefined") {
       res = await fetch(`http://127.0.0.1:4000/api/v1${path}`, {
         ...options,
+        credentials: options.credentials ?? "include",
         headers,
       });
     } else {

@@ -10,6 +10,7 @@ import {
   createFastifyErrorHandler,
   UnauthorizedError,
   ForbiddenError,
+  buildCorsOriginValidator,
   MemorySpace,
   SpaceProfile,
   Memory,
@@ -373,21 +374,8 @@ export async function buildMemoryService(): Promise<FastifyInstance> {
     await db.close().catch((err) => logger.warn({ err }, "[Memory] DB close warning"));
   });
 
-  const allowedOrigins = [
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    "http://localhost:4000",
-    "http://127.0.0.1:4000",
-  ];
-
   await app.register(cors, {
-    origin: (origin, cb) => {
-      if (!origin || allowedOrigins.includes(origin) || origin.startsWith("http://localhost:") || origin.startsWith("http://127.0.0.1:")) {
-        cb(null, true);
-        return;
-      }
-      cb(new Error("CORS origin not allowed"), false);
-    },
+    origin: buildCorsOriginValidator(cfg.ALLOWED_ORIGINS, cfg.NODE_ENV),
     credentials: true,
   });
 

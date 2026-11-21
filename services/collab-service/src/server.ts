@@ -10,6 +10,9 @@ import {
   createFastifyErrorHandler,
   UnauthorizedError,
   ForbiddenError,
+  buildCorsOriginValidator,
+  hashPassphraseScrypt,
+  verifyPassphraseScrypt,
   createSuccessResponse,
   createErrorResponse,
   createDomainEvent,
@@ -169,7 +172,10 @@ export async function buildCollabService(): Promise<FastifyInstance> {
     await db.close().catch((err) => logger.warn({ err }, "[Collab] DB close warning"));
   });
 
-  await app.register(cors, { origin: true, credentials: true });
+  await app.register(cors, {
+    origin: buildCorsOriginValidator(cfg.ALLOWED_ORIGINS, cfg.NODE_ENV),
+    credentials: true,
+  });
   await app.register(fastifyJwt, { secret: cfg.JWT_SECRET });
 
   async function requireAuthUser(req: FastifyRequest): Promise<string> {
@@ -260,19 +266,29 @@ export async function buildCollabService(): Promise<FastifyInstance> {
       }
 
       const existingMembers = await collabRepo.getMembers(req.params.spaceId);
+      let actorRole: string = "owner";
       if (existingMembers.length > 0) {
         const actor = await getOrSeedActorMember(req.params.spaceId, actorId);
         if (!actor || (actor.role !== "owner" && actor.role !== "admin")) {
           throw new ForbiddenError("Only space owners or admins can manage members");
         }
+        actorRole = actor.role;
       } else if (spaceRepo) {
         const space = await spaceRepo.findSpaceById(req.params.spaceId);
-        if (space && space.ownerId !== actorId) {
+        if (!space) {
+          throw new ForbiddenError("Space not found");
+        }
+        if (space.ownerId !== actorId) {
           throw new ForbiddenError("Only the space owner can initialize space members");
         }
+      } else if (cfg.NODE_ENV !== "test") {
+        throw new ForbiddenError("Space verification repository is not configured");
       }
 
       const role = parseResult.data.role;
+      if (role === "owner" && actorRole !== "owner") {
+        throw new ForbiddenError("Only the space owner can assign the owner role");
+      }
       const defaultPermissions = {
         can_create_memories: role !== "viewer",
         can_edit_books: role === "owner" || role === "admin",
@@ -318,6 +334,10 @@ export async function buildCollabService(): Promise<FastifyInstance> {
       if (!actor || (actor.role !== "owner" && actor.role !== "admin" && actorId !== req.params.userId)) {
         throw new ForbiddenError("Insufficient permissions to remove member");
       }
+      const target = await collabRepo.getMember(req.params.spaceId, req.params.userId);
+      if (target && target.role === "owner" && actor.role !== "owner") {
+        throw new ForbiddenError("Only the space owner can remove an owner");
+      }
       const removed = await collabRepo.removeMember(req.params.spaceId, req.params.userId);
       return reply.status(200).send(createSuccessResponse({ removed }));
     }
@@ -335,6 +355,10 @@ export async function buildCollabService(): Promise<FastifyInstance> {
       const parsed = UpsertMemberSchema.omit({ userId: true }).safeParse(req.body);
       if (!parsed.success) {
         return reply.status(400).send(createErrorResponse("VALIDATION_ERROR", "Invalid role update payload"));
+      }
+      const target = await collabRepo.getMember(req.params.spaceId, req.params.userId);
+      if (actor.role !== "owner" && (target?.role === "owner" || parsed.data.role === "owner")) {
+        throw new ForbiddenError("Only the space owner can assign or modify the owner role");
       }
       const role = parsed.data.role;
       const permissions = parsed.data.permissions || {
@@ -610,7 +634,7 @@ export async function buildCollabService(): Promise<FastifyInstance> {
       }
       const token = crypto.randomBytes(16).toString("hex");
       const passphraseHash = req.body?.passphrase?.trim()
-        ? crypto.createHash("sha256").update(req.body.passphrase.trim()).digest("hex")
+        ? hashPassphraseScrypt(req.body.passphrase.trim())
         : null;
       const days = Math.min(Math.max(Number(req.body?.expiresInDays || 30), 1), 365);
       const expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
@@ -651,13 +675,44 @@ export async function buildCollabService(): Promise<FastifyInstance> {
     return { space: spRes.rows[0] || null, memories: memRes.rows || [] };
   }
 
+  // Per-token + per-IP brute-force protection for passphrase verification (10 failed attempts / 5 min)
+  const shareVerifyFailures = new Map<string, { count: number; resetAt: number }>();
+  const SHARE_VERIFY_WINDOW_MS = 5 * 60 * 1000;
+  const SHARE_VERIFY_MAX_FAILURES = 10;
+
+  function checkShareVerifyRateLimit(key: string): boolean {
+    const now = Date.now();
+    const entry = shareVerifyFailures.get(key);
+    if (!entry || entry.resetAt <= now) return true;
+    return entry.count < SHARE_VERIFY_MAX_FAILURES;
+  }
+
+  function recordShareVerifyFailure(key: string): void {
+    const now = Date.now();
+    const entry = shareVerifyFailures.get(key);
+    if (!entry || entry.resetAt <= now) {
+      shareVerifyFailures.set(key, { count: 1, resetAt: now + SHARE_VERIFY_WINDOW_MS });
+    } else {
+      entry.count += 1;
+    }
+    if (shareVerifyFailures.size > 10000) {
+      for (const [k, v] of shareVerifyFailures) {
+        if (v.resetAt <= now) shareVerifyFailures.delete(k);
+      }
+    }
+  }
+
   app.post(
     "/api/v1/collab/share-links/:token/verify",
     async (req: FastifyRequest<{ Params: { token: string }; Body?: { passphrase?: string } }>, reply) => {
       const { token } = req.params;
-      const providedHash = req.body?.passphrase?.trim()
-        ? crypto.createHash("sha256").update(req.body.passphrase.trim()).digest("hex")
-        : null;
+      const rateKey = `${token}:${req.ip}`;
+      if (!checkShareVerifyRateLimit(rateKey)) {
+        return reply
+          .status(429)
+          .send(createErrorResponse("RATE_LIMITED", "Too many failed passphrase attempts. Please try again later."));
+      }
+      const providedPassphrase = req.body?.passphrase?.trim() || "";
       if (dbUrl) {
         const res = await db.query(
           `SELECT id, space_id as "spaceId", passphrase_hash as "passphraseHash", allow_downloads as "allowDownloads",
@@ -669,9 +724,11 @@ export async function buildCollabService(): Promise<FastifyInstance> {
         if (!link || link.revokedAt || (link.expiresAt && new Date(link.expiresAt).getTime() <= Date.now())) {
           return reply.status(404).send(createErrorResponse("SHARE_LINK_INVALID", "Share link is invalid or expired"));
         }
-        if (link.passphraseHash && link.passphraseHash !== providedHash) {
+        if (link.passphraseHash && !verifyPassphraseScrypt(providedPassphrase, link.passphraseHash)) {
+          recordShareVerifyFailure(rateKey);
           return reply.status(403).send(createErrorResponse("PASSPHRASE_REQUIRED", "Valid passphrase required"));
         }
+        shareVerifyFailures.delete(rateKey);
         await db.query(`UPDATE space_share_links SET access_count = access_count + 1 WHERE id = $1`, [link.id]);
         const preview = await buildSharedPreview(link.spaceId);
         return reply.status(200).send(
@@ -688,9 +745,11 @@ export async function buildCollabService(): Promise<FastifyInstance> {
       if (!link || link.revokedAt) {
         return reply.status(404).send(createErrorResponse("SHARE_LINK_INVALID", "Share link not found"));
       }
-      if (link.passphraseHash && link.passphraseHash !== providedHash) {
+      if (link.passphraseHash && !verifyPassphraseScrypt(providedPassphrase, link.passphraseHash)) {
+        recordShareVerifyFailure(rateKey);
         return reply.status(403).send(createErrorResponse("PASSPHRASE_REQUIRED", "Valid passphrase required"));
       }
+      shareVerifyFailures.delete(rateKey);
       link.accessCount = (link.accessCount || 0) + 1;
       return reply.status(200).send(
         createSuccessResponse({

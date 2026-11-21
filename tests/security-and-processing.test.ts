@@ -11,6 +11,8 @@ import { InMemoryJobManager } from "@memory-capsule/jobs";
 import { createDatabaseClient, PostgresMediaRepository, PostgresSpaceRepository } from "@memory-capsule/database";
 import { buildMemoryService } from "../services/memory-service/src/server.ts";
 import { buildMediaService } from "../services/media-service/src/server.ts";
+import { buildCollabService } from "../services/collab-service/src/server.ts";
+import { buildIdentityService } from "../services/identity-service/src/server.ts";
 import { buildGateway } from "../services/api-gateway/src/server.ts";
 
 describe("Phase B/D/E — Security, Idempotency, Conflict Detection & Storage Containment", () => {
@@ -348,6 +350,210 @@ describe("Phase B/D/E — Security, Idempotency, Conflict Detection & Storage Co
     } finally {
       await mediaApp.close();
       if (memoryDb) await memoryDb.close();
+    }
+  });
+
+  test("7. Private media file downloads enforce space BOLA and uploads reject spoofed magic bytes", async () => {
+    const ownerId = crypto.randomUUID();
+    const outsiderId = crypto.randomUUID();
+    const spaceId = crypto.randomUUID();
+    const ownerToken = signUserToken(ownerId, "owner-file@memoria.internal");
+    const outsiderToken = signUserToken(outsiderId, "outsider-file@memoria.internal");
+
+    const memoryDbUrl = process.env.MEMORY_DATABASE_URL || process.env.DATABASE_URL;
+    const memoryDb = memoryDbUrl ? createDatabaseClient(memoryDbUrl) : null;
+    if (memoryDb) {
+      const spaceRepo = new PostgresSpaceRepository(memoryDb);
+      await spaceRepo.createSpace({
+        id: spaceId,
+        ownerId,
+        name: "BOLA Media Vault",
+        type: "personal",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+    }
+
+    const mediaApp = await buildMediaService();
+    try {
+      const validJpeg = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.from("VALID-JPEG-DATA")]);
+      const sessionRes = await mediaApp.inject({
+        method: "POST",
+        url: "/api/v1/media/upload-session",
+        headers: { authorization: `Bearer ${ownerToken}` },
+        payload: {
+          spaceId,
+          fileName: "heirloom.jpg",
+          mimeType: "image/jpeg",
+          fileSizeBytes: validJpeg.length,
+        },
+      });
+      assert.equal(sessionRes.statusCode, 201);
+      const { uploadUrl, storageKey } = JSON.parse(sessionRes.body).data;
+      const signedPath = new URL(uploadUrl).pathname + new URL(uploadUrl).search;
+
+      // Spoofed SVG/XSS payload claiming image/jpeg must be rejected with 415
+      const spoofedRes = await mediaApp.inject({
+        method: "PUT",
+        url: signedPath,
+        headers: { "content-type": "image/jpeg" },
+        payload: Buffer.from("<svg xmlns='http://www.w3.org/2000/svg'><script>alert(1)</script></svg>"),
+      });
+      assert.equal(spoofedRes.statusCode, 415);
+
+      // Valid JPEG payload succeeds
+      const validRes = await mediaApp.inject({
+        method: "PUT",
+        url: signedPath,
+        headers: { "content-type": "image/jpeg" },
+        payload: validJpeg,
+      });
+      assert.equal(validRes.statusCode, 200);
+
+      // Outsider attempting direct Bearer download must be blocked with 403
+      const outsiderGet = await mediaApp.inject({
+        method: "GET",
+        url: `/api/v1/media/files/${storageKey}`,
+        headers: { authorization: `Bearer ${outsiderToken}` },
+      });
+      assert.equal(outsiderGet.statusCode, 403);
+
+      // Space owner downloading via Bearer JWT succeeds with nosniff header
+      const ownerGet = await mediaApp.inject({
+        method: "GET",
+        url: `/api/v1/media/files/${storageKey}`,
+        headers: { authorization: `Bearer ${ownerToken}` },
+      });
+      assert.equal(ownerGet.statusCode, 200);
+      assert.equal(ownerGet.headers["x-content-type-options"], "nosniff");
+    } finally {
+      await mediaApp.close();
+      if (memoryDb) await memoryDb.close();
+    }
+  });
+
+  test("8. Collab RBAC blocks admin owner-takeover and share-links use salted scrypt + rate limiting", async () => {
+    const ownerId = crypto.randomUUID();
+    const adminId = crypto.randomUUID();
+    const spaceId = crypto.randomUUID();
+    const ownerToken = signUserToken(ownerId, "owner-collab@memoria.internal");
+    const adminToken = signUserToken(adminId, "admin-collab@memoria.internal");
+
+    const memoryDbUrl = process.env.MEMORY_DATABASE_URL || process.env.DATABASE_URL;
+    const memoryDb = memoryDbUrl ? createDatabaseClient(memoryDbUrl) : null;
+    if (memoryDb) {
+      const spaceRepo = new PostgresSpaceRepository(memoryDb);
+      await spaceRepo.createSpace({
+        id: spaceId,
+        ownerId,
+        name: "RBAC Protected Circle",
+        type: "family",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+    }
+
+    const collabApp = await buildCollabService();
+    try {
+      // Owner seeds themselves and adds an admin
+      const seedOwner = await collabApp.inject({
+        method: "POST",
+        url: `/api/v1/collab/spaces/${spaceId}/members`,
+        headers: { authorization: `Bearer ${ownerToken}` },
+        payload: { userId: ownerId, role: "owner" },
+      });
+      assert.equal(seedOwner.statusCode, 201);
+
+      const addAdmin = await collabApp.inject({
+        method: "POST",
+        url: `/api/v1/collab/spaces/${spaceId}/members`,
+        headers: { authorization: `Bearer ${ownerToken}` },
+        payload: { userId: adminId, role: "admin" },
+      });
+      assert.equal(addAdmin.statusCode, 201);
+
+      // Admin attempting to demote owner must fail with 403
+      const demoteOwner = await collabApp.inject({
+        method: "PATCH",
+        url: `/api/v1/collab/spaces/${spaceId}/members/${ownerId}`,
+        headers: { authorization: `Bearer ${adminToken}` },
+        payload: { role: "viewer" },
+      });
+      assert.equal(demoteOwner.statusCode, 403);
+
+      // Admin attempting to delete owner must fail with 403
+      const deleteOwner = await collabApp.inject({
+        method: "DELETE",
+        url: `/api/v1/collab/spaces/${spaceId}/members/${ownerId}`,
+        headers: { authorization: `Bearer ${adminToken}` },
+      });
+      assert.equal(deleteOwner.statusCode, 403);
+
+      // Create passphrase-protected share link
+      const shareRes = await collabApp.inject({
+        method: "POST",
+        url: `/api/v1/collab/spaces/${spaceId}/share-links`,
+        headers: { authorization: `Bearer ${ownerToken}` },
+        payload: { passphrase: "heirloom-secret-2026" },
+      });
+      assert.equal(shareRes.statusCode, 201);
+      const { token: shareToken } = JSON.parse(shareRes.body).data;
+
+      // Correct passphrase succeeds
+      const okVerify = await collabApp.inject({
+        method: "POST",
+        url: `/api/v1/collab/share-links/${shareToken}/verify`,
+        payload: { passphrase: "heirloom-secret-2026" },
+      });
+      assert.equal(okVerify.statusCode, 200);
+
+      // 10 wrong passphrases trigger 429 brute-force lockout on the 11th attempt
+      for (let i = 0; i < 10; i++) {
+        const badRes = await collabApp.inject({
+          method: "POST",
+          url: `/api/v1/collab/share-links/${shareToken}/verify`,
+          payload: { passphrase: `wrong-${i}` },
+        });
+        assert.equal(badRes.statusCode, 403);
+      }
+      const lockedRes = await collabApp.inject({
+        method: "POST",
+        url: `/api/v1/collab/share-links/${shareToken}/verify`,
+        payload: { passphrase: "heirloom-secret-2026" },
+      });
+      assert.equal(lockedRes.statusCode, 429);
+    } finally {
+      await collabApp.close();
+      if (memoryDb) await memoryDb.close();
+    }
+  });
+
+  test("9. Identity service issues HttpOnly refresh cookies and rotates sessions via cookie", async () => {
+    const identityApp = await buildIdentityService();
+    const email = `cookie-auth-${crypto.randomUUID().slice(0, 8)}@memoria.internal`;
+    try {
+      const regRes = await identityApp.inject({
+        method: "POST",
+        url: "/api/v1/auth/register",
+        payload: { email, password: "HeirloomPassword123!", fullName: "Cookie Tester" },
+      });
+      assert.equal(regRes.statusCode, 201);
+      const setCookie = regRes.headers["set-cookie"];
+      const cookieHeader = Array.isArray(setCookie) ? setCookie.join("; ") : String(setCookie || "");
+      assert.ok(cookieHeader.includes("memoria_refresh_token="), "Expected memoria_refresh_token cookie");
+      assert.ok(cookieHeader.includes("HttpOnly"), "Refresh cookie must be HttpOnly");
+
+      const cookiePair = cookieHeader.split(";")[0];
+      const refreshRes = await identityApp.inject({
+        method: "POST",
+        url: "/api/v1/auth/refresh",
+        headers: { cookie: cookiePair },
+        payload: {},
+      });
+      assert.equal(refreshRes.statusCode, 200);
+      assert.ok(JSON.parse(refreshRes.body).data.accessToken);
+    } finally {
+      await identityApp.close();
     }
   });
 });

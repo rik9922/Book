@@ -10,6 +10,7 @@ import {
   createFastifyErrorHandler,
   UnauthorizedError,
   ForbiddenError,
+  buildCorsOriginValidator,
   calculatePrintOrderPricing,
   createSuccessResponse,
   createErrorResponse,
@@ -151,7 +152,10 @@ export async function buildCommerceService(): Promise<FastifyInstance> {
     await db.close().catch((err) => logger.warn({ err }, "[Commerce] DB close warning"));
   });
 
-  await app.register(cors, { origin: true, credentials: true });
+  await app.register(cors, {
+    origin: buildCorsOriginValidator(cfg.ALLOWED_ORIGINS, cfg.NODE_ENV),
+    credentials: true,
+  });
   await app.register(fastifyJwt, { secret: cfg.JWT_SECRET });
 
   async function requireAuthClaims(req: FastifyRequest): Promise<{ userId: string; role: string }> {
@@ -186,6 +190,9 @@ export async function buildCommerceService(): Promise<FastifyInstance> {
     requireWrite = false
   ): Promise<void> {
     if (!spaceRepo && !collabRepo) {
+      if (cfg.NODE_ENV !== "test") {
+        throw new ForbiddenError("Space authorization database is not configured");
+      }
       return;
     }
     if (spaceRepo) {

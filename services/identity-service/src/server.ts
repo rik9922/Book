@@ -9,6 +9,8 @@ import {
   BaseServiceConfigSchema,
   validateServiceConfig,
   createFastifyErrorHandler,
+  buildCorsOriginValidator,
+  timingSafeEqualStrings,
   RegisterRequestSchema,
   LoginRequestSchema,
   RefreshTokenRequestSchema,
@@ -238,25 +240,39 @@ export async function buildIdentityService(): Promise<FastifyInstance> {
     await db.close().catch((err) => logger.warn({ err }, "[Identity] DB close warning"));
   });
 
-  const allowedOrigins = [
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    "http://localhost:4000",
-    "http://127.0.0.1:4000",
-  ];
-
   await app.register(cors, {
-    origin: (origin, cb) => {
-      if (!origin || allowedOrigins.includes(origin) || origin.startsWith("http://localhost:") || origin.startsWith("http://127.0.0.1:")) {
-        cb(null, true);
-        return;
-      }
-      cb(new Error("CORS origin not allowed"), false);
-    },
+    origin: buildCorsOriginValidator(cfg.ALLOWED_ORIGINS, cfg.NODE_ENV),
     credentials: true,
   });
 
   await app.register(fastifyJwt, { secret: cfg.JWT_SECRET });
+
+  const REFRESH_COOKIE_NAME = "memoria_refresh_token";
+  function setRefreshTokenCookie(reply: FastifyReply, refreshToken: string) {
+    const secureFlag = cfg.NODE_ENV === "production" ? "; Secure" : "";
+    reply.header(
+      "Set-Cookie",
+      `${REFRESH_COOKIE_NAME}=${encodeURIComponent(refreshToken)}; HttpOnly; SameSite=Lax; Path=/api/v1/auth; Max-Age=${30 * 24 * 60 * 60}${secureFlag}`
+    );
+  }
+  function clearRefreshTokenCookie(reply: FastifyReply) {
+    const secureFlag = cfg.NODE_ENV === "production" ? "; Secure" : "";
+    reply.header(
+      "Set-Cookie",
+      `${REFRESH_COOKIE_NAME}=; HttpOnly; SameSite=Lax; Path=/api/v1/auth; Max-Age=0${secureFlag}`
+    );
+  }
+  function extractRefreshCookie(req: FastifyRequest): string | null {
+    const cookieHeader = req.headers.cookie;
+    if (!cookieHeader) return null;
+    for (const part of cookieHeader.split(";")) {
+      const [rawKey, ...rest] = part.trim().split("=");
+      if (rawKey === REFRESH_COOKIE_NAME && rest.length > 0) {
+        return decodeURIComponent(rest.join("="));
+      }
+    }
+    return null;
+  }
 
   async function publishDomainEvent(
     subject: string,
@@ -384,6 +400,7 @@ export async function buildIdentityService(): Promise<FastifyInstance> {
       updatedAt: newUser.updatedAt,
     };
 
+    setRefreshTokenCookie(reply, refreshToken);
     return reply.status(201).send(
       createSuccessResponse(
         {
@@ -450,6 +467,7 @@ export async function buildIdentityService(): Promise<FastifyInstance> {
       updatedAt: user.updatedAt,
     };
 
+    setRefreshTokenCookie(reply, refreshToken);
     return reply.status(200).send(
       createSuccessResponse(
         {
@@ -463,10 +481,14 @@ export async function buildIdentityService(): Promise<FastifyInstance> {
     );
   });
 
-  // Refresh Token Rotation
+  // Refresh Token Rotation (supports HttpOnly cookie for Web and JSON body for native iOS)
   app.post("/api/v1/auth/refresh", async (req: FastifyRequest, reply: FastifyReply) => {
     const correlationId = (req.headers["x-correlation-id"] as string) || "corr-unknown";
-    const parseResult = RefreshTokenRequestSchema.safeParse(req.body);
+    const bodyObj = (req.body && typeof req.body === "object" ? (req.body as Record<string, unknown>) : {}) as {
+      refreshToken?: string;
+    };
+    const rawRefreshToken = bodyObj.refreshToken || extractRefreshCookie(req) || "";
+    const parseResult = RefreshTokenRequestSchema.safeParse({ refreshToken: rawRefreshToken });
     if (!parseResult.success) {
       return reply.status(400).send(createErrorResponse("VALIDATION_ERROR", "Invalid refresh token payload", correlationId));
     }
@@ -510,6 +532,7 @@ export async function buildIdentityService(): Promise<FastifyInstance> {
       { sub: user.id, email: user.email, role: user.role || "member" },
       { expiresIn: "15m" }
     );
+    setRefreshTokenCookie(reply, nextRefreshToken);
     return reply.status(200).send(
       createSuccessResponse(
         {
@@ -522,11 +545,16 @@ export async function buildIdentityService(): Promise<FastifyInstance> {
     );
   });
 
-  // Logout (revoke refresh session)
+  // Logout (revoke refresh session & clear HttpOnly cookie)
   app.post("/api/v1/auth/logout", async (req: FastifyRequest, reply: FastifyReply) => {
     const correlationId = (req.headers["x-correlation-id"] as string) || "corr-unknown";
-    const parseResult = RefreshTokenRequestSchema.safeParse(req.body);
+    const bodyObj = (req.body && typeof req.body === "object" ? (req.body as Record<string, unknown>) : {}) as {
+      refreshToken?: string;
+    };
+    const rawRefreshToken = bodyObj.refreshToken || extractRefreshCookie(req) || "";
+    const parseResult = RefreshTokenRequestSchema.safeParse({ refreshToken: rawRefreshToken });
     if (!parseResult.success) {
+      clearRefreshTokenCookie(reply);
       return reply.status(400).send(createErrorResponse("VALIDATION_ERROR", "refreshToken is required", correlationId));
     }
 
@@ -538,6 +566,7 @@ export async function buildIdentityService(): Promise<FastifyInstance> {
       if (session) await userRepo.deleteSession(session.id);
     }
 
+    clearRefreshTokenCookie(reply);
     return reply.status(200).send(createSuccessResponse({ loggedOut: true }, correlationId));
   });
 
@@ -858,18 +887,43 @@ export async function buildIdentityService(): Promise<FastifyInstance> {
     return { ...claims, role: effectiveRole };
   }
 
-  // First-run local instance admin bootstrap (strictly blocked once any superadmin exists)
+  // First-run instance admin bootstrap (disabled in production unless valid ADMIN_BOOTSTRAP_TOKEN is provided)
   app.post("/api/v1/auth/claim-instance-admin", async (req: FastifyRequest, reply: FastifyReply) => {
     const correlationId = (req.headers["x-correlation-id"] as string) || "corr-unknown";
+    if (cfg.NODE_ENV === "production") {
+      const providedBootstrapToken = req.headers["x-admin-bootstrap-token"] as string | undefined;
+      if (
+        !cfg.ADMIN_BOOTSTRAP_TOKEN ||
+        !providedBootstrapToken ||
+        !timingSafeEqualStrings(providedBootstrapToken, cfg.ADMIN_BOOTSTRAP_TOKEN)
+      ) {
+        return reply
+          .status(403)
+          .send(
+            createErrorResponse(
+              "BOOTSTRAP_DISABLED",
+              "Public admin claim is disabled in production. Use scripts/bootstrap-admin.ts or a valid ADMIN_BOOTSTRAP_TOKEN.",
+              correlationId
+            )
+          );
+      }
+    }
     const claims = await requireAuthClaims(req);
     if (!dbUrl) {
       return reply.status(200).send(createSuccessResponse({ role: "superadmin", claimed: true }, correlationId));
     }
-    const existingAdmin = await db.query(`SELECT id FROM users WHERE role IN ('superadmin', 'admin') LIMIT 1`);
-    if (existingAdmin.rows.length > 0) {
+    const claimed = await db.transaction(async (tx) => {
+      await tx.query(`SELECT pg_advisory_xact_lock(7842109)`);
+      const existingAdmin = await tx.query(`SELECT id FROM users WHERE role IN ('superadmin', 'admin') LIMIT 1`);
+      if (existingAdmin.rows.length > 0) {
+        return false;
+      }
+      await tx.query(`UPDATE users SET role = 'superadmin', updated_at = NOW() WHERE id = $1`, [claims.userId]);
+      return true;
+    });
+    if (!claimed) {
       return reply.status(409).send(createErrorResponse("ADMIN_ALREADY_EXISTS", "An instance administrator already exists", correlationId));
     }
-    await db.query(`UPDATE users SET role = 'superadmin', updated_at = NOW() WHERE id = $1`, [claims.userId]);
     const user = await userRepo.findById(claims.userId);
     const accessToken = app.jwt.sign({ sub: claims.userId, email: user?.email || claims.email, role: "superadmin" }, { expiresIn: "15m" });
     return reply.status(200).send(createSuccessResponse({ claimed: true, role: "superadmin", accessToken }, correlationId));

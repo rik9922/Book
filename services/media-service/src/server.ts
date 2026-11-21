@@ -18,6 +18,8 @@ import {
   UnauthorizedError,
   ForbiddenError,
   verifyMediaSignedToken,
+  buildCorsOriginValidator,
+  validateMagicBytes,
   CreateUploadSessionRequestSchema,
   MediaAsset,
   createSuccessResponse,
@@ -222,21 +224,8 @@ export async function buildMediaService(): Promise<FastifyInstance> {
     await db.close().catch((err) => logger.warn({ err }, "[Media] DB close warning"));
   });
 
-  const allowedOrigins = [
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    "http://localhost:4000",
-    "http://127.0.0.1:4000",
-  ];
-
   await app.register(cors, {
-    origin: (origin, cb) => {
-      if (!origin || allowedOrigins.includes(origin) || origin.startsWith("http://localhost:") || origin.startsWith("http://127.0.0.1:")) {
-        cb(null, true);
-        return;
-      }
-      cb(new Error("CORS origin not allowed"), false);
-    },
+    origin: buildCorsOriginValidator(cfg.ALLOWED_ORIGINS, cfg.NODE_ENV),
     credentials: true,
   });
 
@@ -261,6 +250,9 @@ export async function buildMediaService(): Promise<FastifyInstance> {
     requireWrite = false
   ): Promise<void> {
     if (!spaceRepo && !collabRepo) {
+      if (cfg.NODE_ENV !== "test") {
+        throw new ForbiddenError("Space authorization database is not configured");
+      }
       return;
     }
     if (spaceRepo) {
@@ -593,18 +585,41 @@ export async function buildMediaService(): Promise<FastifyInstance> {
 
       const bodyStream = req.body as Readable | Buffer;
       let bytesWritten = 0;
+      const claimedContentType = req.query.contentType || (req.headers["content-type"] as string | undefined);
 
       if (Buffer.isBuffer(bodyStream)) {
         if (bodyStream.length === 0) {
           return reply.status(400).send(createErrorResponse("EMPTY_BODY", "No binary data received"));
         }
-        await storage.saveObject(key, bodyStream, req.query.contentType);
+        const magicCheck = validateMagicBytes(bodyStream.subarray(0, 512), claimedContentType);
+        if (!magicCheck.valid) {
+          return reply
+            .status(415)
+            .send(createErrorResponse("INVALID_FILE_SIGNATURE", magicCheck.reason || "Unsupported or spoofed file signature"));
+        }
+        await storage.saveObject(key, bodyStream, claimedContentType);
         bytesWritten = bodyStream.length;
       } else if (bodyStream && typeof (bodyStream as Readable).pipe === "function") {
         bytesWritten = await storage.saveStream(key, bodyStream as Readable, MAX_SINGLE_FILE_BYTES);
         if (bytesWritten === 0) {
           await storage.deleteObject(key);
           return reply.status(400).send(createErrorResponse("EMPTY_BODY", "No binary data received"));
+        }
+        // Inspect the first 512 bytes of the persisted stream to validate magic bytes
+        const { stream: headerStream } = await storage.getObjectStream(key, {
+          start: 0,
+          end: Math.min(bytesWritten - 1, 511),
+        });
+        const headerChunks: Buffer[] = [];
+        for await (const chunk of headerStream) {
+          headerChunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+        }
+        const magicCheck = validateMagicBytes(Buffer.concat(headerChunks), claimedContentType);
+        if (!magicCheck.valid) {
+          await storage.deleteObject(key);
+          return reply
+            .status(415)
+            .send(createErrorResponse("INVALID_FILE_SIGNATURE", magicCheck.reason || "Unsupported or spoofed file signature"));
         }
       } else {
         return reply.status(400).send(createErrorResponse("EMPTY_BODY", "No binary stream received"));
@@ -614,7 +629,40 @@ export async function buildMediaService(): Promise<FastifyInstance> {
     }
   );
 
-  // Serve Local Media Files with Signed URL or Bearer JWT + HTTP 206 Range Support
+  // Helper: resolve owning spaceId for a media storage key (original or derivative)
+  async function resolveSpaceIdForStorageKey(key: string): Promise<string | null> {
+    if (dbUrl) {
+      const derivMatch = key.match(
+        /^derivatives\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\//i
+      );
+      if (derivMatch) {
+        const res = await db.query(
+          `SELECT space_id as "spaceId" FROM media_assets WHERE id = $1 LIMIT 1`,
+          [derivMatch[1]]
+        );
+        if (res.rows[0]?.spaceId) {
+          return String(res.rows[0].spaceId);
+        }
+      }
+      const res = await db.query(
+        `SELECT space_id as "spaceId"
+         FROM media_assets
+         WHERE storage_key = $1
+            OR (derivatives IS NOT NULL AND derivatives::text LIKE $2)
+         LIMIT 1`,
+        [key, `%${key}%`]
+      );
+      if (res.rows[0]?.spaceId) {
+        return String(res.rows[0].spaceId);
+      }
+    }
+    const uuidMatch = key.match(
+      /^(?:spaces\/)?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\//i
+    );
+    return uuidMatch ? uuidMatch[1] : null;
+  }
+
+  // Serve Local Media Files with Signed URL or Space-Authorized Bearer JWT + HTTP 206 Range Support
   app.get(
     "/api/v1/media/files/*",
     async (
@@ -639,8 +687,13 @@ export async function buildMediaService(): Promise<FastifyInstance> {
         );
 
       if (!hasValidSig) {
-        // Fallback: allow authenticated Bearer JWT requests
-        await requireAuthUser(req);
+        // Fallback: require authenticated Bearer JWT AND verify space ownership/membership (BOLA protection)
+        const actorId = await requireAuthUser(req);
+        const ownerSpaceId = await resolveSpaceIdForStorageKey(key);
+        if (!ownerSpaceId) {
+          throw new ForbiddenError("Unable to verify media ownership for this object");
+        }
+        await assertSpaceAccess(ownerSpaceId, actorId, false);
       }
 
       const stat = await storage.verifyObjectExists(key);
@@ -660,6 +713,18 @@ export async function buildMediaService(): Promise<FastifyInstance> {
       else if (ext === ".mp4") contentType = "video/mp4";
       else if (ext === ".mov") contentType = "video/quicktime";
       else if (ext === ".pdf") contentType = "application/pdf";
+
+      const isSafeInline =
+        contentType.startsWith("image/") ||
+        contentType.startsWith("audio/") ||
+        contentType.startsWith("video/") ||
+        contentType === "application/pdf";
+      const safeFileName = path.basename(key).replace(/["\r\n\\]/g, "_");
+      reply.header("X-Content-Type-Options", "nosniff");
+      reply.header(
+        "Content-Disposition",
+        `${isSafeInline ? "inline" : "attachment"}; filename="${safeFileName}"`
+      );
 
       const totalSize = stat.sizeBytes;
       const rangeHeader = req.headers.range;

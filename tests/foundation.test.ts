@@ -253,7 +253,10 @@ describe("Stage 1 — Engineering Foundation Verification Suite", () => {
       });
       await memDb.close();
     }
-    const samplePayload = Buffer.from("MEMORIA-JPEG-BINARY-SAMPLE-PAYLOAD-2026");
+    const samplePayload = Buffer.concat([
+      Buffer.from([0xff, 0xd8, 0xff, 0xe0]),
+      Buffer.from("MEMORIA-JPEG-BINARY-SAMPLE-PAYLOAD-2026"),
+    ]);
 
     // Create upload session
     const sessionRes = await app.inject({
