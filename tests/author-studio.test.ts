@@ -1,9 +1,20 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import zlib from "node:zlib";
 import jwt from "jsonwebtoken";
 import JSZip from "jszip";
+import sharp from "sharp";
+import {
+  Book3DConfigurationSchema,
+  BOOK_LEATHER_SWATCHES,
+  buildCoverMaterialSpec,
+} from "@memory-capsule/contracts";
 import { buildBookService } from "../services/book-service/src/server.ts";
+import { extractAssistedPdfText } from "../services/book-service/src/author-studio-io.ts";
 import { createDatabaseClient, PostgresSpaceRepository } from "@memory-capsule/database";
 
 const JWT_SECRET =
@@ -831,6 +842,369 @@ describe("Memoria Author Studio — Manuscript, Resume, Revisions, 3D Sync & Imp
         "sync-spreads must reject frozen print editions with 409 BOOK_FROZEN"
       );
       assert.equal(JSON.parse(frozenSyncRes.body).error.code, "BOOK_FROZEN");
+    } finally {
+      await app.close();
+    }
+  });
+
+  test("7. Truthful Measured Preflight (Sharp Real DPI, Empty Chapters, Missing Binary = not_checked) & Immutable Edition Snapshot Hashes", async () => {
+    const tmpStorage = fs.mkdtempSync(path.join(os.tmpdir(), "memoria-preflight-"));
+    const prevStorage = process.env.STORAGE_LOCAL_PATH;
+    process.env.STORAGE_LOCAL_PATH = tmpStorage;
+    const app = await buildBookService();
+    try {
+      const ownerId = crypto.randomUUID();
+      const spaceId = crypto.randomUUID();
+      const token = signToken(ownerId, "preflight@memoria.internal");
+      await seedSpace(spaceId, ownerId);
+
+      // Create book
+      const bookRes = await app.inject({
+        method: "POST",
+        url: "/api/v1/books",
+        headers: { authorization: `Bearer ${token}` },
+        payload: {
+          spaceId,
+          title: "Preflight Truth Volume",
+          coverTitle: "Preflight Truth Volume",
+          format: "hardcover_standard_8x10",
+        },
+      });
+      assert.equal(bookRes.statusCode, 201);
+      const book = JSON.parse(bookRes.body).data;
+
+      // 1. Blank author name -> warning (never faking pass)
+      const initialPreRes = await app.inject({
+        method: "POST",
+        url: `/api/v1/books/${book.id}/preflight`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: {},
+      });
+      assert.equal(initialPreRes.statusCode, 200);
+      const initialPre = JSON.parse(initialPreRes.body).data;
+      const metaCheck = initialPre.checks.find((c: any) => c.id === "title_author_metadata");
+      assert.equal(metaCheck.status, "warning", "Blank authorName must warn instead of faking pass");
+      assert.equal(metaCheck.targetEnvironment, "design");
+
+      // 2. Empty chapter (0 words) -> fail with Jump-to-Fix targetChapterId
+      const addEmptyRes = await app.inject({
+        method: "POST",
+        url: `/api/v1/books/${book.id}/manuscript/chapters`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: { title: "Blank Chapter", contentHtml: "<p></p>" },
+      });
+      assert.equal(addEmptyRes.statusCode, 201);
+      const emptyCh = JSON.parse(addEmptyRes.body).data;
+
+      const emptyPreRes = await app.inject({
+        method: "POST",
+        url: `/api/v1/books/${book.id}/preflight`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: {},
+      });
+      const emptyPre = JSON.parse(emptyPreRes.body).data;
+      assert.equal(emptyPre.passed, false);
+      const chCheck = emptyPre.checks.find((c: any) => c.id === "empty_chapters");
+      assert.equal(chCheck.status, "fail");
+      assert.equal(chCheck.targetEnvironment, "write");
+      assert.equal(chCheck.targetChapterId, emptyCh.id);
+
+      // Fix empty chapter + set author name
+      await app.inject({
+        method: "PATCH",
+        url: `/api/v1/books/${book.id}/manuscript/chapters/${emptyCh.id}`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: { contentHtml: "<p>Now filled with archival narrative prose.</p>" },
+      });
+      await app.inject({
+        method: "PATCH",
+        url: `/api/v1/books/${book.id}/manuscript`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: { authorName: "Clara Vance" },
+      });
+
+      // 3. Place an image whose binary does NOT exist on disk -> explicit not_checked (never fake pass)
+      const spreadId = crypto.randomUUID();
+      await app.inject({
+        method: "PUT",
+        url: `/api/v1/books/${book.id}/spreads/${spreadId}`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: {
+          spreadIndex: 1,
+          leftPage: {
+            id: crypto.randomUUID(),
+            pageNumber: 3,
+            layoutType: "photo_with_story",
+            backgroundColor: "#F7F4EE",
+            elements: [
+              {
+                id: crypto.randomUUID(),
+                type: "image",
+                x: 10,
+                y: 10,
+                width: 50,
+                height: 50,
+                rotation: 0,
+                zIndex: 1,
+                content: "missing-binary-media-id-9999",
+              },
+            ],
+          },
+          rightPage: null,
+        },
+      });
+      const unverifiedRes = await app.inject({
+        method: "POST",
+        url: `/api/v1/books/${book.id}/preflight`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: {},
+      });
+      const unverifiedPre = JSON.parse(unverifiedRes.body).data;
+      assert.equal(
+        unverifiedPre.checks.find((c: any) => c.id === "dpi_resolution")?.status,
+        "not_checked",
+        "Missing source binary must explicitly report not_checked"
+      );
+
+      // 4. Write a real low-res 300x300 PNG to local storage via sharp -> placed at 50% of 8x10" (4x5") = 60 DPI -> FAIL!
+      const lowResId = "sharp-lowres-asset-1001.png";
+      await sharp({
+        create: { width: 300, height: 300, channels: 3, background: { r: 118, g: 85, b: 111 } },
+      })
+        .png()
+        .toFile(path.join(tmpStorage, lowResId));
+
+      await app.inject({
+        method: "PUT",
+        url: `/api/v1/books/${book.id}/spreads/${spreadId}`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: {
+          spreadIndex: 1,
+          leftPage: {
+            id: crypto.randomUUID(),
+            pageNumber: 3,
+            layoutType: "photo_with_story",
+            backgroundColor: "#F7F4EE",
+            elements: [
+              {
+                id: crypto.randomUUID(),
+                type: "image",
+                x: 10,
+                y: 10,
+                width: 50,
+                height: 50,
+                rotation: 0,
+                zIndex: 1,
+                content: lowResId,
+              },
+            ],
+          },
+          rightPage: null,
+        },
+      });
+
+      const sharpFailRes = await app.inject({
+        method: "POST",
+        url: `/api/v1/books/${book.id}/preflight`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: {},
+      });
+      const sharpFail = JSON.parse(sharpFailRes.body).data;
+      const dpiCheck = sharpFail.checks.find((c: any) => c.id === "dpi_resolution");
+      assert.equal(dpiCheck.status, "fail", `Expected sharp-measured low-DPI image to fail, got: ${JSON.stringify(dpiCheck)}`);
+      assert.equal(dpiCheck.passed, false);
+
+      // 5. Immutable freeze records full component hashes + rendererVersion
+      const freezeRes = await app.inject({
+        method: "POST",
+        url: `/api/v1/books/${book.id}/freeze`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: {},
+      });
+      assert.equal(freezeRes.statusCode, 200);
+      const frozenData = JSON.parse(freezeRes.body).data;
+      assert.ok(frozenData.editionSnapshot, "Freeze must return editionSnapshot manifest");
+      assert.equal(frozenData.editionSnapshot.manuscriptHash.length, 64);
+      assert.equal(frozenData.editionSnapshot.chaptersHash.length, 64);
+      assert.equal(frozenData.editionSnapshot.assetsHash.length, 64);
+      assert.equal(frozenData.editionSnapshot.themeHash.length, 64);
+      assert.ok(frozenData.editionSnapshot.rendererVersion);
+    } finally {
+      if (prevStorage === undefined) delete process.env.STORAGE_LOCAL_PATH;
+      else process.env.STORAGE_LOCAL_PATH = prevStorage;
+      fs.rmSync(tmpStorage, { recursive: true, force: true });
+      await app.close();
+    }
+  });
+
+  test("8. FlateDecode Compressed PDF Text Extraction (zlib.inflateSync) & Assisted Import", async () => {
+    const contentStream = "BT /F1 12 Tf 72 720 Td (Compressed Heirloom Letter from Lake Como) Tj ET";
+    const compressed = zlib.deflateSync(Buffer.from(contentStream, "latin1"));
+    const header = Buffer.from(
+      `%PDF-1.4\n1 0 obj\n<< /Length ${compressed.length} /Filter /FlateDecode >>\nstream\n`,
+      "latin1"
+    );
+    const footer = Buffer.from("\nendstream\nendobj\n%%EOF\n", "latin1");
+    const pdfBuf = Buffer.concat([header, compressed, footer]);
+
+    const extracted = extractAssistedPdfText(pdfBuf);
+    assert.ok(
+      extracted.includes("Compressed Heirloom Letter from Lake Como"),
+      `Expected FlateDecode PDF extraction to recover text, got: "${extracted}"`
+    );
+
+    const app = await buildBookService();
+    try {
+      const ownerId = crypto.randomUUID();
+      const spaceId = crypto.randomUUID();
+      const token = signToken(ownerId, "pdf@memoria.internal");
+      await seedSpace(spaceId, ownerId);
+      const bookRes = await app.inject({
+        method: "POST",
+        url: "/api/v1/books",
+        headers: { authorization: `Bearer ${token}` },
+        payload: { spaceId, title: "FlateDecode PDF Book" },
+      });
+      const book = JSON.parse(bookRes.body).data;
+      const impRes = await app.inject({
+        method: "POST",
+        url: `/api/v1/books/${book.id}/manuscript/import`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: {
+          format: "pdf",
+          fileName: "como-letter.pdf",
+          contentBase64: pdfBuf.toString("base64"),
+          mergeStrategy: "replace",
+        },
+      });
+      assert.equal(impRes.statusCode, 200);
+      const impData = JSON.parse(impRes.body).data;
+      assert.ok(impData.manuscript.chapters[0].contentText.includes("Compressed Heirloom Letter"));
+    } finally {
+      await app.close();
+    }
+  });
+
+  test("9. Re-Import Diff Preview (AS-14), Revision Compare (AS-22), Duplicate/Archive (AS-01) & 3D Material Contracts", async () => {
+    // 3D Material Mode & Page Edge Finish contract checks
+    const linenSpec = buildCoverMaterialSpec(BOOK_LEATHER_SWATCHES[0], "linen");
+    const leatherSpec = buildCoverMaterialSpec(BOOK_LEATHER_SWATCHES[0], "leather");
+    assert.ok(linenSpec.roughness > 0.9 && linenSpec.clearcoat === 0);
+    assert.ok(leatherSpec.clearcoat > 0);
+    const parsedCfg = Book3DConfigurationSchema.parse({
+      materialMode: "linen",
+      pageEdgeFinish: "gilded",
+      showSpineBands: true,
+      showHeadbands: true,
+    });
+    assert.equal(parsedCfg.materialMode, "linen");
+    assert.equal(parsedCfg.pageEdgeFinish, "gilded");
+
+    const app = await buildBookService();
+    try {
+      const ownerId = crypto.randomUUID();
+      const spaceId = crypto.randomUUID();
+      const token = signToken(ownerId, "diff@memoria.internal");
+      await seedSpace(spaceId, ownerId);
+
+      const bookRes = await app.inject({
+        method: "POST",
+        url: "/api/v1/books",
+        headers: { authorization: `Bearer ${token}` },
+        payload: { spaceId, title: "Diff & Shelf Book" },
+      });
+      const book = JSON.parse(bookRes.body).data;
+
+      // Seed 2 initial chapters
+      await app.inject({
+        method: "POST",
+        url: `/api/v1/books/${book.id}/manuscript/import`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: {
+          format: "markdown",
+          fileName: "v1.md",
+          contentText: "# Chapter One\nOriginal prose.\n\n# Chapter Two\nSecond chapter prose.\n",
+          mergeStrategy: "replace",
+        },
+      });
+
+      // Save revision checkpoint
+      const revRes = await app.inject({
+        method: "POST",
+        url: `/api/v1/books/${book.id}/manuscript/revisions`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: { label: "Baseline v1" },
+      });
+      const rev = JSON.parse(revRes.body).data;
+
+      // Preview re-import diff (merge_by_title): Chapter One unchanged, Chapter Two modified, Chapter Three added
+      const previewRes = await app.inject({
+        method: "POST",
+        url: `/api/v1/books/${book.id}/manuscript/import/preview`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: {
+          format: "markdown",
+          fileName: "v2.md",
+          contentText:
+            "# Chapter One\nOriginal prose.\n\n# Chapter Two\nRevised second chapter prose with extra details.\n\n# Chapter Three\nBrand new epilogue.\n",
+          mergeStrategy: "merge_by_title",
+        },
+      });
+      assert.equal(previewRes.statusCode, 200);
+      const preview = JSON.parse(previewRes.body).data;
+      assert.equal(preview.summary.unchanged, 1);
+      assert.equal(preview.summary.modified, 1);
+      assert.equal(preview.summary.added, 1);
+      assert.equal(preview.summary.removed, 0);
+
+      // Verify preview did NOT mutate live manuscript (still 2 chapters)
+      const msCheck = JSON.parse(
+        (
+          await app.inject({
+            method: "GET",
+            url: `/api/v1/books/${book.id}/manuscript`,
+            headers: { authorization: `Bearer ${token}` },
+          })
+        ).body
+      ).data;
+      assert.equal(msCheck.manuscript.chapters.length, 2);
+
+      // Add a new chapter, then compare Baseline v1 revision against live manuscript
+      await app.inject({
+        method: "POST",
+        url: `/api/v1/books/${book.id}/manuscript/chapters`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: { title: "Chapter Three Live", contentHtml: "<p>Added after baseline.</p>" },
+      });
+
+      const cmpRes = await app.inject({
+        method: "GET",
+        url: `/api/v1/books/${book.id}/manuscript/revisions/${rev.id}/compare`,
+        headers: { authorization: `Bearer ${token}` },
+      });
+      assert.equal(cmpRes.statusCode, 200);
+      const cmp = JSON.parse(cmpRes.body).data;
+      assert.equal(cmp.summary.removed, 1, "Restoring baseline v1 would remove the newly added live chapter");
+
+      // Duplicate & Archive quick actions
+      const dupRes = await app.inject({
+        method: "POST",
+        url: `/api/v1/books/${book.id}/duplicate`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: {},
+      });
+      assert.equal(dupRes.statusCode, 201);
+      const dupBook = JSON.parse(dupRes.body).data;
+      assert.ok(dupBook.title.includes("(Copy)"));
+
+      const archRes = await app.inject({
+        method: "PATCH",
+        url: `/api/v1/books/${dupBook.id}/archive`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: { archived: true },
+      });
+      assert.equal(archRes.statusCode, 200);
+      assert.equal(JSON.parse(archRes.body).data.archived, true);
     } finally {
       await app.close();
     }

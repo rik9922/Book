@@ -1007,6 +1007,45 @@ describe("Interactive Chrome / Playwright DOM, WebGL, SW Offline & 401 Refresh E
     await page.getByText(/3 sections/i).waitFor({ state: "visible", timeout: 10000 });
     await page.getByText("Import / Resume / Merge Manuscript").waitFor({ state: "visible", timeout: 10000 });
 
+    // 7. AS-14 Re-Import Diff Preview + Commit Merge
+    await page.setInputFiles('[data-testid="author-import-diff-input"]', {
+      name: "postscript.md",
+      mimeType: "text/markdown",
+      buffer: Buffer.from("# Postscript Letter\n\nAppended after diff review.\n", "utf-8"),
+    });
+    await page.locator('[data-testid="author-import-diff-preview"]').waitFor({ state: "visible", timeout: 10000 });
+    await page.locator('[data-testid="author-import-diff-preview"]').getByText("+1 added").waitFor({ state: "visible", timeout: 10000 });
+    await page.click('[data-testid="author-import-diff-commit"]');
+    await page.getByText(/Committed merge/i).waitFor({ state: "visible", timeout: 10000 });
+
+    // 8. AS-13 Truthful Preflight & AS-11 2D Proof Viewer
+    await page.click('button:has-text("Run Preflight")');
+    await page.locator('[data-testid="author-preflight-report"]').waitFor({ state: "visible", timeout: 10000 });
+    await page.getByText("Title & Author Metadata").waitFor({ state: "visible", timeout: 10000 });
+    await page.click('button:has-text("2D Proof Summary")');
+    await page.locator('[data-testid="author-2d-proof-viewer"]').waitFor({ state: "visible", timeout: 10000 });
+
+    // 9. 3D Book Theater Material Mode (Linen vs Leather) & Page Edge Finish (Gilded)
+    await page.click('[data-testid="author-env-preview"]');
+    await page.click('[data-testid="author-3d-material-linen"]');
+    await page.click('[data-testid="author-3d-edge-gilded"]');
+
+    // 10. AS-02 Guided New Project Setup + AS-01 Project Shelf
+    await page.click('[data-testid="author-new-book-toggle"]');
+    await page.locator('[data-testid="author-guided-new-book-form"]').waitFor({ state: "visible", timeout: 10000 });
+    await page.fill("#new-book-title", "Deep Plan Guided Memoir");
+    await page.fill("#new-book-author", "Clara Vance");
+    await page.selectOption("#new-book-genre", "family_chronicle");
+    await page.selectOption("#new-book-layout-mode", "hybrid");
+    await page.click('button:has-text("Create Hardcover Edition")');
+    await page.getByText('Created edition "Deep Plan Guided Memoir"').waitFor({ state: "visible", timeout: 10000 });
+
+    await page.click('[data-testid="author-project-shelf-toggle"]');
+    await page.locator('[data-testid="author-project-shelf"]').waitFor({ state: "visible", timeout: 10000 });
+    await page.getByText("Continue Where You Left Off").waitFor({ state: "visible", timeout: 10000 });
+    await page.locator('[data-testid="author-project-shelf"] button:has-text("Duplicate")').first().click();
+    await page.getByText(/Duplicated project/i).waitFor({ state: "visible", timeout: 10000 });
+
     assert.equal(pageErrors.length, 0, `Unexpected page errors on /author: ${pageErrors.join("; ")}`);
     await context.close();
   });

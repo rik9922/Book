@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import zlib from "node:zlib";
 import JSZip from "jszip";
 import mammoth from "mammoth";
 import {
@@ -7,9 +8,11 @@ import {
   MemoriaPackageManifestSchema,
   type ChapterSectionType,
   type ExportFormat,
+  type ImportDiffChapter,
   type ImportFormat,
   type ManuscriptChapter,
   type ManuscriptDocument,
+  type MergeStrategy,
 } from "@memory-capsule/contracts";
 
 export const MAX_IMPORT_BYTES = 15 * 1024 * 1024; // 15 MB
@@ -471,19 +474,211 @@ function splitHtmlIntoChapters(rawHtml: string, fallbackTitle: string): ParsedIm
   return chapters;
 }
 
-function extractAssistedPdfText(buffer: Buffer): string {
-  const latin = buffer.toString("latin1");
+const MAX_PDF_INFLATED_STREAM_BYTES = 8 * 1024 * 1024; // 8 MB per stream safety ceiling
+
+function decodePdfLiteralString(raw: string): string {
+  return raw
+    .replace(/\\n/g, "\n")
+    .replace(/\\r/g, "\r")
+    .replace(/\\t/g, "\t")
+    .replace(/\\\(/g, "(")
+    .replace(/\\\)/g, ")")
+    .replace(/\\\\/g, "\\");
+}
+
+function extractPdfTextTokens(content: string): string[] {
   const matches: string[] = [];
-  const parenRegex = /\(([^()\\]{2,400})\)/g;
-  let match: RegExpExecArray | null = parenRegex.exec(latin);
+  // Match parenthesized PDF string literals including escaped parentheses
+  const parenRegex = /\(((?:\\.|[^()\\]){1,600})\)/g;
+  let match: RegExpExecArray | null = parenRegex.exec(content);
   while (match !== null) {
-    const candidate = match[1].replace(/[^\x20-\x7E\n\r\t]/g, " ").trim();
-    if (candidate.length >= 2 && /[A-Za-z0-9]/.test(candidate)) {
-      matches.push(candidate);
+    const decoded = decodePdfLiteralString(match[1])
+      .replace(/[^\x20-\x7E\n\r\t]/g, " ")
+      .trim();
+    if (decoded.length >= 2 && /[A-Za-z0-9]/.test(decoded)) {
+      matches.push(decoded);
     }
-    match = parenRegex.exec(latin);
+    match = parenRegex.exec(content);
   }
-  return matches.join(" ").replace(/\s{2,}/g, " ").trim();
+  return matches;
+}
+
+/**
+ * Extracts text from both uncompressed PDF text streams and /FlateDecode
+ * compressed content streams via zlib.inflateSync under a strict memory ceiling.
+ */
+export function extractAssistedPdfText(buffer: Buffer): string {
+  const latin = buffer.toString("latin1");
+  const collected: string[] = [];
+
+  // 1. Scan for PDF stream ... endstream blocks and inflate /FlateDecode streams
+  const streamToken = "stream";
+  const endStreamToken = "endstream";
+  let searchPos = 0;
+  let streamsChecked = 0;
+
+  while (searchPos < latin.length && streamsChecked < 200) {
+    const streamIdx = latin.indexOf(streamToken, searchPos);
+    if (streamIdx === -1) break;
+    const endIdx = latin.indexOf(endStreamToken, streamIdx + streamToken.length);
+    if (endIdx === -1) break;
+    streamsChecked += 1;
+
+    // Inspect preceding dictionary window for /FlateDecode
+    const dictStart = Math.max(0, streamIdx - 512);
+    const dictWindow = latin.slice(dictStart, streamIdx);
+    let dataStart = streamIdx + streamToken.length;
+    if (latin[dataStart] === "\r" && latin[dataStart + 1] === "\n") {
+      dataStart += 2;
+    } else if (latin[dataStart] === "\n" || latin[dataStart] === "\r") {
+      dataStart += 1;
+    }
+    let dataEnd = endIdx;
+    while (dataEnd > dataStart && (latin[dataEnd - 1] === "\n" || latin[dataEnd - 1] === "\r")) {
+      dataEnd -= 1;
+    }
+
+    if (dictWindow.includes("/FlateDecode") && dataEnd > dataStart) {
+      const compressed = buffer.subarray(dataStart, dataEnd);
+      let inflated: Buffer | null = null;
+      try {
+        inflated = zlib.inflateSync(compressed, { maxOutputLength: MAX_PDF_INFLATED_STREAM_BYTES });
+      } catch {
+        try {
+          inflated = zlib.inflateRawSync(compressed, { maxOutputLength: MAX_PDF_INFLATED_STREAM_BYTES });
+        } catch {
+          inflated = null;
+        }
+      }
+      if (inflated && inflated.length > 0) {
+        const streamText = inflated.toString("latin1");
+        collected.push(...extractPdfTextTokens(streamText));
+      }
+    }
+
+    searchPos = endIdx + endStreamToken.length;
+  }
+
+  // 2. Also extract any uncompressed text tokens from the PDF body
+  if (collected.length === 0) {
+    collected.push(...extractPdfTextTokens(latin));
+  }
+
+  return collected.join(" ").replace(/\s{2,}/g, " ").trim();
+}
+
+export function computeImportChapterDiff(
+  existingChapters: Array<{ id?: string; title: string; contentText: string; wordCount: number }>,
+  incomingChapters: Array<{ title: string; contentText: string; wordCount: number }>,
+  mergeStrategy: MergeStrategy
+): {
+  summary: { unchanged: number; added: number; removed: number; modified: number };
+  chapters: ImportDiffChapter[];
+} {
+  const normalize = (s: string) => s.trim().replace(/\s+/g, " ");
+  const existingByTitle = new Map(
+    existingChapters.map((ch) => [ch.title.trim().toLowerCase(), ch])
+  );
+  const incomingByTitle = new Map(
+    incomingChapters.map((ch) => [ch.title.trim().toLowerCase(), ch])
+  );
+
+  const rows: ImportDiffChapter[] = [];
+
+  if (mergeStrategy === "append") {
+    for (const ex of existingChapters) {
+      rows.push({
+        title: ex.title,
+        status: "unchanged",
+        existingChapterId: ex.id,
+        existingWordCount: ex.wordCount,
+        incomingWordCount: ex.wordCount,
+        wordDelta: 0,
+        existingExcerpt: ex.contentText.slice(0, 140),
+        incomingExcerpt: ex.contentText.slice(0, 140),
+      });
+    }
+    for (const inc of incomingChapters) {
+      rows.push({
+        title: inc.title,
+        status: "added",
+        existingWordCount: 0,
+        incomingWordCount: inc.wordCount,
+        wordDelta: inc.wordCount,
+        existingExcerpt: "",
+        incomingExcerpt: inc.contentText.slice(0, 140),
+      });
+    }
+  } else {
+    // replace or merge_by_title
+    const seenTitles = new Set<string>();
+    for (const inc of incomingChapters) {
+      const key = inc.title.trim().toLowerCase();
+      seenTitles.add(key);
+      const ex = existingByTitle.get(key);
+      if (!ex) {
+        rows.push({
+          title: inc.title,
+          status: "added",
+          existingWordCount: 0,
+          incomingWordCount: inc.wordCount,
+          wordDelta: inc.wordCount,
+          existingExcerpt: "",
+          incomingExcerpt: inc.contentText.slice(0, 140),
+        });
+      } else {
+        const isSame = normalize(ex.contentText) === normalize(inc.contentText);
+        rows.push({
+          title: inc.title,
+          status: isSame ? "unchanged" : "modified",
+          existingChapterId: ex.id,
+          existingWordCount: ex.wordCount,
+          incomingWordCount: inc.wordCount,
+          wordDelta: inc.wordCount - ex.wordCount,
+          existingExcerpt: ex.contentText.slice(0, 140),
+          incomingExcerpt: inc.contentText.slice(0, 140),
+        });
+      }
+    }
+
+    for (const ex of existingChapters) {
+      const key = ex.title.trim().toLowerCase();
+      if (!seenTitles.has(key) && !incomingByTitle.has(key)) {
+        if (mergeStrategy === "replace") {
+          rows.push({
+            title: ex.title,
+            status: "removed",
+            existingChapterId: ex.id,
+            existingWordCount: ex.wordCount,
+            incomingWordCount: 0,
+            wordDelta: -ex.wordCount,
+            existingExcerpt: ex.contentText.slice(0, 140),
+            incomingExcerpt: "",
+          });
+        } else {
+          rows.push({
+            title: ex.title,
+            status: "unchanged",
+            existingChapterId: ex.id,
+            existingWordCount: ex.wordCount,
+            incomingWordCount: ex.wordCount,
+            wordDelta: 0,
+            existingExcerpt: ex.contentText.slice(0, 140),
+            incomingExcerpt: ex.contentText.slice(0, 140),
+          });
+        }
+      }
+    }
+  }
+
+  const summary = {
+    unchanged: rows.filter((r) => r.status === "unchanged").length,
+    added: rows.filter((r) => r.status === "added").length,
+    removed: rows.filter((r) => r.status === "removed").length,
+    modified: rows.filter((r) => r.status === "modified").length,
+  };
+
+  return { summary, chapters: rows };
 }
 
 export async function parseImportedManuscript(

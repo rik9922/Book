@@ -99,6 +99,51 @@ export type BookLeatherSwatchId = z.infer<typeof BookLeatherSwatchIdSchema>;
 export const BookFoilSwatchIdSchema = z.enum(["gold", "rose", "silver", "blind_emboss"]);
 export type BookFoilSwatchId = z.infer<typeof BookFoilSwatchIdSchema>;
 
+export const BookMaterialModeSchema = z.enum(["leather", "linen"]);
+export type BookMaterialMode = z.infer<typeof BookMaterialModeSchema>;
+
+export const BookPageEdgeFinishSchema = z.enum(["natural", "gilded", "deckled"]);
+export type BookPageEdgeFinish = z.infer<typeof BookPageEdgeFinishSchema>;
+
+export const BOOK_MATERIAL_MODES: ReadonlyArray<{
+  id: BookMaterialMode;
+  label: string;
+  description: string;
+}> = [
+  {
+    id: "leather",
+    label: "Full-Grain Leather",
+    description: "Vegetable-tanned French morocco goatskin with warm sheen",
+  },
+  {
+    id: "linen",
+    label: "Bookcloth Linen",
+    description: "Archival woven Japanese bookcloth with tactile matte weave",
+  },
+] as const;
+
+export const BOOK_PAGE_EDGE_FINISHES: ReadonlyArray<{
+  id: BookPageEdgeFinish;
+  label: string;
+  description: string;
+}> = [
+  {
+    id: "natural",
+    label: "Natural Ivory",
+    description: "Clean-trimmed 170gsm acid-free cotton rag edges",
+  },
+  {
+    id: "gilded",
+    label: "Gilded Gold",
+    description: "24-karat burnished gold-leaf page edges",
+  },
+  {
+    id: "deckled",
+    label: "Deckled Edge",
+    description: "Softly feathered mould-made archival paper edges",
+  },
+] as const;
+
 export interface LeatherSwatchSpec {
   id: BookLeatherSwatchId;
   name: string;
@@ -289,6 +334,26 @@ export function buildLeatherMaterialSpec(swatch: LeatherSwatchSpec): PbrMaterial
     clearcoatRoughness: 0.45,
     doubleSided: true,
   };
+}
+
+export function buildCoverMaterialSpec(
+  swatch: LeatherSwatchSpec,
+  materialMode: BookMaterialMode = "leather"
+): PbrMaterialSpec {
+  if (materialMode === "linen") {
+    return {
+      id: `linen_${swatch.id}`,
+      name: `${swatch.name} Bookcloth Linen`,
+      baseColorHex: swatch.hex,
+      rgba: hexToNormalizedRgba(swatch.hex, 1.0),
+      metallic: 0.0,
+      roughness: 0.93,
+      clearcoat: 0.0,
+      clearcoatRoughness: 0.95,
+      doubleSided: true,
+    };
+  }
+  return buildLeatherMaterialSpec(swatch);
 }
 
 export function buildFoilMaterialSpec(foil: FoilSwatchSpec, leatherSwatch?: LeatherSwatchSpec): PbrMaterialSpec {
@@ -568,6 +633,10 @@ export function computePageCurlDisplacement(
 export const Book3DConfigurationSchema = z.object({
   leatherId: BookLeatherSwatchIdSchema.default("plum"),
   foilId: BookFoilSwatchIdSchema.default("gold"),
+  materialMode: BookMaterialModeSchema.default("leather"),
+  pageEdgeFinish: BookPageEdgeFinishSchema.default("natural"),
+  showSpineBands: z.boolean().default(true),
+  showHeadbands: z.boolean().default(true),
   coverTitle: z.string().min(1).max(60).default("The Bennett Heritage"),
   coverSubtitle: z.string().max(80).default("1948 — 2026 • Memoria Volume I"),
   spineText: z.string().max(40).default("MEMORIA VOL. I"),

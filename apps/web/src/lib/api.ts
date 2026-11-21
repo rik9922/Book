@@ -144,17 +144,31 @@ export interface MemoryReactionStateDTO {
   active?: boolean;
 }
 
+export type PreflightCheckStatus = "pass" | "warning" | "fail" | "not_checked";
+
 export interface PreflightReportDTO {
   bookId: string;
   version: number;
   isFrozenForPrint: boolean;
   frozenEditionHash?: string | null;
+  overallStatus?: PreflightCheckStatus;
   passed: boolean;
+  counts?: {
+    pass: number;
+    warning: number;
+    fail: number;
+    notChecked: number;
+  };
   checks: Array<{
     id: string;
     label: string;
+    status?: PreflightCheckStatus;
     passed: boolean;
     detail: string;
+    measuredValue?: string;
+    targetEnvironment?: AuthorEnvironment;
+    targetChapterId?: string;
+    targetSpreadIndex?: number;
   }>;
   checkedAt: string;
 }
@@ -1621,6 +1635,89 @@ export async function importManuscriptFile(
   return apiRequest(`/books/${bookId}/manuscript/import`, {
     method: "POST",
     body: JSON.stringify(payload),
+  });
+}
+
+export interface ImportDiffChapterDTO {
+  title: string;
+  status: "unchanged" | "added" | "removed" | "modified";
+  existingChapterId?: string;
+  existingWordCount: number;
+  incomingWordCount: number;
+  wordDelta: number;
+  existingExcerpt: string;
+  incomingExcerpt: string;
+}
+
+export interface ImportDiffPreviewDTO {
+  format: ImportFormat;
+  fileName: string;
+  mergeStrategy: MergeStrategy;
+  summary: {
+    unchanged: number;
+    added: number;
+    removed: number;
+    modified: number;
+  };
+  chapters: ImportDiffChapterDTO[];
+  warnings: string[];
+}
+
+export interface RevisionCompareDTO {
+  revision: {
+    id: string;
+    label: string;
+    createdAt: string;
+    wordCount: number;
+    checksumSha256: string;
+  };
+  currentWordCount: number;
+  summary: {
+    unchanged: number;
+    added: number;
+    removed: number;
+    modified: number;
+  };
+  chapters: ImportDiffChapterDTO[];
+}
+
+export async function previewManuscriptImport(
+  bookId: string,
+  payload: {
+    format: ImportFormat;
+    fileName: string;
+    contentBase64?: string;
+    contentText?: string;
+    mergeStrategy?: MergeStrategy;
+  }
+): Promise<ImportDiffPreviewDTO> {
+  return apiRequest(`/books/${bookId}/manuscript/import/preview`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function compareManuscriptRevision(
+  bookId: string,
+  revisionId: string
+): Promise<RevisionCompareDTO> {
+  return apiRequest(`/books/${bookId}/manuscript/revisions/${revisionId}/compare`);
+}
+
+export async function duplicateBook(bookId: string): Promise<BookDTO> {
+  return apiRequest(`/books/${bookId}/duplicate`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
+export async function setBookArchived(
+  bookId: string,
+  archived: boolean
+): Promise<{ bookId: string; archived: boolean }> {
+  return apiRequest(`/books/${bookId}/archive`, {
+    method: "PATCH",
+    body: JSON.stringify({ archived }),
   });
 }
 

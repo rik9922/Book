@@ -33,25 +33,41 @@ import {
   ChevronLeft,
   ChevronRight,
   Package,
+  Search,
+  FolderArchive,
+  LayoutGrid,
+  List,
+  GitCompare,
+  ArrowRight,
+  BookMarked,
 } from "lucide-react";
 import {
+  AUTHOR_STUDIO_GENRES,
+  AUTHOR_STUDIO_LAYOUT_MODES,
   AUTHOR_STUDIO_TRIM_SIZES,
   AUTHOR_STUDIO_TYPOGRAPHY_PRESETS,
+  type BookGenre,
+  type LayoutMode,
 } from "@memory-capsule/contracts/author-studio";
 import {
   BOOK_CAMERA_PRESETS,
   BOOK_FOIL_SWATCHES,
   BOOK_LEATHER_SWATCHES,
+  BOOK_MATERIAL_MODES,
+  BOOK_PAGE_EDGE_FINISHES,
   resolveFoilSwatch,
   resolveLeatherSwatch,
   type BookCameraPresetId,
   type BookFoilSwatchId,
   type BookLeatherSwatchId,
+  type BookMaterialMode,
+  type BookPageEdgeFinish,
   type BookSpreadPreview,
 } from "@memory-capsule/contracts/book-3d";
 import {
   apiRequest,
   cloneNextBookEdition,
+  compareManuscriptRevision,
   createBook,
   createManuscriptChapter,
   createManuscriptRevision,
@@ -59,6 +75,7 @@ import {
   curateBookMemories,
   deleteManuscriptChapter,
   downloadManuscriptExport,
+  duplicateBook,
   fetchBooks,
   fetchSpaces,
   getBookEditions,
@@ -68,10 +85,12 @@ import {
   importManuscriptFile,
   listManuscriptRevisions,
   openAuthModal,
+  previewManuscriptImport,
   reorderBookSpreads,
   reorderManuscriptChapters,
   restoreManuscriptRevision,
   saveManuscriptResumeState,
+  setBookArchived,
   subscribeAuthChange,
   syncManuscriptSpreads,
   updateBookManuscript,
@@ -82,6 +101,7 @@ import {
   type ChapterSectionType,
   type ChapterStatus,
   type ExportFormat,
+  type ImportDiffPreviewDTO,
   type ImportFormat,
   type ManuscriptChapterDTO,
   type ManuscriptDocumentDTO,
@@ -89,6 +109,7 @@ import {
   type MemorySpaceDTO,
   type MergeStrategy,
   type PreflightReportDTO,
+  type RevisionCompareDTO,
   type TrimSize,
   type TypographyPreset,
 } from "@/lib/api";
@@ -103,11 +124,13 @@ import {
   type SpreadTemplateLayout,
 } from "@/lib/author-spread-utils";
 import {
+  getMostRecentOfflineProjectShell,
   getOfflineChapterDraft,
   getOfflineResumeCheckpoint,
   listPendingOfflineDrafts,
   markOfflineDraftSynced,
   saveOfflineChapterDraft,
+  saveOfflineProjectShell,
   saveOfflineResumeCheckpoint,
 } from "@/lib/author-offline-db";
 import { ClientStudioMount } from "@/components/3d/ClientStudioMount";
@@ -332,12 +355,34 @@ export function AuthorStudioWorkspace({
   const [newChapterType, setNewChapterType] = useState<ChapterSectionType>("chapter");
   const [checkpointLabel, setCheckpointLabel] = useState("");
 
-  // New Book creation drawer state
+  // New Book creation drawer state (AS-02 Guided New Project Setup)
   const [showNewBookForm, setShowNewBookForm] = useState(false);
   const [newBookTitle, setNewBookTitle] = useState("");
   const [newBookSubtitle, setNewBookSubtitle] = useState("");
+  const [newBookAuthor, setNewBookAuthor] = useState("");
+  const [newBookLanguage, setNewBookLanguage] = useState("en");
+  const [newBookGenre, setNewBookGenre] = useState<BookGenre>("memoir");
+  const [newBookLayoutMode, setNewBookLayoutMode] = useState<LayoutMode>("flowing_manuscript");
+  const [newBookTheme, setNewBookTheme] = useState("living_archive_ivory");
   const [newBookCategory, setNewBookCategory] = useState<string>("heirloom_manuscript");
   const [newBookFormat, setNewBookFormat] = useState<BookDTO["format"]>("hardcover_standard_8x10");
+
+  // AS-01 Project Shelf state
+  const [showProjectShelf, setShowProjectShelf] = useState(false);
+  const [shelfQuery, setShelfQuery] = useState("");
+  const [shelfFilter, setShelfFilter] = useState<"all" | "draft" | "frozen" | "archived">("all");
+  const [shelfView, setShelfView] = useState<"grid" | "list">("grid");
+  const [archivedBookIds, setArchivedBookIds] = useState<Record<string, boolean>>({});
+  const [isOfflineRecovered, setIsOfflineRecovered] = useState(false);
+
+  // AS-14 Re-Import Diff Preview & AS-22 Version Compare state
+  const [pendingDiffFile, setPendingDiffFile] = useState<{
+    format: ImportFormat;
+    fileName: string;
+    contentBase64: string;
+  } | null>(null);
+  const [importDiffPreview, setImportDiffPreview] = useState<ImportDiffPreviewDTO | null>(null);
+  const [revisionCompare, setRevisionCompare] = useState<RevisionCompareDTO | null>(null);
 
   // Cover designer state (persisted to PATCH /books/:id)
   const [coverTitleInput, setCoverTitleInput] = useState("");
@@ -352,6 +397,8 @@ export function AuthorStudioWorkspace({
   const [spreadIndex, setSpreadIndex] = useState(0);
   const [selectedLeatherId, setSelectedLeatherId] = useState<BookLeatherSwatchId>("plum");
   const [selectedFoilId, setSelectedFoilId] = useState<BookFoilSwatchId>("gold");
+  const [materialMode, setMaterialMode] = useState<BookMaterialMode>("leather");
+  const [pageEdgeFinish, setPageEdgeFinish] = useState<BookPageEdgeFinish>("natural");
   const [studioSyncNonce, setStudioSyncNonce] = useState(0);
   const [spreadHeadingInput, setSpreadHeadingInput] = useState("");
   const [spreadCaptionInput, setSpreadCaptionInput] = useState("");
@@ -444,7 +491,17 @@ export function AuthorStudioWorkspace({
 
         setActiveBook(book);
         setManuscript(currentMs);
+        setIsOfflineRecovered(false);
         syncCoverFieldsFromBook(book);
+
+        // Cache full project shell in IndexedDB for durable cold offline recovery
+        void saveOfflineProjectShell({
+          bookId: book.id,
+          spaceId: book.spaceId,
+          book,
+          manuscript: currentMs,
+          updatedAt: new Date().toISOString(),
+        });
 
         const metaLeather = currentMs.metadata?.leatherId;
         if (
@@ -459,6 +516,21 @@ export function AuthorStudioWorkspace({
           BOOK_FOIL_SWATCHES.some((f) => f.id === metaFoil)
         ) {
           setSelectedFoilId(metaFoil as BookFoilSwatchId);
+        }
+        const metaMaterialMode = currentMs.metadata?.materialMode;
+        if (metaMaterialMode === "leather" || metaMaterialMode === "linen") {
+          setMaterialMode(metaMaterialMode);
+        }
+        const metaEdgeFinish = currentMs.metadata?.pageEdgeFinish;
+        if (
+          metaEdgeFinish === "natural" ||
+          metaEdgeFinish === "gilded" ||
+          metaEdgeFinish === "deckled"
+        ) {
+          setPageEdgeFinish(metaEdgeFinish);
+        }
+        if (currentMs.metadata?.archived === true) {
+          setArchivedBookIds((prev) => ({ ...prev, [book.id]: true }));
         }
 
         const offlineResume = await getOfflineResumeCheckpoint(bookId);
@@ -581,6 +653,48 @@ export function AuthorStudioWorkspace({
         }
       } catch {
         if (!cancelled) {
+          // Durable offline continuation: recover cached real project shell from IndexedDB
+          const cachedShell = await getMostRecentOfflineProjectShell(initialBookId);
+          if (cachedShell) {
+            const pendingDrafts = await listPendingOfflineDrafts(cachedShell.bookId);
+            const draftMap = new Map(pendingDrafts.map((d) => [d.chapterId, d]));
+            const mergedChapters = cachedShell.manuscript.chapters.map((ch) => {
+              const draft = draftMap.get(ch.id);
+              if (!draft) return ch;
+              return {
+                ...ch,
+                title: draft.title || ch.title,
+                contentHtml: draft.contentHtml,
+                contentJson: draft.contentJson,
+                updatedAt: draft.updatedAt,
+              };
+            });
+            const recoveredMs: ManuscriptDocumentDTO = {
+              ...cachedShell.manuscript,
+              chapters: mergedChapters,
+            };
+            const offlineResume = await getOfflineResumeCheckpoint(cachedShell.bookId);
+            setIsGuest(false);
+            setIsOfflineRecovered(true);
+            setActiveSpaceId(cachedShell.spaceId);
+            setBooks([cachedShell.book]);
+            setActiveBook(cachedShell.book);
+            setManuscript(recoveredMs);
+            syncCoverFieldsFromBook(cachedShell.book);
+            setActiveEnv(
+              initialEnvironment || offlineResume?.activeEnvironment || "write"
+            );
+            setActiveChapterId(
+              offlineResume?.activeChapterId || recoveredMs.chapters[0]?.id || null
+            );
+            setSaveState("offline_saved");
+            setStatusMessage(
+              `Offline Mode: recovered "${cachedShell.book.title}" from local IndexedDB cache.`
+            );
+            setLoading(false);
+            return;
+          }
+
           const guest = createGuestManuscript();
           setIsGuest(true);
           setBooks([guest.book]);
@@ -725,7 +839,13 @@ export function AuthorStudioWorkspace({
         : c
     );
     const totalWordCount = updatedChapters.reduce((sum, c) => sum + c.wordCount, 0);
-    setManuscript({ ...manuscript, chapters: updatedChapters, totalWordCount });
+    const nextManuscript: ManuscriptDocumentDTO = {
+      ...manuscript,
+      chapters: updatedChapters,
+      totalWordCount,
+      updatedAt: new Date().toISOString(),
+    };
+    setManuscript(nextManuscript);
     setSaveState("saving");
 
     // Immediately persist to IndexedDB for zero-data-loss offline resilience
@@ -738,6 +858,15 @@ export function AuthorStudioWorkspace({
       updatedAt: new Date().toISOString(),
       pendingSync: true,
     });
+    if (!isGuest) {
+      void saveOfflineProjectShell({
+        bookId: activeBook.id,
+        spaceId: activeBook.spaceId,
+        book: activeBook,
+        manuscript: nextManuscript,
+        updatedAt: new Date().toISOString(),
+      });
+    }
 
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(async () => {
@@ -889,7 +1018,135 @@ export function AuthorStudioWorkspace({
     const restored = await restoreManuscriptRevision(activeBook.id, revisionId);
     setManuscript(restored);
     setActiveChapterId(restored.chapters[0]?.id ?? null);
+    setRevisionCompare(null);
     setStatusMessage("Restored manuscript from selected revision.");
+  };
+
+  const handleCompareRevision = async (revisionId: string) => {
+    if (!activeBook || isGuest) return;
+    setErrorMessage(null);
+    try {
+      const comparison = await compareManuscriptRevision(activeBook.id, revisionId);
+      setRevisionCompare(comparison);
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : "Unable to compare revision.");
+    }
+  };
+
+  const handlePreviewImportDiff = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !activeBook) return;
+    e.target.value = "";
+    if (isGuest) {
+      setStatusMessage("Sign in to run server-validated Re-Import Diff & Merge previews.");
+      return;
+    }
+    setErrorMessage(null);
+    try {
+      const format = detectImportFormat(file.name);
+      const buffer = await file.arrayBuffer();
+      const contentBase64 = arrayBufferToBase64(buffer);
+      const preview = await previewManuscriptImport(activeBook.id, {
+        format,
+        fileName: file.name,
+        contentBase64,
+        mergeStrategy,
+      });
+      setPendingDiffFile({ format, fileName: file.name, contentBase64 });
+      setImportDiffPreview(preview);
+      setImportWarnings(preview.warnings);
+      setStatusMessage(
+        `Diff preview ready for ${file.name}: +${preview.summary.added} added, ~${preview.summary.modified} modified, -${preview.summary.removed} removed, ${preview.summary.unchanged} unchanged.`
+      );
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : "Failed to preview import diff.");
+    }
+  };
+
+  const handleCommitImportDiff = async () => {
+    if (!activeBook || !pendingDiffFile) return;
+    setErrorMessage(null);
+    try {
+      const res = await importManuscriptFile(activeBook.id, {
+        format: pendingDiffFile.format,
+        fileName: pendingDiffFile.fileName,
+        contentBase64: pendingDiffFile.contentBase64,
+        mergeStrategy,
+      });
+      setManuscript(res.manuscript);
+      setActiveChapterId(res.manuscript.chapters[0]?.id ?? null);
+      setImportWarnings(res.warnings);
+      setImportDiffPreview(null);
+      setPendingDiffFile(null);
+      setStatusMessage(
+        `Committed merge: imported ${res.importedChapters} chapter(s) (${res.importedWordCount.toLocaleString()} words) from ${pendingDiffFile.fileName}.`
+      );
+      const revs = await listManuscriptRevisions(activeBook.id).catch(() => revisions);
+      setRevisions(revs);
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : "Failed to commit import merge.");
+    }
+  };
+
+  const handleDuplicateBook = async (targetBookId: string) => {
+    if (isGuest) {
+      openAuthModal("login");
+      return;
+    }
+    setErrorMessage(null);
+    try {
+      const copy = await duplicateBook(targetBookId);
+      setBooks((prev) => [copy, ...prev]);
+      setStatusMessage(`Duplicated project as "${copy.title}".`);
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : "Failed to duplicate project.");
+    }
+  };
+
+  const handleToggleArchiveBook = async (targetBookId: string) => {
+    if (isGuest) {
+      openAuthModal("login");
+      return;
+    }
+    const nextArchived = !archivedBookIds[targetBookId];
+    setErrorMessage(null);
+    try {
+      await setBookArchived(targetBookId, nextArchived);
+      setArchivedBookIds((prev) => ({ ...prev, [targetBookId]: nextArchived }));
+      setStatusMessage(nextArchived ? "Moved project to Archived shelf." : "Restored project from Archive.");
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : "Failed to update archive status.");
+    }
+  };
+
+  const handleExportBookMemoria = async (targetBookId: string) => {
+    if (isGuest) return;
+    try {
+      const { blob, fileName, checksum } = await downloadManuscriptExport(targetBookId, "memoria");
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = fileName;
+      a.click();
+      URL.revokeObjectURL(url);
+      setStatusMessage(
+        `Exported backup ${fileName}${checksum ? ` (SHA-256: ${checksum.slice(0, 12)}…)` : ""}`
+      );
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : "Backup export failed.");
+    }
+  };
+
+  const handleJumpToPreflightFix = (chk: PreflightReportDTO["checks"][number]) => {
+    if (chk.targetChapterId) {
+      setActiveChapterId(chk.targetChapterId);
+    }
+    if (typeof chk.targetSpreadIndex === "number") {
+      setSpreadIndex(chk.targetSpreadIndex);
+    }
+    if (chk.targetEnvironment) {
+      handleSelectEnvironment(chk.targetEnvironment);
+    }
   };
 
   const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1027,6 +1284,7 @@ export function AuthorStudioWorkspace({
     setErrorMessage(null);
     setStatusMessage(null);
     try {
+      const genreSpec = AUTHOR_STUDIO_GENRES.find((g) => g.id === newBookGenre) || AUTHOR_STUDIO_GENRES[0];
       const swatchHex = resolveLeatherSwatch(selectedLeatherId).hex;
       const created = await createBook(activeSpaceId, {
         title: newBookTitle.trim(),
@@ -1038,17 +1296,27 @@ export function AuthorStudioWorkspace({
         spineText: newBookTitle.trim(),
       });
       await updateBookManuscript(created.id, {
+        authorName: newBookAuthor.trim(),
+        languageCode: newBookLanguage,
+        trimSize: genreSpec.defaultTrimSize,
+        typographyPreset: genreSpec.defaultTypography,
+        themePreset: newBookTheme || genreSpec.starterTheme,
         metadata: {
           coverColor: swatchHex,
           leatherId: selectedLeatherId,
           foilId: selectedFoilId,
+          materialMode,
+          pageEdgeFinish,
           bookCategory: newBookCategory,
+          genre: newBookGenre,
+          layoutMode: newBookLayoutMode,
         },
       }).catch(() => undefined);
 
       setBooks((prev) => [created, ...prev]);
       setNewBookTitle("");
       setNewBookSubtitle("");
+      setNewBookAuthor("");
       setShowNewBookForm(false);
       await loadBookManuscript(created.id, activeEnv);
       setStudioSyncNonce((n) => n + 1);
@@ -1498,6 +1766,19 @@ export function AuthorStudioWorkspace({
           </div>
           <button
             type="button"
+            data-testid="author-project-shelf-toggle"
+            onClick={() => setShowProjectShelf((v) => !v)}
+            className={`inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors ${
+              showProjectShelf
+                ? "border-[#76556F] bg-[#F4EEF3] text-[#20242C]"
+                : "border-[#DDD6C8] bg-[#F7F4EE] text-[#20242C] hover:bg-[#EFEAE0]"
+            }`}
+          >
+            <BookMarked className="w-3.5 h-3.5 text-[#76556F]" />
+            Project Shelf
+          </button>
+          <button
+            type="button"
             data-testid="author-new-book-toggle"
             onClick={() => setShowNewBookForm((v) => !v)}
             className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-[#76556F] text-[#FFFFFF] hover:bg-[#64465E]"
@@ -1508,72 +1789,370 @@ export function AuthorStudioWorkspace({
         </div>
       </div>
 
-      {/* Inline New Book Creation Drawer (Supports Manuscripts & Photo-Led Memory Books) */}
-      {showNewBookForm && (
-        <form
-          onSubmit={(e) => void handleCreateNewBook(e)}
-          className="rounded-2xl border border-[#76556F]/30 bg-[#FFFFFF] p-5 shadow-sm grid grid-cols-1 md:grid-cols-12 gap-3 items-end"
+      {/* Offline Recovered Banner */}
+      {isOfflineRecovered && (
+        <div
+          data-testid="author-offline-recovered-banner"
+          className="rounded-xl border border-[#849483]/60 bg-[#F4F7F3] px-4 py-2.5 text-xs text-[#20242C] flex items-center justify-between gap-3"
         >
-          <div className="md:col-span-4">
-            <label htmlFor="new-book-title" className="block text-xs font-semibold text-[#20242C] mb-1">
-              New Book Title
-            </label>
-            <input
-              id="new-book-title"
-              type="text"
-              required
-              placeholder="e.g., Vance Family Almanac"
-              value={newBookTitle}
-              onChange={(e) => setNewBookTitle(e.target.value)}
-              className="w-full text-xs px-3 py-2 rounded-lg border border-[#DDD6C8] bg-[#FBF9F5] text-[#20242C]"
-            />
+          <span className="flex items-center gap-2 font-medium">
+            <WifiOff className="w-4 h-4 text-[#5F735E]" />
+            Offline Continuation Active — Recovered &ldquo;{activeBook.title}&rdquo; from local IndexedDB cache. Edits will sync automatically once online.
+          </span>
+        </div>
+      )}
+
+      {/* AS-01: Project Shelf (Continue Where You Left Off + Search/Filter Grid & Quick Actions) */}
+      {showProjectShelf && (
+        <section
+          data-testid="author-project-shelf"
+          className="rounded-2xl border border-[#DDD6C8] bg-[#FFFFFF] p-5 shadow-sm space-y-4"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h3 className="text-base font-serif font-semibold text-[#20242C]">
+                Project Shelf — Your Living Archive Books
+              </h3>
+              <p className="text-xs text-[#8D857A]">
+                Resume active manuscripts, duplicate editions, export lossless .memoria backups, or archive completed volumes.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="relative">
+                <Search className="w-3.5 h-3.5 text-[#8D857A] absolute left-2.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  aria-label="Search books on shelf"
+                  placeholder="Search projects…"
+                  value={shelfQuery}
+                  onChange={(e) => setShelfQuery(e.target.value)}
+                  className="text-xs pl-8 pr-3 py-1.5 rounded-lg border border-[#DDD6C8] bg-[#FBF9F5] text-[#20242C] w-44"
+                />
+              </div>
+              <div className="flex items-center gap-1 bg-[#F7F4EE] p-0.5 rounded-lg border border-[#E7E2DA]">
+                {(["all", "draft", "frozen", "archived"] as const).map((status) => (
+                  <button
+                    key={status}
+                    type="button"
+                    onClick={() => setShelfFilter(status)}
+                    className={`px-2.5 py-1 rounded-md text-[11px] font-medium capitalize ${
+                      shelfFilter === status
+                        ? "bg-[#76556F] text-white"
+                        : "text-[#28272A] hover:bg-[#EFEAE0]"
+                    }`}
+                  >
+                    {status}
+                  </button>
+                ))}
+              </div>
+              <div className="flex items-center gap-1 bg-[#F7F4EE] p-0.5 rounded-lg border border-[#E7E2DA]">
+                <button
+                  type="button"
+                  aria-label="Grid view"
+                  onClick={() => setShelfView("grid")}
+                  className={`p-1.5 rounded ${shelfView === "grid" ? "bg-white text-[#76556F] shadow-xs" : "text-[#8D857A]"}`}
+                >
+                  <LayoutGrid className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  type="button"
+                  aria-label="List view"
+                  onClick={() => setShelfView("list")}
+                  className={`p-1.5 rounded ${shelfView === "list" ? "bg-white text-[#76556F] shadow-xs" : "text-[#8D857A]"}`}
+                >
+                  <List className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
           </div>
-          <div className="md:col-span-3">
-            <label htmlFor="new-book-category" className="block text-xs font-semibold text-[#20242C] mb-1">
-              Book Category
-            </label>
-            <select
-              id="new-book-category"
-              value={newBookCategory}
-              onChange={(e) => setNewBookCategory(e.target.value)}
-              className="w-full text-xs px-3 py-2 rounded-lg border border-[#DDD6C8] bg-[#FBF9F5] text-[#20242C]"
-            >
-              {BOOK_CATEGORIES.map((cat) => (
-                <option key={cat.id} value={cat.id}>
-                  {cat.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="md:col-span-2">
-            <label htmlFor="new-book-format" className="block text-xs font-semibold text-[#20242C] mb-1">
-              Hardcover Format
-            </label>
-            <select
-              id="new-book-format"
-              value={newBookFormat}
-              onChange={(e) => setNewBookFormat(e.target.value as BookDTO["format"])}
-              className="w-full text-xs px-3 py-2 rounded-lg border border-[#DDD6C8] bg-[#FBF9F5] text-[#20242C]"
-            >
-              <option value="hardcover_standard_8x10">8×10&quot; Archive</option>
-              <option value="hardcover_square_8x8">8×8&quot; Square</option>
-              <option value="hardcover_grand_12x12">12×12&quot; Grand</option>
-            </select>
-          </div>
-          <div className="md:col-span-3 flex items-center gap-2">
-            <button
-              type="submit"
-              className="flex-1 text-xs font-semibold px-3.5 py-2 rounded-lg bg-[#76556F] text-white hover:bg-[#64465E]"
-            >
-              Create Hardcover Edition
-            </button>
+
+          {/* Continue Where You Left Off Card */}
+          <div className="rounded-xl border border-[#76556F]/30 bg-[#F7F4EE] p-4 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <span className="text-[10px] uppercase tracking-wider font-semibold text-[#76556F]">
+                Continue Where You Left Off
+              </span>
+              <h4 className="text-sm font-serif font-semibold text-[#20242C] mt-0.5">
+                {activeBook.title}
+              </h4>
+              <p className="text-[11px] text-[#5A606D]">
+                {manuscript.chapters.length} chapter(s) • {manuscript.totalWordCount.toLocaleString()} words •{" "}
+                Last environment: <strong className="capitalize">{activeEnv}</strong>
+              </p>
+            </div>
             <button
               type="button"
-              onClick={() => setShowNewBookForm(false)}
-              className="text-xs px-3 py-2 rounded-lg border border-[#DDD6C8] bg-[#F7F4EE] text-[#20242C]"
+              onClick={() => setShowProjectShelf(false)}
+              className="inline-flex items-center gap-1.5 text-xs font-semibold px-3.5 py-2 rounded-lg bg-[#76556F] text-white hover:bg-[#64465E]"
             >
-              Cancel
+              Resume Writing
+              <ArrowRight className="w-3.5 h-3.5" />
             </button>
+          </div>
+
+          {/* Project Grid / List */}
+          <div
+            className={
+              shelfView === "grid"
+                ? "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3"
+                : "space-y-2"
+            }
+          >
+            {books
+              .filter((b) => {
+                const isArchived = Boolean(archivedBookIds[b.id]);
+                if (shelfFilter === "archived" && !isArchived) return false;
+                if (shelfFilter === "draft" && (b.isFrozenForPrint || isArchived)) return false;
+                if (shelfFilter === "frozen" && !b.isFrozenForPrint) return false;
+                if (shelfFilter === "all" && isArchived) return false;
+                if (shelfQuery.trim()) {
+                  const q = shelfQuery.trim().toLowerCase();
+                  return (
+                    b.title.toLowerCase().includes(q) ||
+                    (b.subtitle || "").toLowerCase().includes(q)
+                  );
+                }
+                return true;
+              })
+              .map((b) => {
+                const isArchived = Boolean(archivedBookIds[b.id]);
+                const isCurrent = b.id === activeBook.id;
+                return (
+                  <div
+                    key={b.id}
+                    className={`rounded-xl border p-3.5 flex flex-col justify-between gap-3 ${
+                      isCurrent
+                        ? "border-[#76556F] bg-[#FAF7F2]"
+                        : "border-[#E7E2DA] bg-[#FFFFFF]"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <span
+                            className="w-2.5 h-2.5 rounded-full shrink-0 border border-black/15"
+                            style={{ backgroundColor: b.coverColor || "#76556F" }}
+                          />
+                          <h5 className="text-xs font-semibold text-[#20242C] truncate">
+                            {b.title}
+                          </h5>
+                        </div>
+                        {b.subtitle && (
+                          <p className="text-[11px] text-[#8D857A] truncate mt-0.5">{b.subtitle}</p>
+                        )}
+                        <div className="text-[10px] text-[#5A606D] mt-1">
+                          {b.isFrozenForPrint ? "Frozen Edition" : isArchived ? "Archived" : "Active Draft"} •{" "}
+                          {b.spreads?.length || 1} spread(s)
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void loadBookManuscript(b.id);
+                          setShowProjectShelf(false);
+                        }}
+                        className="text-[11px] font-medium px-2.5 py-1 rounded-md bg-[#76556F] text-white hover:bg-[#64465E]"
+                      >
+                        Open
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleDuplicateBook(b.id)}
+                        className="text-[11px] font-medium px-2 py-1 rounded-md border border-[#DDD6C8] bg-[#F7F4EE] text-[#20242C] hover:bg-[#EFEAE0]"
+                      >
+                        Duplicate
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleExportBookMemoria(b.id)}
+                        className="text-[11px] font-medium px-2 py-1 rounded-md border border-[#DDD6C8] bg-[#F7F4EE] text-[#20242C] hover:bg-[#EFEAE0]"
+                      >
+                        .memoria
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleToggleArchiveBook(b.id)}
+                        className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-1 rounded-md border border-[#DDD6C8] bg-[#FFFFFF] text-[#5A606D] hover:bg-[#F7F4EE]"
+                      >
+                        <FolderArchive className="w-3 h-3" />
+                        {isArchived ? "Unarchive" : "Archive"}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+          </div>
+        </section>
+      )}
+
+      {/* AS-02: Guided New Project Setup Drawer (Supports Manuscripts, Genres, Layout Modes & Photo-Led Memory Books) */}
+      {showNewBookForm && (
+        <form
+          data-testid="author-guided-new-book-form"
+          onSubmit={(e) => void handleCreateNewBook(e)}
+          className="rounded-2xl border border-[#76556F]/30 bg-[#FFFFFF] p-5 shadow-sm space-y-4"
+        >
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-serif font-semibold text-[#20242C]">
+                Guided New Project Setup
+              </h3>
+              <p className="text-[11px] text-[#8D857A]">
+                Choose your genre, layout mode, starter theme, and print format to initialize your semantic manuscript.
+              </p>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+            <div className="md:col-span-4">
+              <label htmlFor="new-book-title" className="block text-xs font-semibold text-[#20242C] mb-1">
+                New Book Title
+              </label>
+              <input
+                id="new-book-title"
+                type="text"
+                required
+                placeholder="e.g., Vance Family Almanac"
+                value={newBookTitle}
+                onChange={(e) => setNewBookTitle(e.target.value)}
+                className="w-full text-xs px-3 py-2 rounded-lg border border-[#DDD6C8] bg-[#FBF9F5] text-[#20242C]"
+              />
+            </div>
+            <div className="md:col-span-4">
+              <label htmlFor="new-book-subtitle" className="block text-xs font-semibold text-[#20242C] mb-1">
+                Subtitle (optional)
+              </label>
+              <input
+                id="new-book-subtitle"
+                type="text"
+                placeholder="e.g., Three Generations of Letters"
+                value={newBookSubtitle}
+                onChange={(e) => setNewBookSubtitle(e.target.value)}
+                className="w-full text-xs px-3 py-2 rounded-lg border border-[#DDD6C8] bg-[#FBF9F5] text-[#20242C]"
+              />
+            </div>
+            <div className="md:col-span-2">
+              <label htmlFor="new-book-author" className="block text-xs font-semibold text-[#20242C] mb-1">
+                Author Name
+              </label>
+              <input
+                id="new-book-author"
+                type="text"
+                placeholder="e.g., Clara Vance"
+                value={newBookAuthor}
+                onChange={(e) => setNewBookAuthor(e.target.value)}
+                className="w-full text-xs px-3 py-2 rounded-lg border border-[#DDD6C8] bg-[#FBF9F5] text-[#20242C]"
+              />
+            </div>
+            <div className="md:col-span-2">
+              <label htmlFor="new-book-language" className="block text-xs font-semibold text-[#20242C] mb-1">
+                Language
+              </label>
+              <select
+                id="new-book-language"
+                value={newBookLanguage}
+                onChange={(e) => setNewBookLanguage(e.target.value)}
+                className="w-full text-xs px-3 py-2 rounded-lg border border-[#DDD6C8] bg-[#FBF9F5] text-[#20242C]"
+              >
+                <option value="en">English (en)</option>
+                <option value="es">Español (es)</option>
+                <option value="fr">Français (fr)</option>
+                <option value="de">Deutsch (de)</option>
+                <option value="it">Italiano (it)</option>
+                <option value="ja">日本語 (ja)</option>
+              </select>
+            </div>
+
+            <div className="md:col-span-3">
+              <label htmlFor="new-book-genre" className="block text-xs font-semibold text-[#20242C] mb-1">
+                Genre &amp; Starter Theme
+              </label>
+              <select
+                id="new-book-genre"
+                value={newBookGenre}
+                onChange={(e) => {
+                  const g = e.target.value as BookGenre;
+                  setNewBookGenre(g);
+                  const spec = AUTHOR_STUDIO_GENRES.find((item) => item.id === g);
+                  if (spec) {
+                    setNewBookTheme(spec.starterTheme);
+                    setNewBookLayoutMode(spec.defaultLayoutMode);
+                  }
+                }}
+                className="w-full text-xs px-3 py-2 rounded-lg border border-[#DDD6C8] bg-[#FBF9F5] text-[#20242C]"
+              >
+                {AUTHOR_STUDIO_GENRES.map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="md:col-span-3">
+              <label htmlFor="new-book-layout-mode" className="block text-xs font-semibold text-[#20242C] mb-1">
+                Layout Mode
+              </label>
+              <select
+                id="new-book-layout-mode"
+                value={newBookLayoutMode}
+                onChange={(e) => setNewBookLayoutMode(e.target.value as LayoutMode)}
+                className="w-full text-xs px-3 py-2 rounded-lg border border-[#DDD6C8] bg-[#FBF9F5] text-[#20242C]"
+              >
+                {AUTHOR_STUDIO_LAYOUT_MODES.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="md:col-span-2">
+              <label htmlFor="new-book-category" className="block text-xs font-semibold text-[#20242C] mb-1">
+                Book Category
+              </label>
+              <select
+                id="new-book-category"
+                value={newBookCategory}
+                onChange={(e) => setNewBookCategory(e.target.value)}
+                className="w-full text-xs px-3 py-2 rounded-lg border border-[#DDD6C8] bg-[#FBF9F5] text-[#20242C]"
+              >
+                {BOOK_CATEGORIES.map((cat) => (
+                  <option key={cat.id} value={cat.id}>
+                    {cat.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="md:col-span-2">
+              <label htmlFor="new-book-format" className="block text-xs font-semibold text-[#20242C] mb-1">
+                Hardcover Format
+              </label>
+              <select
+                id="new-book-format"
+                value={newBookFormat}
+                onChange={(e) => setNewBookFormat(e.target.value as BookDTO["format"])}
+                className="w-full text-xs px-3 py-2 rounded-lg border border-[#DDD6C8] bg-[#FBF9F5] text-[#20242C]"
+              >
+                <option value="hardcover_standard_8x10">8×10&quot; Archive</option>
+                <option value="hardcover_square_8x8">8×8&quot; Square</option>
+                <option value="hardcover_grand_12x12">12×12&quot; Grand</option>
+              </select>
+            </div>
+            <div className="md:col-span-2 flex items-center gap-2">
+              <button
+                type="submit"
+                className="flex-1 text-xs font-semibold px-3 py-2 rounded-lg bg-[#76556F] text-white hover:bg-[#64465E]"
+              >
+                Create Hardcover Edition
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowNewBookForm(false)}
+                className="text-xs px-2.5 py-2 rounded-lg border border-[#DDD6C8] bg-[#F7F4EE] text-[#20242C]"
+              >
+                Cancel
+              </button>
+            </div>
           </div>
         </form>
       )}
@@ -2298,14 +2877,71 @@ export function AuthorStudioWorkspace({
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
             {/* Expansive 7-Column 3D Book Theater Canvas */}
             <div className="lg:col-span-7 rounded-2xl border border-[#DDD6C8] bg-[#FFFFFF] overflow-hidden shadow-sm">
+              <div className="px-4 py-2.5 border-b border-[#E7E2DA] bg-[#FAF8F4] flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                <div className="flex items-center gap-1.5">
+                  <span className="font-semibold text-[#76556F]">Material:</span>
+                  {BOOK_MATERIAL_MODES.map((m) => (
+                    <button
+                      key={m.id}
+                      type="button"
+                      data-testid={`author-3d-material-${m.id}`}
+                      onClick={() => {
+                        setMaterialMode(m.id);
+                        const nextMeta = { ...manuscript.metadata, materialMode: m.id };
+                        setManuscript({ ...manuscript, metadata: nextMeta });
+                        if (!isGuest) {
+                          void updateBookManuscript(activeBook.id, { metadata: nextMeta });
+                        }
+                      }}
+                      className={`px-2 py-1 rounded-md border font-medium transition-colors ${
+                        materialMode === m.id
+                          ? "border-[#76556F] bg-[#76556F] text-white"
+                          : "border-[#DDD6C8] bg-white text-[#20242C] hover:bg-[#F7F4EE]"
+                      }`}
+                    >
+                      {m.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="font-semibold text-[#76556F]">Page Edges:</span>
+                  {BOOK_PAGE_EDGE_FINISHES.map((edge) => (
+                    <button
+                      key={edge.id}
+                      type="button"
+                      data-testid={`author-3d-edge-${edge.id}`}
+                      onClick={() => {
+                        setPageEdgeFinish(edge.id);
+                        const nextMeta = { ...manuscript.metadata, pageEdgeFinish: edge.id };
+                        setManuscript({ ...manuscript, metadata: nextMeta });
+                        if (!isGuest) {
+                          void updateBookManuscript(activeBook.id, { metadata: nextMeta });
+                        }
+                      }}
+                      className={`px-2 py-1 rounded-md border font-medium transition-colors ${
+                        pageEdgeFinish === edge.id
+                          ? "border-[#76556F] bg-[#76556F] text-white"
+                          : "border-[#DDD6C8] bg-white text-[#20242C] hover:bg-[#F7F4EE]"
+                      }`}
+                    >
+                      {edge.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
               <ClientStudioMount
                 bookId={activeBook.id}
                 refreshKey={studioSyncNonce}
+                textureRevisionKey={`${studioSyncNonce}:${manuscript.updatedAt}:${manuscript.totalWordCount}`}
                 title={coverTitleInput || activeBook.title}
                 subtitle={coverSubtitleInput || activeBook.subtitle || manuscript.authorName}
                 spineText={spineTextInput || activeBook.spineText || activeBook.title}
                 selectedLeatherId={selectedLeatherId}
                 selectedFoilId={selectedFoilId}
+                materialMode={materialMode}
+                onMaterialModeChange={setMaterialMode}
+                pageEdgeFinish={pageEdgeFinish}
+                onPageEdgeFinishChange={setPageEdgeFinish}
                 isOpen={isBookOpen}
                 onToggleOpen={() => setIsBookOpen((o) => !o)}
                 is2DMode={is2DMode}
@@ -2535,41 +3171,136 @@ export function AuthorStudioWorkspace({
             </div>
 
             {proofView && (
-              <div className="rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] px-4 py-2.5 text-xs text-[#20242C] flex flex-wrap gap-4">
-                <span>
-                  <strong>Pages:</strong> {proofView.pageCount}
-                </span>
-                <span>
-                  <strong>Trim Bleed:</strong> {proofView.bleedMm}mm
-                </span>
-                <span>
-                  <strong>Safe Margin:</strong> {proofView.safeMarginMm}mm
-                </span>
+              <div
+                data-testid="author-2d-proof-viewer"
+                className="rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] p-4 space-y-3"
+              >
+                <div className="text-xs text-[#20242C] flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex flex-wrap gap-4">
+                    <span>
+                      <strong>Pages:</strong> {proofView.pageCount}
+                    </span>
+                    <span>
+                      <strong>Trim Bleed:</strong> {proofView.bleedMm}mm
+                    </span>
+                    <span>
+                      <strong>Safe Margin:</strong> {proofView.safeMarginMm}mm
+                    </span>
+                    <span>
+                      <strong>Chapters:</strong> {manuscript.chapters.length}
+                    </span>
+                  </div>
+                  <span className="text-[11px] text-[#76556F] font-medium">
+                    AS-11 2D Proof — Click any chapter to jump to source
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                  {manuscript.chapters.map((ch, idx) => (
+                    <div
+                      key={ch.id}
+                      className="rounded-lg border border-dashed border-[#CFC7B9] bg-[#FFFFFF] p-3 flex flex-col justify-between gap-2"
+                    >
+                      <div>
+                        <div className="flex items-center justify-between text-[10px] text-[#8D857A]">
+                          <span>Page {idx * 2 + 1}–{idx * 2 + 2}</span>
+                          <span>{ch.wordCount} words</span>
+                        </div>
+                        <div className="text-xs font-serif font-semibold text-[#20242C] mt-0.5 truncate">
+                          {ch.title}
+                        </div>
+                        <p className="text-[11px] text-[#5A606D] line-clamp-2 mt-1">
+                          {ch.contentText || "Empty chapter draft."}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveChapterId(ch.id);
+                          handleSelectEnvironment("write");
+                        }}
+                        className="self-start text-[11px] font-medium text-[#76556F] hover:underline"
+                      >
+                        Jump to Source →
+                      </button>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 
             {preflight && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                {preflight.checks.map((chk) => (
-                  <div
-                    key={chk.id}
-                    className={`p-3 rounded-xl border text-xs ${
-                      chk.passed
-                        ? "border-[#B6DBC7] bg-[#F4F9F5] text-[#20242C]"
-                        : "border-[#F5C6C6] bg-[#FDF2F2] text-[#9A3412]"
-                    }`}
-                  >
-                    <div className="font-semibold flex items-center gap-1.5">
-                      {chk.passed ? (
-                        <CheckCircle2 className="w-3.5 h-3.5 text-[#22593E]" />
-                      ) : (
-                        <AlertTriangle className="w-3.5 h-3.5 text-[#9A3412]" />
-                      )}
-                      {chk.label}
-                    </div>
-                    <p className="text-[11px] opacity-85 mt-0.5">{chk.detail}</p>
+              <div data-testid="author-preflight-report" className="space-y-2.5">
+                {preflight.counts && (
+                  <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                    <span className="px-2.5 py-0.5 rounded-full bg-[#EEF2ED] text-[#5F735E] font-semibold">
+                      Pass: {preflight.counts.pass}
+                    </span>
+                    <span className="px-2.5 py-0.5 rounded-full bg-[#FDF9F0] text-[#7A5B1F] font-semibold">
+                      Warning: {preflight.counts.warning}
+                    </span>
+                    <span className="px-2.5 py-0.5 rounded-full bg-[#FDF2F2] text-[#9A3412] font-semibold">
+                      Fail: {preflight.counts.fail}
+                    </span>
+                    <span className="px-2.5 py-0.5 rounded-full bg-[#F7F4EE] text-[#8D857A] font-semibold">
+                      Not checked: {preflight.counts.notChecked}
+                    </span>
                   </div>
-                ))}
+                )}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  {preflight.checks.map((chk) => {
+                    const status = chk.status || (chk.passed ? "pass" : "fail");
+                    const cardStyle =
+                      status === "pass"
+                        ? "border-[#B6DBC7] bg-[#F4F9F5] text-[#20242C]"
+                        : status === "warning"
+                          ? "border-[#E5C98B] bg-[#FDF9F0] text-[#7A5B1F]"
+                          : status === "not_checked"
+                            ? "border-[#DDD6C8] bg-[#F7F4EE] text-[#5A606D]"
+                            : "border-[#F5C6C6] bg-[#FDF2F2] text-[#9A3412]";
+                    const badgeLabel =
+                      status === "pass"
+                        ? "Pass"
+                        : status === "warning"
+                          ? "Warning"
+                          : status === "not_checked"
+                            ? "Not checked"
+                            : "Fail";
+                    return (
+                      <div key={chk.id} className={`p-3 rounded-xl border text-xs ${cardStyle}`}>
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="font-semibold flex items-center gap-1.5">
+                            {status === "pass" ? (
+                              <CheckCircle2 className="w-3.5 h-3.5 text-[#5F735E]" />
+                            ) : (
+                              <AlertTriangle className="w-3.5 h-3.5" />
+                            )}
+                            {chk.label}
+                          </div>
+                          <span className="text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full bg-white/80 border border-black/10">
+                            {badgeLabel}
+                          </span>
+                        </div>
+                        <p className="text-[11px] opacity-90 mt-1">{chk.detail}</p>
+                        <div className="mt-2 flex items-center justify-between gap-2">
+                          {chk.measuredValue && (
+                            <span className="text-[10px] font-mono opacity-80">
+                              {chk.measuredValue}
+                            </span>
+                          )}
+                          {chk.targetEnvironment && status !== "pass" && (
+                            <button
+                              type="button"
+                              onClick={() => handleJumpToPreflightFix(chk)}
+                              className="text-[11px] font-semibold underline hover:opacity-80"
+                            >
+                              Jump to Fix →
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             )}
 
@@ -2632,6 +3363,94 @@ export function AuthorStudioWorkspace({
                 className="hidden"
               />
             </label>
+
+            {/* AS-14: Re-Import Diff & Merge Preview */}
+            <div className="pt-3 border-t border-[#E7E2DA] space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-xs font-semibold text-[#20242C] flex items-center gap-1.5">
+                  <GitCompare className="w-3.5 h-3.5 text-[#76556F]" />
+                  Re-Import Diff &amp; Merge Preview
+                </span>
+                <label className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border border-[#76556F] bg-[#F4EEF3] text-[#20242C] hover:bg-[#EAE0E8] cursor-pointer">
+                  <GitCompare className="w-3.5 h-3.5 text-[#76556F]" />
+                  Preview Diff Before Merge
+                  <input
+                    type="file"
+                    data-testid="author-import-diff-input"
+                    accept=".memoria,.docx,.epub,.md,.markdown,.txt,.html,.htm,.pdf"
+                    onChange={(e) => void handlePreviewImportDiff(e)}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+
+              {importDiffPreview && (
+                <div
+                  data-testid="author-import-diff-preview"
+                  className="rounded-xl border border-[#76556F]/30 bg-[#FAF8F4] p-3.5 space-y-3"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                    <span className="font-semibold text-[#20242C]">
+                      {importDiffPreview.fileName} ({importDiffPreview.mergeStrategy})
+                    </span>
+                    <div className="flex flex-wrap gap-1.5 text-[10px] font-semibold">
+                      <span className="px-2 py-0.5 rounded-full bg-[#EEF2ED] text-[#5F735E]">
+                        +{importDiffPreview.summary.added} added
+                      </span>
+                      <span className="px-2 py-0.5 rounded-full bg-[#FDF9F0] text-[#7A5B1F]">
+                        ~{importDiffPreview.summary.modified} modified
+                      </span>
+                      <span className="px-2 py-0.5 rounded-full bg-[#FDF2F2] text-[#9A3412]">
+                        -{importDiffPreview.summary.removed} removed
+                      </span>
+                      <span className="px-2 py-0.5 rounded-full bg-[#F7F4EE] text-[#8D857A]">
+                        {importDiffPreview.summary.unchanged} unchanged
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                    {importDiffPreview.chapters.map((row, idx) => (
+                      <div
+                        key={`${row.title}-${idx}`}
+                        className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg bg-white border border-[#E7E2DA] text-[11px]"
+                      >
+                        <div className="min-w-0">
+                          <span className="font-medium text-[#20242C]">{row.title}</span>
+                          <span className="ml-2 text-[#8D857A]">
+                            {row.existingWordCount} → {row.incomingWordCount} words ({row.wordDelta >= 0 ? `+${row.wordDelta}` : row.wordDelta})
+                          </span>
+                        </div>
+                        <span className="uppercase text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#F7F4EE] text-[#28272A]">
+                          {row.status}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      data-testid="author-import-diff-commit"
+                      onClick={() => void handleCommitImportDiff()}
+                      className="text-xs font-semibold px-3.5 py-1.5 rounded-lg bg-[#76556F] text-white hover:bg-[#64465E]"
+                    >
+                      Commit Merge
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setImportDiffPreview(null);
+                        setPendingDiffFile(null);
+                      }}
+                      className="text-xs px-3 py-1.5 rounded-lg border border-[#DDD6C8] bg-white text-[#20242C]"
+                    >
+                      Discard Preview
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Multi-Format Export Pipeline Card */}
@@ -2724,15 +3543,75 @@ export function AuthorStudioWorkspace({
                         <span className="font-mono">{rev.checksumSha256.slice(0, 12)}</span>
                       </div>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => void handleRestoreRevision(rev.id)}
-                      className="text-xs font-medium px-3 py-1.5 rounded-lg border border-[#DDD6C8] bg-[#FFFFFF] text-[#20242C] hover:bg-[#EFEAE0]"
-                    >
-                      Restore
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void handleCompareRevision(rev.id)}
+                        className="inline-flex items-center gap-1 text-xs font-medium px-3 py-1.5 rounded-lg border border-[#DDD6C8] bg-[#F7F4EE] text-[#20242C] hover:bg-[#EFEAE0]"
+                      >
+                        <GitCompare className="w-3.5 h-3.5 text-[#76556F]" />
+                        Compare
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleRestoreRevision(rev.id)}
+                        className="text-xs font-medium px-3 py-1.5 rounded-lg border border-[#DDD6C8] bg-[#FFFFFF] text-[#20242C] hover:bg-[#EFEAE0]"
+                      >
+                        Restore
+                      </button>
+                    </div>
                   </div>
                 ))}
+              </div>
+            )}
+
+            {/* AS-22: Revision Comparison Drawer */}
+            {revisionCompare && (
+              <div
+                data-testid="author-revision-compare"
+                className="rounded-xl border border-[#76556F]/30 bg-[#FAF8F4] p-4 space-y-3"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <div className="text-xs font-semibold text-[#20242C]">
+                      Comparing Revision &ldquo;{revisionCompare.revision.label}&rdquo; vs Current Manuscript
+                    </div>
+                    <div className="text-[11px] text-[#8D857A]">
+                      Snapshot: {revisionCompare.revision.wordCount.toLocaleString()} words • Live:{" "}
+                      {revisionCompare.currentWordCount.toLocaleString()} words
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void handleRestoreRevision(revisionCompare.revision.id)}
+                      className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-[#76556F] text-white hover:bg-[#64465E]"
+                    >
+                      Confirm Restore
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setRevisionCompare(null)}
+                      className="text-xs px-2.5 py-1.5 rounded-lg border border-[#DDD6C8] bg-white text-[#20242C]"
+                    >
+                      Close
+                    </button>
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  {revisionCompare.chapters.map((ch, idx) => (
+                    <div
+                      key={`${ch.title}-${idx}`}
+                      className="flex items-center justify-between gap-2 px-3 py-1.5 rounded-lg bg-white border border-[#E7E2DA] text-xs"
+                    >
+                      <span className="font-medium text-[#20242C]">{ch.title}</span>
+                      <span className="text-[11px] text-[#5A606D]">
+                        {ch.existingWordCount} → {ch.incomingWordCount} words •{" "}
+                        <strong className="uppercase">{ch.status}</strong>
+                      </span>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </div>

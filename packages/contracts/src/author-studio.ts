@@ -71,6 +71,79 @@ export const MergeStrategySchema = z.enum([
 ]);
 export type MergeStrategy = z.infer<typeof MergeStrategySchema>;
 
+export const LayoutModeSchema = z.enum([
+  "flowing_manuscript",
+  "designed_pages",
+  "hybrid",
+]);
+export type LayoutMode = z.infer<typeof LayoutModeSchema>;
+
+export const BookGenreSchema = z.enum([
+  "memoir",
+  "family_chronicle",
+  "novel",
+  "poetry_letters",
+  "illustrated_history",
+  "cookbook_anthology",
+]);
+export type BookGenre = z.infer<typeof BookGenreSchema>;
+
+export const PreflightCheckStatusSchema = z.enum([
+  "pass",
+  "warning",
+  "fail",
+  "not_checked",
+]);
+export type PreflightCheckStatus = z.infer<typeof PreflightCheckStatusSchema>;
+
+export const PreflightCheckItemSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  status: PreflightCheckStatusSchema,
+  passed: z.boolean(),
+  detail: z.string(),
+  measuredValue: z.string().optional(),
+  targetEnvironment: AuthorEnvironmentSchema.optional(),
+  targetChapterId: z.string().optional(),
+  targetSpreadIndex: z.number().int().min(0).optional(),
+});
+export type PreflightCheckItem = z.infer<typeof PreflightCheckItemSchema>;
+
+export const ImportDiffStatusSchema = z.enum([
+  "unchanged",
+  "added",
+  "removed",
+  "modified",
+]);
+export type ImportDiffStatus = z.infer<typeof ImportDiffStatusSchema>;
+
+export const ImportDiffChapterSchema = z.object({
+  title: z.string(),
+  status: ImportDiffStatusSchema,
+  existingChapterId: z.string().optional(),
+  existingWordCount: z.number().int().min(0).default(0),
+  incomingWordCount: z.number().int().min(0).default(0),
+  wordDelta: z.number().int().default(0),
+  existingExcerpt: z.string().default(""),
+  incomingExcerpt: z.string().default(""),
+});
+export type ImportDiffChapter = z.infer<typeof ImportDiffChapterSchema>;
+
+export const ImportDiffPreviewSchema = z.object({
+  format: ImportFormatSchema,
+  fileName: z.string(),
+  mergeStrategy: MergeStrategySchema,
+  summary: z.object({
+    unchanged: z.number().int().min(0),
+    added: z.number().int().min(0),
+    removed: z.number().int().min(0),
+    modified: z.number().int().min(0),
+  }),
+  chapters: z.array(ImportDiffChapterSchema),
+  warnings: z.array(z.string()).default([]),
+});
+export type ImportDiffPreview = z.infer<typeof ImportDiffPreviewSchema>;
+
 export const ManuscriptChapterSchema = z.object({
   id: z.string().uuid(),
   bookId: z.string().uuid(),
@@ -212,5 +285,92 @@ export const AUTHOR_STUDIO_TYPOGRAPHY_PRESETS: Array<{
     bodyFont: "'Garamond', Georgia, serif",
     headingFont: "'Cormorant Garamond', Georgia, serif",
     description: "Airy margins and gentle rhythm for letters & verse",
+  },
+];
+
+export const AUTHOR_STUDIO_LAYOUT_MODES: Array<{
+  id: LayoutMode;
+  label: string;
+  description: string;
+}> = [
+  {
+    id: "flowing_manuscript",
+    label: "Flowing Manuscript",
+    description: "Continuous prose reflowing automatically across trim sizes & EPUB",
+  },
+  {
+    id: "designed_pages",
+    label: "Designed Pages",
+    description: "Curated visual spreads with fixed photography & focal-point framing",
+  },
+  {
+    id: "hybrid",
+    label: "Hybrid Heirloom",
+    description: "Long-form narrative chapters paired with illustrated photo plates",
+  },
+];
+
+export const AUTHOR_STUDIO_GENRES: Array<{
+  id: BookGenre;
+  label: string;
+  starterTheme: string;
+  defaultTrimSize: TrimSize;
+  defaultTypography: TypographyPreset;
+  defaultLayoutMode: LayoutMode;
+  description: string;
+}> = [
+  {
+    id: "memoir",
+    label: "Personal Memoir",
+    starterTheme: "living_archive_ivory",
+    defaultTrimSize: "6x9_trade",
+    defaultTypography: "living_archive_serif",
+    defaultLayoutMode: "flowing_manuscript",
+    description: "First-person reflections, milestones, and life chapters",
+  },
+  {
+    id: "family_chronicle",
+    label: "Family Chronicle",
+    starterTheme: "botanical_sage_folio",
+    defaultTrimSize: "8x10_heirloom",
+    defaultTypography: "editorial_classic",
+    defaultLayoutMode: "hybrid",
+    description: "Multi-generational stories paired with archival photographs",
+  },
+  {
+    id: "novel",
+    label: "Literary Novel",
+    starterTheme: "classic_linen_press",
+    defaultTrimSize: "6x9_trade",
+    defaultTypography: "editorial_classic",
+    defaultLayoutMode: "flowing_manuscript",
+    description: "Structured parts, chapters, and distraction-free prose",
+  },
+  {
+    id: "poetry_letters",
+    label: "Letters & Poetry",
+    starterTheme: "plum_correspondence",
+    defaultTrimSize: "5x8_pocket",
+    defaultTypography: "poetic_wide",
+    defaultLayoutMode: "flowing_manuscript",
+    description: "Airy verse, handwritten transcriptions, and epistolary notes",
+  },
+  {
+    id: "illustrated_history",
+    label: "Illustrated History",
+    starterTheme: "archival_gallery_folio",
+    defaultTrimSize: "8.5x11_archival",
+    defaultTypography: "modern_memoir",
+    defaultLayoutMode: "designed_pages",
+    description: "Photo-led plates, captions, and curated visual timelines",
+  },
+  {
+    id: "cookbook_anthology",
+    label: "Recipes & Anthology",
+    starterTheme: "hearth_kitchen_linen",
+    defaultTrimSize: "8x10_heirloom",
+    defaultTypography: "modern_memoir",
+    defaultLayoutMode: "hybrid",
+    description: "Heirloom family recipes, handwritten margin notes, and dishes",
   },
 ];

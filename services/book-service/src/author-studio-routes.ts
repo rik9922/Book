@@ -25,6 +25,7 @@ import {
 import type { DatabaseClient } from "@memory-capsule/database";
 import {
   MAX_IMPORT_BYTES,
+  computeImportChapterDiff,
   countWords,
   exportManuscriptArtifact,
   htmlToProseMirrorJson,
@@ -39,11 +40,16 @@ export interface AuthorStudioRouteDeps {
   db: DatabaseClient;
   dbUrl?: string;
   bookRepo: {
+    createBook(book: BookDocument): Promise<BookDocument>;
     findBookById(id: string): Promise<BookDocument | null>;
     saveSpread(bookId: string, spread: BookSpread): Promise<void>;
   };
   requireAuthUser(req: FastifyRequest): Promise<string>;
   assertSpaceAccess(spaceId: string, userId: string, requireWrite?: boolean): Promise<void>;
+}
+
+export interface AuthorStudioHandles {
+  getManuscriptForBook(book: BookDocument): Promise<ManuscriptDocument>;
 }
 
 const UpdateManuscriptSchema = z.object({
@@ -292,7 +298,7 @@ function buildSpreadsFromChapters(book: BookDocument, chapters: ManuscriptChapte
   return spreads;
 }
 
-export function registerAuthorStudioRoutes(deps: AuthorStudioRouteDeps): void {
+export function registerAuthorStudioRoutes(deps: AuthorStudioRouteDeps): AuthorStudioHandles {
   const { app, db, dbUrl, bookRepo, requireAuthUser, assertSpaceAccess } = deps;
 
   // In-memory fallbacks for unit tests without PostgreSQL
@@ -354,9 +360,9 @@ export function registerAuthorStudioRoutes(deps: AuthorStudioRouteDeps): void {
       );
       const imageCount = allEls.filter((el) => el.type === "image").length;
 
-      // Skip default single-spread empty boilerplate that only repeats the book title with no prose/images
+      // Skip default title-only cover spread boilerplate that only repeats the book title with no prose/images
       if (
-        book.spreads.length === 1 &&
+        sp.spreadIndex === 0 &&
         textEls.length === 0 &&
         imageCount === 0 &&
         headingEl?.content?.trim() === book.title.trim()
@@ -1485,4 +1491,259 @@ export function registerAuthorStudioRoutes(deps: AuthorStudioRouteDeps): void {
         .send(artifact.buffer);
     }
   );
+
+  // 12. POST /api/v1/books/:id/manuscript/import/preview (AS-14 Re-Import Diff & Merge Preview)
+  app.post(
+    "/api/v1/books/:id/manuscript/import/preview",
+    { bodyLimit: MAX_IMPORT_BYTES * 2 },
+    async (req: FastifyRequest<{ Params: { id: string } }>, reply) => {
+      const userId = await requireAuthUser(req);
+      const book = await bookRepo.findBookById(req.params.id);
+      if (!book) return reply.status(404).send(createErrorResponse("BOOK_NOT_FOUND", "Book does not exist"));
+      await assertSpaceAccess(book.spaceId, userId, false);
+
+      const parsed = ImportManuscriptSchema.safeParse(req.body);
+      if (!parsed.success) {
+        throw new ValidationError("Invalid import preview payload: format and fileName are required");
+      }
+
+      const rawBuffer = parsed.data.contentBase64
+        ? Buffer.from(parsed.data.contentBase64, "base64")
+        : typeof parsed.data.contentText === "string"
+          ? Buffer.from(parsed.data.contentText, "utf-8")
+          : null;
+
+      if (!rawBuffer || rawBuffer.length === 0) {
+        throw new ValidationError("Import preview requires contentBase64 or contentText");
+      }
+
+      const imported = await parseImportedManuscript(
+        parsed.data.format,
+        parsed.data.fileName,
+        rawBuffer
+      );
+      const currentMs = await ensureManuscript(book);
+      const diff = computeImportChapterDiff(
+        currentMs.chapters,
+        imported.chapters,
+        parsed.data.mergeStrategy
+      );
+
+      return reply.status(200).send(
+        createSuccessResponse({
+          format: parsed.data.format,
+          fileName: parsed.data.fileName,
+          mergeStrategy: parsed.data.mergeStrategy,
+          summary: diff.summary,
+          chapters: diff.chapters,
+          warnings: imported.warnings,
+        })
+      );
+    }
+  );
+
+  // 13. GET /api/v1/books/:id/manuscript/revisions/:revisionId/compare (AS-22 Version Compare)
+  app.get(
+    "/api/v1/books/:id/manuscript/revisions/:revisionId/compare",
+    async (req: FastifyRequest<{ Params: { id: string; revisionId: string } }>, reply) => {
+      const userId = await requireAuthUser(req);
+      const book = await bookRepo.findBookById(req.params.id);
+      if (!book) return reply.status(404).send(createErrorResponse("BOOK_NOT_FOUND", "Book does not exist"));
+      await assertSpaceAccess(book.spaceId, userId, false);
+
+      let snapshot: { manuscript?: Record<string, any>; chapters?: ManuscriptChapter[] } | null = null;
+      let revisionMeta: { id: string; label: string; createdAt: string; wordCount: number; checksumSha256: string } | null = null;
+
+      if (!dbUrl) {
+        const found = (memRevisions.get(book.id) || []).find((r) => r.id === req.params.revisionId);
+        if (!found) {
+          return reply.status(404).send(createErrorResponse("REVISION_NOT_FOUND", "Revision does not exist"));
+        }
+        snapshot = found.snapshot as any;
+        revisionMeta = {
+          id: found.id,
+          label: found.label,
+          createdAt: found.createdAt,
+          wordCount: found.wordCount,
+          checksumSha256: found.checksumSha256,
+        };
+      } else {
+        const res = await db.query(
+          `SELECT id, label, created_at::text as "createdAt", word_count as "wordCount",
+                  checksum_sha256 as "checksumSha256", snapshot_json as "snapshotJson"
+           FROM book_revisions WHERE id = $1 AND book_id = $2`,
+          [req.params.revisionId, book.id]
+        );
+        if (res.rows.length === 0) {
+          return reply.status(404).send(createErrorResponse("REVISION_NOT_FOUND", "Revision does not exist"));
+        }
+        const row = res.rows[0];
+        snapshot = row.snapshotJson;
+        revisionMeta = {
+          id: row.id,
+          label: row.label,
+          createdAt: row.createdAt,
+          wordCount: Number(row.wordCount ?? 0),
+          checksumSha256: row.checksumSha256,
+        };
+      }
+
+      const currentMs = await ensureManuscript(book);
+      const snapshotChapters = Array.isArray(snapshot?.chapters)
+        ? snapshot.chapters.map((ch) => ({
+            title: ch.title || "Untitled Chapter",
+            contentText: ch.contentText || stripHtmlToText(ch.contentHtml || ""),
+            wordCount: Number(ch.wordCount ?? countWords(ch.contentText || "")),
+          }))
+        : [];
+
+      // Compare restoring snapshot over current manuscript ("replace" semantics)
+      const diff = computeImportChapterDiff(currentMs.chapters, snapshotChapters, "replace");
+
+      return reply.status(200).send(
+        createSuccessResponse({
+          revision: revisionMeta,
+          currentWordCount: currentMs.totalWordCount,
+          summary: diff.summary,
+          chapters: diff.chapters,
+        })
+      );
+    }
+  );
+
+  // 14. POST /api/v1/books/:id/duplicate (AS-01 Project Shelf quick action)
+  app.post(
+    "/api/v1/books/:id/duplicate",
+    async (req: FastifyRequest<{ Params: { id: string } }>, reply) => {
+      const userId = await requireAuthUser(req);
+      const source = await bookRepo.findBookById(req.params.id);
+      if (!source) return reply.status(404).send(createErrorResponse("BOOK_NOT_FOUND", "Book does not exist"));
+      await assertSpaceAccess(source.spaceId, userId, true);
+
+      const sourceMs = await ensureManuscript(source);
+      const now = new Date().toISOString();
+      const newBookId = crypto.randomUUID();
+      const copyTitle = `${source.title} (Copy)`;
+      const duplicated: BookDocument = {
+        ...source,
+        id: newBookId,
+        title: copyTitle,
+        coverTitle: source.coverTitle ? `${source.coverTitle} (Copy)` : copyTitle,
+        version: 1,
+        isFrozenForPrint: false,
+        frozenEditionHash: undefined,
+        spreads: source.spreads.map((sp) => ({
+          ...sp,
+          id: crypto.randomUUID(),
+        })),
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      await bookRepo.createBook(duplicated);
+
+      const copiedMetadata = { ...(sourceMs.metadata || {}), archived: false };
+      if (!dbUrl) {
+        memManuscripts.set(newBookId, {
+          ...sourceMs,
+          id: crypto.randomUUID(),
+          bookId: newBookId,
+          metadata: copiedMetadata,
+          chapters: sourceMs.chapters.map((ch, idx) => ({
+            ...ch,
+            id: crypto.randomUUID(),
+            bookId: newBookId,
+            sortOrder: idx,
+            createdAt: now,
+            updatedAt: now,
+          })),
+          createdAt: now,
+          updatedAt: now,
+        });
+      } else {
+        await db.transaction(async (client) => {
+          await client.query(
+            `INSERT INTO book_manuscripts
+              (id, book_id, space_id, schema_version, trim_size, typography_preset, theme_preset,
+               language_code, author_name, dedication, epigraph, metadata_json, total_word_count)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, $13)`,
+            [
+              crypto.randomUUID(),
+              newBookId,
+              source.spaceId,
+              sourceMs.schemaVersion,
+              sourceMs.trimSize,
+              sourceMs.typographyPreset,
+              sourceMs.themePreset,
+              sourceMs.languageCode,
+              sourceMs.authorName,
+              sourceMs.dedication,
+              sourceMs.epigraph,
+              JSON.stringify(copiedMetadata),
+              sourceMs.totalWordCount,
+            ]
+          );
+          for (let i = 0; i < sourceMs.chapters.length; i += 1) {
+            const ch = sourceMs.chapters[i];
+            await client.query(
+              `INSERT INTO book_chapters
+                (id, book_id, section_type, title, subtitle, slug, sort_order, content_json, content_html, content_text, word_count, status)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, $12)`,
+              [
+                crypto.randomUUID(),
+                newBookId,
+                ch.sectionType,
+                ch.title,
+                ch.subtitle ?? null,
+                ch.slug,
+                i,
+                JSON.stringify(ch.contentJson),
+                ch.contentHtml,
+                ch.contentText,
+                ch.wordCount,
+                ch.status,
+              ]
+            );
+          }
+        });
+      }
+
+      return reply.status(201).send(createSuccessResponse(duplicated));
+    }
+  );
+
+  // 15. PATCH /api/v1/books/:id/archive (AS-01 Project Shelf archive toggle)
+  app.patch(
+    "/api/v1/books/:id/archive",
+    async (req: FastifyRequest<{ Params: { id: string }; Body: { archived?: boolean } }>, reply) => {
+      const userId = await requireAuthUser(req);
+      const book = await bookRepo.findBookById(req.params.id);
+      if (!book) return reply.status(404).send(createErrorResponse("BOOK_NOT_FOUND", "Book does not exist"));
+      await assertSpaceAccess(book.spaceId, userId, true);
+
+      const archived = Boolean(req.body?.archived ?? true);
+      const ms = await ensureManuscript(book);
+      const nextMetadata = {
+        ...(ms.metadata || {}),
+        archived,
+        archivedAt: archived ? new Date().toISOString() : null,
+      };
+
+      if (!dbUrl) {
+        ms.metadata = nextMetadata;
+        ms.updatedAt = new Date().toISOString();
+      } else {
+        await db.query(
+          `UPDATE book_manuscripts SET metadata_json = $1::jsonb, updated_at = NOW() WHERE book_id = $2`,
+          [JSON.stringify(nextMetadata), book.id]
+        );
+      }
+
+      return reply.status(200).send(createSuccessResponse({ bookId: book.id, archived }));
+    }
+  );
+
+  return {
+    getManuscriptForBook: ensureManuscript,
+  };
 }

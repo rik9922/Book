@@ -33,9 +33,12 @@ import {
   BOOK_FOIL_SWATCHES,
   BOOK_LEATHER_SWATCHES,
   BOOK_LIGHTING_INTENT,
+  BOOK_MATERIAL_MODES,
+  BOOK_PAGE_EDGE_FINISHES,
   CANONICAL_BOOK_3D_MANIFEST,
   CANONICAL_SAMPLE_SPREADS,
   SILK_RIBBON_MATERIAL_SPEC,
+  buildCoverMaterialSpec,
   buildFoilMaterialSpec,
   buildLeatherMaterialSpec,
   computeCoverHingeAngle,
@@ -48,6 +51,8 @@ import {
   type BookCameraPresetId,
   type BookFoilSwatchId,
   type BookLeatherSwatchId,
+  type BookMaterialMode,
+  type BookPageEdgeFinish,
   type BookSpreadPreview,
 } from "@memory-capsule/contracts/book-3d";
 import { CanvasErrorBoundary } from "./CanvasErrorBoundary";
@@ -706,9 +711,51 @@ function checkWebGLSupport(): boolean {
   }
 }
 
+const MAX_SPREAD_TEXTURE_CACHE = 12;
+
+class BoundedSpreadTextureCache {
+  private map = new Map<string, THREE.CanvasTexture>();
+
+  getOrCreate(
+    key: string,
+    factory: () => THREE.CanvasTexture | null
+  ): THREE.CanvasTexture | null {
+    const existing = this.map.get(key);
+    if (existing) {
+      // Refresh LRU order
+      this.map.delete(key);
+      this.map.set(key, existing);
+      return existing;
+    }
+    const created = factory();
+    if (!created) return null;
+    this.map.set(key, created);
+    while (this.map.size > MAX_SPREAD_TEXTURE_CACHE) {
+      const oldestKey = this.map.keys().next().value;
+      if (oldestKey === undefined) break;
+      const oldestTex = this.map.get(oldestKey);
+      this.map.delete(oldestKey);
+      oldestTex?.dispose();
+    }
+    return created;
+  }
+
+  disposeAll(): void {
+    for (const tex of this.map.values()) {
+      tex.dispose();
+    }
+    this.map.clear();
+  }
+}
+
 interface BookSceneProps {
   leatherId: BookLeatherSwatchId;
   foilId: BookFoilSwatchId;
+  materialMode: BookMaterialMode;
+  pageEdgeFinish: BookPageEdgeFinish;
+  textureRevisionKey: string | number;
+  showSpineBands?: boolean;
+  showHeadbands?: boolean;
   isOpen: boolean;
   onToggleOpen: () => void;
   title: string;
@@ -724,6 +771,11 @@ interface BookSceneProps {
 function Heirloom3DBook({
   leatherId,
   foilId,
+  materialMode,
+  pageEdgeFinish,
+  textureRevisionKey,
+  showSpineBands = true,
+  showHeadbands = true,
   isOpen,
   onToggleOpen,
   title,
@@ -805,21 +857,32 @@ function Heirloom3DBook({
   }, [pbrTextures]);
 
   const materialsBundle = useMemo(() => {
-    const leatherParams = toThreeMaterialParams(buildLeatherMaterialSpec(leatherSwatch));
+    const coverParams = toThreeMaterialParams(buildCoverMaterialSpec(leatherSwatch, materialMode));
     const foilParams = toThreeMaterialParams(buildFoilMaterialSpec(foilSwatch, leatherSwatch));
     const paperParams = toThreeMaterialParams(ARCHIVAL_PAPER_MATERIAL_SPEC);
+    const isLinen = materialMode === "linen";
+
+    const edgeColor =
+      pageEdgeFinish === "gilded"
+        ? "#D4AF37"
+        : pageEdgeFinish === "deckled"
+          ? "#EFE8DA"
+          : "#F6F2E9";
+    const edgeRoughness =
+      pageEdgeFinish === "gilded" ? 0.24 : pageEdgeFinish === "deckled" ? 0.98 : 0.90;
+    const edgeMetalness = pageEdgeFinish === "gilded" ? 0.9 : 0.0;
 
     return {
       leather: new THREE.MeshPhysicalMaterial({
-        ...leatherParams,
+        ...coverParams,
         normalMap: pbrTextures.leatherNormal,
-        normalScale: new THREE.Vector2(0.65, 0.65),
+        normalScale: isLinen ? new THREE.Vector2(0.24, 0.24) : new THREE.Vector2(0.65, 0.65),
         roughnessMap: pbrTextures.leatherRoughness,
-        roughness: 0.76,
-        metalness: 0.04,
-        clearcoat: 0.22,
-        clearcoatRoughness: 0.35,
-        sheen: 0.45,
+        roughness: isLinen ? 0.93 : 0.76,
+        metalness: isLinen ? 0.0 : 0.04,
+        clearcoat: isLinen ? 0.0 : 0.22,
+        clearcoatRoughness: isLinen ? 0.95 : 0.35,
+        sheen: isLinen ? 0.22 : 0.45,
         sheenColor: new THREE.Color(leatherSwatch.accentHex || "#8A6682"),
         side: THREE.DoubleSide,
       }),
@@ -840,10 +903,16 @@ function Heirloom3DBook({
         side: THREE.DoubleSide,
       }),
       textBlock: new THREE.MeshStandardMaterial({
-        color: "#F6F2E9",
-        map: pbrTextures.pageEdges,
-        roughness: 0.90,
-        metalness: 0.0,
+        color: edgeColor,
+        map: pageEdgeFinish === "gilded" ? null : pbrTextures.pageEdges,
+        roughness: edgeRoughness,
+        metalness: edgeMetalness,
+        side: THREE.DoubleSide,
+      }),
+      headband: new THREE.MeshStandardMaterial({
+        color: "#76556F",
+        roughness: 0.85,
+        metalness: 0.02,
         side: THREE.DoubleSide,
       }),
       ribbon: new THREE.MeshPhysicalMaterial({
@@ -858,7 +927,7 @@ function Heirloom3DBook({
         side: THREE.DoubleSide,
       }),
     };
-  }, [leatherSwatch, foilSwatch, pbrTextures]);
+  }, [leatherSwatch, foilSwatch, materialMode, pageEdgeFinish, pbrTextures]);
 
   useEffect(() => {
     return () => {
@@ -866,6 +935,7 @@ function Heirloom3DBook({
       materialsBundle.foil.dispose();
       materialsBundle.paper.dispose();
       materialsBundle.textBlock.dispose();
+      materialsBundle.headband.dispose();
       materialsBundle.ribbon.dispose();
     };
   }, [materialsBundle]);
@@ -1143,14 +1213,34 @@ function Heirloom3DBook({
     [spineText, title, foilHex]
   );
 
+  const spreadTextureCacheRef = useRef<BoundedSpreadTextureCache | null>(null);
+  if (!spreadTextureCacheRef.current) {
+    spreadTextureCacheRef.current = new BoundedSpreadTextureCache();
+  }
+
+  useEffect(() => {
+    const cache = spreadTextureCacheRef.current;
+    return () => {
+      cache?.disposeAll();
+    };
+  }, []);
+
+  const spreadFingerprint = `${textureRevisionKey}:${currentSpread.spreadIndex}:${currentSpread.leftHeading}:${currentSpread.leftBody.slice(0, 64)}:${currentSpread.rightHeading}:${currentSpread.rightBody.slice(0, 64)}`;
+
   const leftSpreadTexture = useMemo(
-    () => createSpreadPageTexture(currentSpread, "left"),
-    [currentSpread]
+    () =>
+      spreadTextureCacheRef.current?.getOrCreate(`L:${spreadFingerprint}`, () =>
+        createSpreadPageTexture(currentSpread, "left")
+      ) ?? null,
+    [currentSpread, spreadFingerprint]
   );
 
   const rightSpreadTexture = useMemo(
-    () => createSpreadPageTexture(currentSpread, "right"),
-    [currentSpread]
+    () =>
+      spreadTextureCacheRef.current?.getOrCreate(`R:${spreadFingerprint}`, () =>
+        createSpreadPageTexture(currentSpread, "right")
+      ) ?? null,
+    [currentSpread, spreadFingerprint]
   );
 
   useEffect(() => {
@@ -1170,18 +1260,6 @@ function Heirloom3DBook({
       spineTexture?.dispose();
     };
   }, [spineTexture]);
-
-  useEffect(() => {
-    return () => {
-      leftSpreadTexture?.dispose();
-    };
-  }, [leftSpreadTexture]);
-
-  useEffect(() => {
-    return () => {
-      rightSpreadTexture?.dispose();
-    };
-  }, [rightSpreadTexture]);
 
   return (
     <Float
@@ -1230,6 +1308,46 @@ function Heirloom3DBook({
             <planeGeometry args={[0.16, 0.03]} />
             <meshBasicMaterial map={spineTexture} transparent toneMapped={false} />
           </mesh>
+        )}
+
+        {/* Subtle Raised Archival Spine Bands (5 Smyth-sewn cord hubs) */}
+        {showSpineBands && !openSpreadVisible && (
+          <group name="RaisedSpineBands">
+            {[-0.092, -0.046, 0.0, 0.046, 0.092].map((bandZ) => (
+              <mesh
+                key={bandZ}
+                position={[-0.0124, 0, bandZ]}
+                rotation={[0, 0, Math.PI / 2]}
+                material={materialsBundle.leather}
+                castShadow
+                receiveShadow
+              >
+                <cylinderGeometry args={[0.0021, 0.0021, 0.024, 12]} />
+              </mesh>
+            ))}
+          </group>
+        )}
+
+        {/* Top & Bottom Woven Cloth Headbands (Endbands) */}
+        {showHeadbands && (
+          <group name="ClothHeadbands">
+            <mesh
+              position={[-0.001, 0, -0.1235]}
+              rotation={[0, 0, Math.PI / 2]}
+              material={materialsBundle.headband}
+              castShadow
+            >
+              <cylinderGeometry args={[0.0024, 0.0024, 0.022, 10]} />
+            </mesh>
+            <mesh
+              position={[-0.001, 0, 0.1235]}
+              rotation={[0, 0, Math.PI / 2]}
+              material={materialsBundle.headband}
+              castShadow
+            >
+              <cylinderGeometry args={[0.0024, 0.0024, 0.022, 10]} />
+            </mesh>
+          </group>
         )}
 
         {/* Symmetrical Smyth-Sewn Open Book Spreads & Left Page Block */}
@@ -1393,6 +1511,11 @@ export interface ExperienceCanvasProps {
   onSelectLeatherId?: (id: BookLeatherSwatchId) => void;
   selectedFoilId?: BookFoilSwatchId | string;
   onSelectFoilId?: (id: BookFoilSwatchId) => void;
+  materialMode?: BookMaterialMode;
+  onMaterialModeChange?: (mode: BookMaterialMode) => void;
+  pageEdgeFinish?: BookPageEdgeFinish;
+  onPageEdgeFinishChange?: (finish: BookPageEdgeFinish) => void;
+  textureRevisionKey?: string | number;
   title?: string;
   onTitleChange?: (title: string) => void;
   subtitle?: string;
@@ -1468,6 +1591,11 @@ export default function ExperienceCanvas({
   onSelectLeatherId,
   selectedFoilId,
   onSelectFoilId,
+  materialMode: controlledMaterialMode,
+  onMaterialModeChange,
+  pageEdgeFinish: controlledPageEdgeFinish,
+  onPageEdgeFinishChange,
+  textureRevisionKey = 0,
   title: controlledTitle,
   onTitleChange,
   subtitle: controlledSubtitle,
@@ -1488,11 +1616,17 @@ export default function ExperienceCanvas({
   const [selectedFoil, setSelectedFoil] = useState(() =>
     resolveFoilSwatch(selectedFoilId || initialFoilId)
   );
+  const [materialMode, setMaterialMode] = useState<BookMaterialMode>(
+    controlledMaterialMode ?? "leather"
+  );
+  const [pageEdgeFinish, setPageEdgeFinish] = useState<BookPageEdgeFinish>(
+    controlledPageEdgeFinish ?? "natural"
+  );
   const [isOpen, setIsOpen] = useState(controlledIsOpen ?? false);
   const [title, setTitle] = useState(controlledTitle ?? initialTitle);
   const [subtitle, setSubtitle] = useState(controlledSubtitle ?? initialSubtitle);
   const [spreads, setSpreads] = useState<readonly BookSpreadPreview[]>(
-    controlledSpreads ?? CANONICAL_SAMPLE_SPREADS
+    controlledSpreads ?? (bookId === "sample" ? CANONICAL_SAMPLE_SPREADS : [])
   );
   const [spreadIndex, setSpreadIndex] = useState(controlledSpreadIndex ?? 0);
   const [pageTurnNonce, setPageTurnNonce] = useState(0);
@@ -1587,9 +1721,41 @@ export default function ExperienceCanvas({
     }
   }, [controlledCameraPreset]);
 
+  useEffect(() => {
+    if (controlledMaterialMode !== undefined) {
+      setMaterialMode(controlledMaterialMode);
+    }
+  }, [controlledMaterialMode]);
+
+  useEffect(() => {
+    if (controlledPageEdgeFinish !== undefined) {
+      setPageEdgeFinish(controlledPageEdgeFinish);
+    }
+  }, [controlledPageEdgeFinish]);
+
   const pageDragStartXRef = useRef<number | null>(null);
-  const totalSpreads = spreads.length;
-  const activeSpread = spreads[Math.min(spreadIndex, Math.max(0, totalSpreads - 1))] || CANONICAL_SAMPLE_SPREADS[0];
+  const effectiveSpreads = useMemo<readonly BookSpreadPreview[]>(() => {
+    if (spreads.length > 0) return spreads;
+    if (bookId === "sample") return CANONICAL_SAMPLE_SPREADS;
+    return [
+      {
+        spreadIndex: 0,
+        chapterTitle: title || "Untitled Manuscript",
+        leftPageNumber: 1,
+        rightPageNumber: 2,
+        leftHeading: title || "Untitled Manuscript",
+        leftDate: "Draft Manuscript",
+        leftLocation: "Memoria Author Studio",
+        leftBody: subtitle || "Begin writing your chapters in Memoria Author Studio.",
+        rightHeading: "Chapter 1",
+        rightDate: "Draft",
+        rightLocation: "Memoria Author Studio",
+        rightBody: "Add prose in the Write environment to populate your live 3D pages.",
+      },
+    ];
+  }, [spreads, bookId, title, subtitle]);
+  const totalSpreads = effectiveSpreads.length;
+  const activeSpread = effectiveSpreads[Math.min(spreadIndex, Math.max(0, totalSpreads - 1))] || effectiveSpreads[0];
 
   useEffect(() => {
     if (typeof window === "undefined" || !bookId) return;
@@ -1625,7 +1791,7 @@ export default function ExperienceCanvas({
           setSpreads(
             mapBookSpreadsToPreview(data.spreads, data.configuration?.coverTitle || data.title || "Memoria")
           );
-        } else if (Array.isArray(data.sampleSpreads) && data.sampleSpreads.length > 0) {
+        } else if (bookId === "sample" && Array.isArray(data.sampleSpreads) && data.sampleSpreads.length > 0) {
           setSpreads(data.sampleSpreads);
         }
       })
@@ -1801,7 +1967,7 @@ export default function ExperienceCanvas({
             subtitle={subtitle}
             coverHex={selectedLeather.hex}
             foilHex={effectiveFoilHex}
-            spreads={spreads}
+            spreads={effectiveSpreads}
             currentSpreadIndex={spreadIndex}
             onChangeSpread={setSpreadIndex}
             onSwitchTo3D={webglError ? undefined : () => setIs2DMode(false)}
@@ -1972,7 +2138,7 @@ export default function ExperienceCanvas({
                     subtitle={subtitle}
                     coverHex={selectedLeather.hex}
                     foilHex={effectiveFoilHex}
-                    spreads={spreads}
+                    spreads={effectiveSpreads}
                     currentSpreadIndex={spreadIndex}
                     onChangeSpread={setSpreadIndex}
                     fallbackReason={
@@ -2054,6 +2220,9 @@ export default function ExperienceCanvas({
                   <Heirloom3DBook
                     leatherId={selectedLeather.id}
                     foilId={selectedFoil.id}
+                    materialMode={materialMode}
+                    pageEdgeFinish={pageEdgeFinish}
+                    textureRevisionKey={textureRevisionKey}
                     isOpen={isOpen}
                     onToggleOpen={handleToggleOpen}
                     title={title}
@@ -2173,6 +2342,58 @@ export default function ExperienceCanvas({
                       }}
                     />
                     <span className="text-[10px] text-center leading-none">{swatch.shortLabel}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Cover Material Mode (Bookcloth Linen vs Full-Grain Leather) */}
+            <div className="space-y-2">
+              <label className="text-xs font-medium text-[#28272A]">
+                Binding Material Mode
+              </label>
+              <div className="grid grid-cols-2 gap-1.5">
+                {BOOK_MATERIAL_MODES.map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => {
+                      setMaterialMode(m.id);
+                      onMaterialModeChange?.(m.id);
+                    }}
+                    className={`min-h-[40px] px-2.5 py-1.5 rounded-lg border text-xs transition-all cursor-pointer ${
+                      materialMode === m.id
+                        ? "border-[#76556F] bg-[#F4EEF3] text-[#20242C] font-semibold"
+                        : "border-[#E7E2DA] bg-[#F7F4EE] text-[#5C5955] hover:border-[#8D857A]"
+                    }`}
+                  >
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Page Edge Finish */}
+            <div className="space-y-2">
+              <label className="text-xs font-medium text-[#28272A]">
+                Page Edge Finish
+              </label>
+              <div className="grid grid-cols-3 gap-1.5">
+                {BOOK_PAGE_EDGE_FINISHES.map((edge) => (
+                  <button
+                    key={edge.id}
+                    type="button"
+                    onClick={() => {
+                      setPageEdgeFinish(edge.id);
+                      onPageEdgeFinishChange?.(edge.id);
+                    }}
+                    className={`min-h-[38px] px-2 py-1.5 rounded-lg border text-[11px] transition-all cursor-pointer ${
+                      pageEdgeFinish === edge.id
+                        ? "border-[#76556F] bg-[#F4EEF3] text-[#20242C] font-semibold"
+                        : "border-[#E7E2DA] bg-[#F7F4EE] text-[#5C5955] hover:border-[#8D857A]"
+                    }`}
+                  >
+                    {edge.label}
                   </button>
                 ))}
               </div>

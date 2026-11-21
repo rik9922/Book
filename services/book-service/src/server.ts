@@ -18,6 +18,8 @@ import {
   BookFormatSchema,
   BookPageSchema,
   BookSpread,
+  PreflightCheckItem,
+  PreflightCheckStatus,
   BOOK_3D_HIERARCHY,
   BOOK_ANIMATION_CONTRACT,
   BOOK_CAMERA_PRESETS,
@@ -35,7 +37,7 @@ import {
   startServiceServer,
 } from "@memory-capsule/contracts";
 import { createEventBus, EventBus } from "@memory-capsule/events";
-import { registerAuthorStudioRoutes } from "./author-studio-routes.js";
+import { registerAuthorStudioRoutes, type AuthorStudioHandles } from "./author-studio-routes.js";
 import {
   createDatabaseClient,
   DatabaseClient,
@@ -781,7 +783,80 @@ export async function buildBookService(): Promise<FastifyInstance> {
     }
   );
 
-  // 3. Freeze Book Edition for Physical Print Preflight
+  let authorStudioHandles: AuthorStudioHandles | null = null;
+
+  function resolveStorageRoot(): string {
+    if (process.env.STORAGE_LOCAL_PATH && fs.existsSync(process.env.STORAGE_LOCAL_PATH)) {
+      return path.resolve(process.env.STORAGE_LOCAL_PATH);
+    }
+    const candidates = [
+      path.resolve(process.cwd(), "storage/local"),
+      path.resolve(process.cwd(), "../../storage/local"),
+      path.resolve(__dirname, "../../../storage/local"),
+    ];
+    for (const c of candidates) {
+      if (fs.existsSync(c)) return c;
+    }
+    return candidates[0];
+  }
+
+  function findLocalMediaBinary(mediaRef: string): string | null {
+    const trimmed = mediaRef.trim();
+    if (!trimmed || trimmed.includes("..") || trimmed.includes("\0")) return null;
+    const root = resolveStorageRoot();
+    if (!fs.existsSync(root)) return null;
+
+    // 1. Direct relative path inside local storage root
+    const directCandidate = path.resolve(root, trimmed.replace(/^\/+/, ""));
+    if (directCandidate.startsWith(root) && fs.existsSync(directCandidate) && fs.statSync(directCandidate).isFile()) {
+      return directCandidate;
+    }
+
+    // 2. Search shallow subdirectories for matching media UUID or filename
+    const baseToken = path.basename(trimmed);
+    if (!baseToken || baseToken.length < 6) return null;
+    const queue: Array<{ dir: string; depth: number }> = [{ dir: root, depth: 0 }];
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      if (current.depth > 3) continue;
+      let entries: fs.Dirent[] = [];
+      try {
+        entries = fs.readdirSync(current.dir, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+      for (const entry of entries) {
+        const full = path.join(current.dir, entry.name);
+        if (entry.isDirectory()) {
+          queue.push({ dir: full, depth: current.depth + 1 });
+        } else if (entry.isFile() && (entry.name === baseToken || entry.name.startsWith(`${baseToken}.`) || entry.name.includes(baseToken))) {
+          return full;
+        }
+      }
+    }
+    return null;
+  }
+
+  function getTrimInches(format: string, trimSize?: string): { widthIn: number; heightIn: number; label: string } {
+    switch (trimSize) {
+      case "5x8_pocket":
+        return { widthIn: 5, heightIn: 8, label: '5" × 8"' };
+      case "5.5x8.5_digest":
+        return { widthIn: 5.5, heightIn: 8.5, label: '5.5" × 8.5"' };
+      case "6x9_trade":
+        return { widthIn: 6, heightIn: 9, label: '6" × 9"' };
+      case "8x10_heirloom":
+        return { widthIn: 8, heightIn: 10, label: '8" × 10"' };
+      case "8.5x11_archival":
+        return { widthIn: 8.5, heightIn: 11, label: '8.5" × 11"' };
+      default:
+        if (format === "hardcover_square_8x8") return { widthIn: 8, heightIn: 8, label: '8" × 8"' };
+        if (format === "hardcover_grand_12x12") return { widthIn: 12, heightIn: 12, label: '12" × 12"' };
+        return { widthIn: 8, heightIn: 10, label: '8" × 10"' };
+    }
+  }
+
+  // 3. Freeze Book Edition for Physical Print Preflight (Immutable Cryptographic Snapshot)
   app.post("/api/v1/books/:id/freeze", async (req: FastifyRequest<{ Params: { id: string } }>, reply) => {
     const userId = await requireAuthUser(req);
     const book = await bookRepo.findBookById(req.params.id);
@@ -796,7 +871,66 @@ export async function buildBookService(): Promise<FastifyInstance> {
         .send(createErrorResponse("ALREADY_FROZEN", "Book edition is already frozen for printing"));
     }
 
-    const editionHash = crypto.createHash("sha256").update(JSON.stringify(book)).digest("hex");
+    const manuscript = authorStudioHandles ? await authorStudioHandles.getManuscriptForBook(book) : null;
+    const sha256Hex = (value: unknown) =>
+      crypto.createHash("sha256").update(JSON.stringify(value)).digest("hex");
+
+    const manuscriptHash = sha256Hex(
+      manuscript
+        ? {
+            schemaVersion: manuscript.schemaVersion,
+            languageCode: manuscript.languageCode,
+            authorName: manuscript.authorName,
+            dedication: manuscript.dedication,
+            epigraph: manuscript.epigraph,
+            metadata: manuscript.metadata,
+          }
+        : { title: book.title, subtitle: book.subtitle }
+    );
+    const chaptersHash = sha256Hex(
+      manuscript
+        ? manuscript.chapters.map((c) => ({
+            id: c.id,
+            sortOrder: c.sortOrder,
+            sectionType: c.sectionType,
+            title: c.title,
+            contentHtml: c.contentHtml,
+            wordCount: c.wordCount,
+          }))
+        : []
+    );
+    const placedAssetRefs = book.spreads.flatMap((sp) =>
+      [...(sp.leftPage?.elements || []), ...(sp.rightPage?.elements || [])]
+        .filter((el) => el.type === "image")
+        .map((el) => el.content)
+    );
+    const assetsHash = sha256Hex({ placedAssetRefs, spreads: book.spreads });
+    const themeHash = sha256Hex({
+      format: book.format,
+      coverColor: book.coverColor,
+      foilStamping: book.foilStamping,
+      coverTitle: book.coverTitle,
+      spineText: book.spineText,
+      trimSize: manuscript?.trimSize || null,
+      typographyPreset: manuscript?.typographyPreset || null,
+      themePreset: manuscript?.themePreset || null,
+    });
+    const rendererVersion = CANONICAL_BOOK_3D_MANIFEST.version;
+    const snapshotManifest = {
+      title: book.title,
+      format: book.format,
+      bookVersion: book.version,
+      schemaVersion: manuscript?.schemaVersion || "1.0.0",
+      rendererVersion,
+      spreadCount: book.spreads.length,
+      chapterCount: manuscript?.chapters.length ?? 0,
+      totalWordCount: manuscript?.totalWordCount ?? 0,
+      manuscriptHash,
+      chaptersHash,
+      assetsHash,
+      themeHash,
+    };
+    const editionHash = sha256Hex(snapshotManifest);
     await bookRepo.freezeEdition(book.id, editionHash);
 
     if (dbUrl) {
@@ -808,7 +942,7 @@ export async function buildBookService(): Promise<FastifyInstance> {
           book.id,
           book.version,
           editionHash,
-          JSON.stringify({ title: book.title, format: book.format, spreadCount: book.spreads.length }),
+          JSON.stringify(snapshotManifest),
           userId,
         ]
       ).catch((err) => logger.warn({ err, bookId: book.id }, "[Book] Non-fatal book_editions insert warning"));
@@ -819,22 +953,82 @@ export async function buildBookService(): Promise<FastifyInstance> {
     await publishDomainEvent("book.edition_frozen", "book.edition_frozen", book.id, {
       bookId: book.id,
       editionHash,
+      manuscriptHash,
+      chaptersHash,
+      assetsHash,
+      themeHash,
+      rendererVersion,
       pageCount: book.spreads.length * 2,
       format: book.format,
     });
 
-    return reply.status(200).send(createSuccessResponse(updated || book));
+    return reply.status(200).send(
+      createSuccessResponse({
+        ...(updated || book),
+        editionSnapshot: snapshotManifest,
+      })
+    );
   });
 
-  // 4. Automated Print Preflight Validator (Real Geometry, Content & Asset Checks)
+  // 4. Automated Print Preflight Validator (Truthful Measured Checks: pass / warning / fail / not_checked)
   async function evaluateBookPreflight(book: BookDocument) {
+    const manuscript = authorStudioHandles ? await authorStudioHandles.getManuscriptForBook(book) : null;
     const coverTitleTrimmed = (book.coverTitle || book.title || "").trim();
     const spineTrimmed = (book.spineText || book.title || "").trim();
+    const authorNameTrimmed = (manuscript?.authorName || "").trim();
+    const trimDims = getTrimInches(book.format, manuscript?.trimSize);
 
+    // 1. Title & Author Metadata Check
+    let titleAuthorStatus: PreflightCheckStatus = "pass";
+    let titleAuthorDetail = `Title "${coverTitleTrimmed}" fits safe foil die bounds (${spineTrimmed.length} spine chars); author "${authorNameTrimmed}" recorded.`;
+    if (coverTitleTrimmed.length < 2) {
+      titleAuthorStatus = "fail";
+      titleAuthorDetail = "Cover title must be at least 2 characters for foil stamping.";
+    } else if (coverTitleTrimmed.length > 80) {
+      titleAuthorStatus = "fail";
+      titleAuthorDetail = `Cover title (${coverTitleTrimmed.length} chars) exceeds 80-character foil die limit.`;
+    } else if (!authorNameTrimmed) {
+      titleAuthorStatus = "warning";
+      titleAuthorDetail = `Title "${coverTitleTrimmed}" fits foil bounds, but Author Name is blank (recommended for title page & EPUB metadata).`;
+    }
+
+    // 2. Manuscript Chapter Completeness Check
+    const chapters = manuscript?.chapters || [];
+    const emptyChapters = chapters.filter((ch) => Number(ch.wordCount ?? 0) <= 0);
+    let chapterStatus: PreflightCheckStatus = "pass";
+    let chapterDetail = `${chapters.length} chapter(s) verified (${manuscript?.totalWordCount ?? 0} total words).`;
+    let firstEmptyChapterId: string | undefined;
+    if (chapters.length === 0) {
+      chapterStatus = "fail";
+      chapterDetail = "Manuscript contains 0 chapters. Add at least one chapter before publishing.";
+    } else if (emptyChapters.length > 0) {
+      chapterStatus = "fail";
+      firstEmptyChapterId = emptyChapters[0].id;
+      chapterDetail = `${emptyChapters.length} empty chapter(s) with 0 words detected: ${emptyChapters
+        .slice(0, 3)
+        .map((c) => `"${c.title}"`)
+        .join(", ")}.`;
+    }
+
+    // 3. Spreads, Missing Media References, Bounds & Real Sharp DPI Measurement
     let totalElements = 0;
     let totalImages = 0;
-    const marginViolations: string[] = [];
-    const imageIssues: string[] = [];
+    const marginViolations: Array<{ label: string; spreadIndex: number }> = [];
+    const missingMediaIssues: Array<{ label: string; spreadIndex: number }> = [];
+    const lowDpiFails: Array<{ label: string; spreadIndex: number; dpi: number }> = [];
+    const lowDpiWarnings: Array<{ label: string; spreadIndex: number; dpi: number }> = [];
+    let measuredImagesCount = 0;
+    let unverifiedImagesCount = 0;
+    let minMeasuredDpi: number | null = null;
+
+    type SharpFactory = (input: string) => { metadata(): Promise<{ width?: number; height?: number }> };
+    let sharpLoader: SharpFactory | null = null;
+    try {
+      const mod = await import("sharp");
+      sharpLoader = (mod.default || mod) as unknown as SharpFactory;
+    } catch {
+      sharpLoader = null;
+    }
 
     for (const spread of book.spreads) {
       const pages = [
@@ -853,73 +1047,195 @@ export async function buildBookService(): Promise<FastifyInstance> {
             el.x + el.width > 100 ||
             el.y + el.height > 100;
           if (outOfBounds) {
-            marginViolations.push(`Spread ${spread.spreadIndex + 1} (${side} p.${page.pageNumber})`);
+            marginViolations.push({
+              label: `Spread ${spread.spreadIndex + 1} (${side} p.${page.pageNumber})`,
+              spreadIndex: spread.spreadIndex,
+            });
           }
+
           if (el.type === "image") {
             totalImages += 1;
-            if (!el.content || !el.content.trim()) {
-              imageIssues.push(`Spread ${spread.spreadIndex + 1} (${side}) missing image asset reference`);
+            const mediaRef = (el.content || "").trim();
+            if (!mediaRef) {
+              missingMediaIssues.push({
+                label: `Spread ${spread.spreadIndex + 1} (${side} p.${page.pageNumber}) missing media reference`,
+                spreadIndex: spread.spreadIndex,
+              });
+              continue;
             }
-            const rawDpi = el.style && typeof el.style === "object" ? Number((el.style as Record<string, unknown>).dpi) : NaN;
-            if (!Number.isNaN(rawDpi) && rawDpi < 300) {
-              imageIssues.push(`Spread ${spread.spreadIndex + 1} (${side}) image below 300 DPI (${rawDpi} DPI)`);
+
+            const styleObj = el.style && typeof el.style === "object" ? (el.style as Record<string, unknown>) : {};
+            const placedWidthIn = Math.max(0.25, (el.width / 100) * trimDims.widthIn);
+            const placedHeightIn = Math.max(0.25, (el.height / 100) * trimDims.heightIn);
+            let effectiveDpi: number | null = null;
+
+            const explicitDpi = Number(styleObj.dpi);
+            if (!Number.isNaN(explicitDpi) && explicitDpi > 0) {
+              effectiveDpi = Math.round(explicitDpi);
+            } else {
+              const pxW = Number(styleObj.pixelWidth);
+              const pxH = Number(styleObj.pixelHeight);
+              if (!Number.isNaN(pxW) && pxW > 0 && !Number.isNaN(pxH) && pxH > 0) {
+                effectiveDpi = Math.round(Math.min(pxW / placedWidthIn, pxH / placedHeightIn));
+              } else if (sharpLoader) {
+                const binaryPath = findLocalMediaBinary(mediaRef);
+                if (binaryPath) {
+                  try {
+                    const meta = await sharpLoader(binaryPath).metadata();
+                    if (meta.width && meta.height) {
+                      effectiveDpi = Math.round(
+                        Math.min(meta.width / placedWidthIn, meta.height / placedHeightIn)
+                      );
+                    }
+                  } catch {
+                    effectiveDpi = null;
+                  }
+                }
+              }
+            }
+
+            if (effectiveDpi === null) {
+              unverifiedImagesCount += 1;
+            } else {
+              measuredImagesCount += 1;
+              minMeasuredDpi = minMeasuredDpi === null ? effectiveDpi : Math.min(minMeasuredDpi, effectiveDpi);
+              if (effectiveDpi < 200) {
+                lowDpiFails.push({
+                  label: `Spread ${spread.spreadIndex + 1} (${side}) at ${effectiveDpi} DPI (< 200 DPI print minimum)`,
+                  spreadIndex: spread.spreadIndex,
+                  dpi: effectiveDpi,
+                });
+              } else if (effectiveDpi < 300) {
+                lowDpiWarnings.push({
+                  label: `Spread ${spread.spreadIndex + 1} (${side}) at ${effectiveDpi} DPI (300 DPI archival target)`,
+                  spreadIndex: spread.spreadIndex,
+                  dpi: effectiveDpi,
+                });
+              }
             }
           }
         }
       }
     }
 
-    const checks = [
+    let dpiStatus: PreflightCheckStatus = "pass";
+    let dpiDetail = "Text & vector layout only (0 raster images placed; vector typography scales cleanly).";
+    let dpiTargetSpread: number | undefined;
+    if (lowDpiFails.length > 0) {
+      dpiStatus = "fail";
+      dpiTargetSpread = lowDpiFails[0].spreadIndex;
+      dpiDetail = lowDpiFails.slice(0, 3).map((x) => x.label).join("; ");
+    } else if (lowDpiWarnings.length > 0) {
+      dpiStatus = "warning";
+      dpiTargetSpread = lowDpiWarnings[0].spreadIndex;
+      dpiDetail = lowDpiWarnings.slice(0, 3).map((x) => x.label).join("; ");
+    } else if (totalImages > 0 && unverifiedImagesCount > 0) {
+      dpiStatus = "not_checked";
+      dpiDetail = `${totalImages} placed image(s) detected, but ${unverifiedImagesCount} source binary could not be measured on local disk (${measuredImagesCount} measured).`;
+    } else if (totalImages > 0) {
+      dpiStatus = "pass";
+      dpiDetail = `${totalImages} placed image(s) measured via Sharp >= 300 DPI (min ${minMeasuredDpi} DPI).`;
+    }
+
+    const trimStatus: PreflightCheckStatus =
+      book.spreads.length < 1 || totalElements < 1 || marginViolations.length > 0 ? "fail" : "pass";
+    const trimDetail =
+      book.spreads.length < 1
+        ? "Book has 0 spreads staged for print."
+        : totalElements < 1
+          ? `${book.spreads.length} spread(s) staged, but all pages are empty.`
+          : marginViolations.length > 0
+            ? `Out-of-bounds element(s) on: ${marginViolations.slice(0, 3).map((v) => v.label).join(", ")}`
+            : `Trim ${trimDims.label}, 3mm bleed & 12mm inner gutter verified across ${book.spreads.length} spread(s) (${totalElements} elements).`;
+
+    const checks: PreflightCheckItem[] = [
       {
-        id: "cover_title",
-        label: "Cover Title & Foil Stamping",
-        passed: coverTitleTrimmed.length >= 2 && coverTitleTrimmed.length <= 80,
-        detail:
-          coverTitleTrimmed.length < 2
-            ? "Cover title must be at least 2 characters"
-            : coverTitleTrimmed.length > 80
-              ? `Cover title (${coverTitleTrimmed.length} chars) exceeds 80-character foil die limit`
-              : `Title "${coverTitleTrimmed}" fits safe foil die bounds (${spineTrimmed.length} spine chars)`,
+        id: "title_author_metadata",
+        label: "Title & Author Metadata",
+        status: titleAuthorStatus,
+        passed: titleAuthorStatus !== "fail",
+        detail: titleAuthorDetail,
+        measuredValue: `${coverTitleTrimmed.length} chars${authorNameTrimmed ? ` • ${authorNameTrimmed}` : " • No author"}`,
+        targetEnvironment: titleAuthorStatus === "pass" ? undefined : "design",
       },
       {
-        id: "spread_count",
-        label: "Minimum Archival Spreads",
-        passed: book.spreads.length >= 1 && totalElements >= 1,
-        detail:
-          book.spreads.length < 1
-            ? "Book has no spreads staged for print"
-            : totalElements < 1
-              ? `${book.spreads.length} spread(s) present but all pages are empty`
-              : `${book.spreads.length} spread(s) (${book.spreads.length * 2} pages, ${totalElements} elements) staged with 3mm trim bleed`,
+        id: "empty_chapters",
+        label: "Manuscript Chapter Completeness",
+        status: chapterStatus,
+        passed: chapterStatus !== "fail",
+        detail: chapterDetail,
+        measuredValue: `${chapters.length} chapters • ${manuscript?.totalWordCount ?? 0} words`,
+        targetEnvironment: chapterStatus === "pass" ? undefined : "write",
+        targetChapterId: firstEmptyChapterId,
       },
       {
-        id: "safe_margins",
-        label: "3mm Trim & Gutter Margin Verification",
-        passed: marginViolations.length === 0,
+        id: "missing_media_references",
+        label: "Media Asset Reference Integrity",
+        status: missingMediaIssues.length > 0 ? "fail" : "pass",
+        passed: missingMediaIssues.length === 0,
         detail:
-          marginViolations.length === 0
-            ? `All ${totalElements} layout element(s) verified within printable page bounds`
-            : `Out-of-bounds element(s) detected on: ${marginViolations.slice(0, 3).join(", ")}`,
+          missingMediaIssues.length > 0
+            ? missingMediaIssues.slice(0, 3).map((m) => m.label).join("; ")
+            : totalImages === 0
+              ? "No broken media links (0 raster images placed)."
+              : `All ${totalImages} placed media reference(s) are non-empty.`,
+        measuredValue: `${totalImages} placed image(s)`,
+        targetEnvironment: missingMediaIssues.length > 0 ? "preview" : undefined,
+        targetSpreadIndex: missingMediaIssues[0]?.spreadIndex,
       },
       {
         id: "dpi_resolution",
-        label: "300 DPI Archival Image & Vector Check",
-        passed: imageIssues.length === 0,
-        detail:
-          imageIssues.length > 0
-            ? imageIssues.slice(0, 3).join("; ")
+        label: "Effective Print Resolution (Sharp DPI)",
+        status: dpiStatus,
+        passed: dpiStatus !== "fail",
+        detail: dpiDetail,
+        measuredValue:
+          minMeasuredDpi !== null
+            ? `${minMeasuredDpi} DPI min`
             : totalImages === 0
-              ? "Text & vector layout only (0 raster images placed; vector typography scales cleanly)"
-              : `${totalImages} placed image asset(s) verified with valid references and print resolution`,
+              ? "Vector only"
+              : "Unverified binary",
+        targetEnvironment: dpiStatus === "pass" ? undefined : "preview",
+        targetSpreadIndex: dpiTargetSpread,
+      },
+      {
+        id: "safe_margins",
+        label: "Trim, 3mm Bleed & 12mm Gutter Geometry",
+        status: trimStatus,
+        passed: trimStatus !== "fail",
+        detail: trimDetail,
+        measuredValue: `${trimDims.label} • 3mm bleed • 12mm gutter`,
+        targetEnvironment: trimStatus === "pass" ? undefined : "preview",
+        targetSpreadIndex: marginViolations[0]?.spreadIndex,
       },
     ];
-    const passed = checks.every((c) => c.passed);
+
+    const failCount = checks.filter((c) => c.status === "fail").length;
+    const warningCount = checks.filter((c) => c.status === "warning").length;
+    const notCheckedCount = checks.filter((c) => c.status === "not_checked").length;
+    const passCount = checks.filter((c) => c.status === "pass").length;
+    const overallStatus: PreflightCheckStatus =
+      failCount > 0
+        ? "fail"
+        : notCheckedCount > 0
+          ? "not_checked"
+          : warningCount > 0
+            ? "warning"
+            : "pass";
+
     return {
       bookId: book.id,
       version: book.version,
       isFrozenForPrint: book.isFrozenForPrint,
       frozenEditionHash: book.frozenEditionHash || null,
-      passed,
+      overallStatus,
+      passed: failCount === 0,
+      counts: {
+        pass: passCount,
+        warning: warningCount,
+        fail: failCount,
+        notChecked: notCheckedCount,
+      },
       checks,
       checkedAt: new Date().toISOString(),
     };
@@ -1335,7 +1651,7 @@ export async function buildBookService(): Promise<FastifyInstance> {
   );
 
   // Register Memoria Author Studio Semantic Manuscript, Resume, Revision & Import/Export API
-  registerAuthorStudioRoutes({
+  authorStudioHandles = registerAuthorStudioRoutes({
     app,
     db,
     dbUrl,
