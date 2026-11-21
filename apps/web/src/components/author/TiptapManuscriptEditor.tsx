@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect } from "react";
+import React, { useEffect, useRef } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
@@ -39,6 +39,12 @@ export function TiptapManuscriptEditor({
   initialCursorOffset,
   onChange,
 }: TiptapManuscriptEditorProps) {
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+
+  const lastEmittedHtmlRef = useRef<string>(initialHtml || "<p></p>");
+  const lastChapterIdRef = useRef<string>(chapterId);
+
   const editor = useEditor({
     immediatelyRender: false,
     extensions: [
@@ -60,26 +66,32 @@ export function TiptapManuscriptEditor({
     },
     onUpdate: ({ editor: ed }) => {
       const html = ed.getHTML();
+      lastEmittedHtmlRef.current = html;
       const json = ed.getJSON() as Record<string, unknown>;
       const text = ed.getText();
       const words = text.trim() ? text.trim().split(/\s+/).filter(Boolean).length : 0;
       const cursorOffset = ed.state.selection.anchor;
-      onChange({ html, json, text, wordCount: words, cursorOffset });
+      onChangeRef.current({ html, json, text, wordCount: words, cursorOffset });
     },
   });
 
-  // Sync content when switching chapters
+  // Sync content when switching chapters OR when external mutations (revision restore / merge import) update initialHtml
   useEffect(() => {
     if (!editor) return;
-    if (editor.getHTML() !== (initialHtml || "<p></p>")) {
-      editor.commands.setContent(initialHtml || "<p></p>", { emitUpdate: false });
+    const targetHtml = initialHtml || "<p></p>";
+    const chapterChanged = lastChapterIdRef.current !== chapterId;
+    lastChapterIdRef.current = chapterId;
+
+    if (chapterChanged || (targetHtml !== lastEmittedHtmlRef.current && editor.getHTML() !== targetHtml)) {
+      lastEmittedHtmlRef.current = targetHtml;
+      editor.commands.setContent(targetHtml, { emitUpdate: false });
+      if (chapterChanged && typeof initialCursorOffset === "number" && initialCursorOffset > 0) {
+        const maxPos = Math.max(1, editor.state.doc.content.size - 1);
+        const clamped = Math.min(initialCursorOffset, maxPos);
+        editor.commands.setTextSelection(clamped);
+      }
     }
-    if (typeof initialCursorOffset === "number" && initialCursorOffset > 0) {
-      const maxPos = Math.max(1, editor.state.doc.content.size - 1);
-      const clamped = Math.min(initialCursorOffset, maxPos);
-      editor.commands.setTextSelection(clamped);
-    }
-  }, [chapterId, editor]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [chapterId, initialHtml, initialCursorOffset, editor]);
 
   if (!editor) {
     return (

@@ -754,6 +754,11 @@ export function registerAuthorStudioRoutes(deps: AuthorStudioRouteDeps): void {
       await assertSpaceAccess(book.spaceId, userId, true);
 
       const ms = await ensureManuscript(book);
+      if (!ms.chapters.some((c) => c.id === req.params.chapterId)) {
+        return reply
+          .status(404)
+          .send(createErrorResponse("CHAPTER_NOT_FOUND", "Chapter does not exist"));
+      }
       if (ms.chapters.length <= 1) {
         return reply
           .status(409)
@@ -768,18 +773,27 @@ export function registerAuthorStudioRoutes(deps: AuthorStudioRouteDeps): void {
         return reply.status(200).send(createSuccessResponse({ deleted: true }));
       }
 
-      await db.query(`DELETE FROM book_chapters WHERE id = $1 AND book_id = $2`, [
-        req.params.chapterId,
-        book.id,
-      ]);
-      const remaining = await db.query(
-        `SELECT id FROM book_chapters WHERE book_id = $1 ORDER BY sort_order ASC, created_at ASC`,
-        [book.id]
-      );
-      for (let i = 0; i < remaining.rows.length; i += 1) {
-        await db.query(`UPDATE book_chapters SET sort_order = $1 WHERE id = $2`, [i, remaining.rows[i].id]);
-      }
-      await recomputeWordCount(book.id);
+      await db.transaction(async (client) => {
+        await client.query(`DELETE FROM book_chapters WHERE id = $1 AND book_id = $2`, [
+          req.params.chapterId,
+          book.id,
+        ]);
+        const remaining = await client.query(
+          `SELECT id FROM book_chapters WHERE book_id = $1 ORDER BY sort_order ASC, created_at ASC`,
+          [book.id]
+        );
+        for (let i = 0; i < remaining.rows.length; i += 1) {
+          await client.query(`UPDATE book_chapters SET sort_order = $1 WHERE id = $2`, [i, remaining.rows[i].id]);
+        }
+        const totalRes = await client.query(
+          `SELECT COALESCE(SUM(word_count), 0)::int AS total FROM book_chapters WHERE book_id = $1`,
+          [book.id]
+        );
+        await client.query(
+          `UPDATE book_manuscripts SET total_word_count = $1, updated_at = NOW() WHERE book_id = $2`,
+          [Number(totalRes.rows[0]?.total ?? 0), book.id]
+        );
+      });
       return reply.status(200).send(createSuccessResponse({ deleted: true }));
     }
   );
@@ -817,13 +831,14 @@ export function registerAuthorStudioRoutes(deps: AuthorStudioRouteDeps): void {
         return reply.status(200).send(createSuccessResponse(ordered));
       }
 
-      for (const ch of ordered) {
-        await db.query(`UPDATE book_chapters SET sort_order = $1, updated_at = NOW() WHERE id = $2 AND book_id = $3`, [
-          ch.sortOrder,
-          ch.id,
-          book.id,
-        ]);
-      }
+      await db.transaction(async (client) => {
+        for (const ch of ordered) {
+          await client.query(
+            `UPDATE book_chapters SET sort_order = $1, updated_at = NOW() WHERE id = $2 AND book_id = $3`,
+            [ch.sortOrder, ch.id, book.id]
+          );
+        }
+      });
       const refreshed = await ensureManuscript(book);
       return reply.status(200).send(createSuccessResponse(refreshed.chapters));
     }
@@ -988,37 +1003,91 @@ export function registerAuthorStudioRoutes(deps: AuthorStudioRouteDeps): void {
       }
 
       const chaptersToRestore = Array.isArray(snapshot?.chapters) ? snapshot.chapters : [];
+      const metaToRestore =
+        snapshot?.manuscript && typeof snapshot.manuscript === "object" ? snapshot.manuscript : null;
+
       if (!dbUrl) {
         const ms = await ensureManuscript(book);
         ms.chapters = chaptersToRestore.map((ch, idx) => ({ ...ch, sortOrder: idx }));
+        if (metaToRestore) {
+          const parsedTrim = TrimSizeSchema.safeParse(metaToRestore.trimSize);
+          if (parsedTrim.success) ms.trimSize = parsedTrim.data;
+          const parsedTypo = TypographyPresetSchema.safeParse(metaToRestore.typographyPreset);
+          if (parsedTypo.success) ms.typographyPreset = parsedTypo.data;
+          if (typeof metaToRestore.themePreset === "string") ms.themePreset = metaToRestore.themePreset;
+          if (typeof metaToRestore.languageCode === "string") ms.languageCode = metaToRestore.languageCode;
+          if (typeof metaToRestore.authorName === "string") ms.authorName = metaToRestore.authorName;
+          if (typeof metaToRestore.dedication === "string") ms.dedication = metaToRestore.dedication;
+          if (typeof metaToRestore.epigraph === "string") ms.epigraph = metaToRestore.epigraph;
+          if (metaToRestore.metadata && typeof metaToRestore.metadata === "object") {
+            ms.metadata = metaToRestore.metadata as Record<string, unknown>;
+          }
+        }
         await recomputeWordCount(book.id);
         return reply.status(200).send(createSuccessResponse(ms));
       }
 
-      await db.query(`DELETE FROM book_chapters WHERE book_id = $1`, [book.id]);
-      for (let i = 0; i < chaptersToRestore.length; i += 1) {
-        const ch = chaptersToRestore[i];
-        await db.query(
-          `INSERT INTO book_chapters
-            (id, book_id, section_type, title, subtitle, slug, sort_order, content_json, content_html, content_text, word_count, status)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, $12)`,
-          [
-            ch.id || crypto.randomUUID(),
-            book.id,
-            ch.sectionType || "chapter",
-            ch.title || `Chapter ${i + 1}`,
-            ch.subtitle ?? null,
-            ch.slug || slugifyTitle(ch.title || `chapter-${i + 1}`),
-            i,
-            JSON.stringify(ch.contentJson || htmlToProseMirrorJson(ch.contentHtml || "<p></p>")),
-            sanitizeManuscriptHtml(ch.contentHtml || "<p></p>"),
-            ch.contentText || stripHtmlToText(ch.contentHtml || ""),
-            ch.wordCount ?? countWords(ch.contentText || ""),
-            ch.status || "draft",
-          ]
+      await db.transaction(async (client) => {
+        await client.query(`DELETE FROM book_chapters WHERE book_id = $1`, [book.id]);
+        for (let i = 0; i < chaptersToRestore.length; i += 1) {
+          const ch = chaptersToRestore[i];
+          await client.query(
+            `INSERT INTO book_chapters
+              (id, book_id, section_type, title, subtitle, slug, sort_order, content_json, content_html, content_text, word_count, status)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, $12)`,
+            [
+              ch.id || crypto.randomUUID(),
+              book.id,
+              ch.sectionType || "chapter",
+              ch.title || `Chapter ${i + 1}`,
+              ch.subtitle ?? null,
+              ch.slug || slugifyTitle(ch.title || `chapter-${i + 1}`),
+              i,
+              JSON.stringify(ch.contentJson || htmlToProseMirrorJson(ch.contentHtml || "<p></p>")),
+              sanitizeManuscriptHtml(ch.contentHtml || "<p></p>"),
+              ch.contentText || stripHtmlToText(ch.contentHtml || ""),
+              ch.wordCount ?? countWords(ch.contentText || ""),
+              ch.status || "draft",
+            ]
+          );
+        }
+        if (metaToRestore) {
+          await client.query(
+            `UPDATE book_manuscripts
+             SET trim_size = COALESCE($1, trim_size),
+                 typography_preset = COALESCE($2, typography_preset),
+                 theme_preset = COALESCE($3, theme_preset),
+                 language_code = COALESCE($4, language_code),
+                 author_name = COALESCE($5, author_name),
+                 dedication = COALESCE($6, dedication),
+                 epigraph = COALESCE($7, epigraph),
+                 metadata_json = COALESCE($8::jsonb, metadata_json),
+                 updated_at = NOW()
+             WHERE book_id = $9`,
+            [
+              typeof metaToRestore.trimSize === "string" ? metaToRestore.trimSize : null,
+              typeof metaToRestore.typographyPreset === "string" ? metaToRestore.typographyPreset : null,
+              typeof metaToRestore.themePreset === "string" ? metaToRestore.themePreset : null,
+              typeof metaToRestore.languageCode === "string" ? metaToRestore.languageCode : null,
+              typeof metaToRestore.authorName === "string" ? metaToRestore.authorName : null,
+              typeof metaToRestore.dedication === "string" ? metaToRestore.dedication : null,
+              typeof metaToRestore.epigraph === "string" ? metaToRestore.epigraph : null,
+              metaToRestore.metadata && typeof metaToRestore.metadata === "object"
+                ? JSON.stringify(metaToRestore.metadata)
+                : null,
+              book.id,
+            ]
+          );
+        }
+        const totalRes = await client.query(
+          `SELECT COALESCE(SUM(word_count), 0)::int AS total FROM book_chapters WHERE book_id = $1`,
+          [book.id]
         );
-      }
-      await recomputeWordCount(book.id);
+        await client.query(
+          `UPDATE book_manuscripts SET total_word_count = $1, updated_at = NOW() WHERE book_id = $2`,
+          [Number(totalRes.rows[0]?.total ?? 0), book.id]
+        );
+      });
       const restored = await ensureManuscript(book);
       return reply.status(200).send(createSuccessResponse(restored));
     }
@@ -1049,6 +1118,13 @@ export function registerAuthorStudioRoutes(deps: AuthorStudioRouteDeps): void {
         throw new ValidationError("Import requires contentBase64 or contentText");
       }
 
+      // Validate & parse payload BEFORE creating a pre-import revision checkpoint
+      const imported = await parseImportedManuscript(
+        parsed.data.format,
+        parsed.data.fileName,
+        rawBuffer
+      );
+
       const currentMs = await ensureManuscript(book);
       // Automatically create a safety checkpoint before any import mutation
       await createRevisionSnapshot(
@@ -1057,12 +1133,6 @@ export function registerAuthorStudioRoutes(deps: AuthorStudioRouteDeps): void {
         userId,
         `Pre-import checkpoint (${parsed.data.fileName})`,
         "import"
-      );
-
-      const imported = await parseImportedManuscript(
-        parsed.data.format,
-        parsed.data.fileName,
-        rawBuffer
       );
 
       const now = new Date().toISOString();
@@ -1120,99 +1190,109 @@ export function registerAuthorStudioRoutes(deps: AuthorStudioRouteDeps): void {
         );
       }
 
-      if (parsed.data.mergeStrategy === "replace") {
-        await db.query(`DELETE FROM book_chapters WHERE book_id = $1`, [book.id]);
-      }
+      await db.transaction(async (client) => {
+        if (parsed.data.mergeStrategy === "replace") {
+          await client.query(`DELETE FROM book_chapters WHERE book_id = $1`, [book.id]);
+        }
 
-      const existingRows = await db.query(
-        `SELECT id, title, sort_order FROM book_chapters WHERE book_id = $1 ORDER BY sort_order ASC`,
-        [book.id]
-      );
-      const existingByTitle = new Map<string, string>(
-        existingRows.rows.map((r: any) => [String(r.title).trim().toLowerCase(), String(r.id)])
-      );
-      let nextOrder = existingRows.rows.length;
+        const existingRows = await client.query(
+          `SELECT id, title, sort_order FROM book_chapters WHERE book_id = $1 ORDER BY sort_order ASC`,
+          [book.id]
+        );
+        const existingByTitle = new Map<string, string>(
+          existingRows.rows.map((r: any) => [String(r.title).trim().toLowerCase(), String(r.id)])
+        );
+        let nextOrder = existingRows.rows.length;
 
-      for (const ch of imported.chapters) {
-        const matchId =
-          parsed.data.mergeStrategy === "merge_by_title"
-            ? existingByTitle.get(ch.title.trim().toLowerCase())
-            : undefined;
-        if (matchId) {
-          await db.query(
-            `UPDATE book_chapters
-             SET content_json = $1::jsonb, content_html = $2, content_text = $3, word_count = $4, updated_at = NOW()
-             WHERE id = $5 AND book_id = $6`,
-            [JSON.stringify(ch.contentJson), ch.contentHtml, ch.contentText, ch.wordCount, matchId, book.id]
-          );
-        } else {
-          await db.query(
-            `INSERT INTO book_chapters
-              (id, book_id, section_type, title, subtitle, slug, sort_order, content_json, content_html, content_text, word_count, status)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, 'draft')`,
+        for (const ch of imported.chapters) {
+          const matchId =
+            parsed.data.mergeStrategy === "merge_by_title"
+              ? existingByTitle.get(ch.title.trim().toLowerCase())
+              : undefined;
+          if (matchId) {
+            await client.query(
+              `UPDATE book_chapters
+               SET content_json = $1::jsonb, content_html = $2, content_text = $3, word_count = $4, updated_at = NOW()
+               WHERE id = $5 AND book_id = $6`,
+              [JSON.stringify(ch.contentJson), ch.contentHtml, ch.contentText, ch.wordCount, matchId, book.id]
+            );
+          } else {
+            await client.query(
+              `INSERT INTO book_chapters
+                (id, book_id, section_type, title, subtitle, slug, sort_order, content_json, content_html, content_text, word_count, status)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, 'draft')`,
+              [
+                crypto.randomUUID(),
+                book.id,
+                ch.sectionType,
+                ch.title,
+                ch.subtitle ?? null,
+                slugifyTitle(ch.title, `chapter-${nextOrder + 1}`),
+                nextOrder,
+                JSON.stringify(ch.contentJson),
+                ch.contentHtml,
+                ch.contentText,
+                ch.wordCount,
+              ]
+            );
+            nextOrder += 1;
+          }
+        }
+
+        if (imported.manuscriptMetadata) {
+          const meta = imported.manuscriptMetadata;
+          await client.query(
+            `UPDATE book_manuscripts
+             SET trim_size = COALESCE($1, trim_size),
+                 typography_preset = COALESCE($2, typography_preset),
+                 theme_preset = COALESCE($3, theme_preset),
+                 language_code = COALESCE($4, language_code),
+                 author_name = COALESCE($5, author_name),
+                 dedication = COALESCE($6, dedication),
+                 epigraph = COALESCE($7, epigraph),
+                 updated_at = NOW()
+             WHERE book_id = $8`,
             [
-              crypto.randomUUID(),
+              meta.trimSize ?? null,
+              meta.typographyPreset ?? null,
+              meta.themePreset ?? null,
+              meta.languageCode ?? null,
+              meta.authorName ?? null,
+              meta.dedication ?? null,
+              meta.epigraph ?? null,
               book.id,
-              ch.sectionType,
-              ch.title,
-              ch.subtitle ?? null,
-              slugifyTitle(ch.title, `chapter-${nextOrder + 1}`),
-              nextOrder,
-              JSON.stringify(ch.contentJson),
-              ch.contentHtml,
-              ch.contentText,
-              ch.wordCount,
             ]
           );
-          nextOrder += 1;
         }
-      }
 
-      if (imported.manuscriptMetadata) {
-        const meta = imported.manuscriptMetadata;
-        await db.query(
-          `UPDATE book_manuscripts
-           SET trim_size = COALESCE($1, trim_size),
-               typography_preset = COALESCE($2, typography_preset),
-               theme_preset = COALESCE($3, theme_preset),
-               language_code = COALESCE($4, language_code),
-               author_name = COALESCE($5, author_name),
-               dedication = COALESCE($6, dedication),
-               epigraph = COALESCE($7, epigraph),
-               updated_at = NOW()
-           WHERE book_id = $8`,
+        await client.query(
+          `INSERT INTO book_import_jobs
+            (id, book_id, space_id, created_by, format, source_filename, merge_strategy, status, chapters_imported, word_count, warnings_json)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, 'completed', $8, $9, $10::jsonb)`,
           [
-            meta.trimSize ?? null,
-            meta.typographyPreset ?? null,
-            meta.themePreset ?? null,
-            meta.languageCode ?? null,
-            meta.authorName ?? null,
-            meta.dedication ?? null,
-            meta.epigraph ?? null,
+            crypto.randomUUID(),
             book.id,
+            book.spaceId,
+            userId,
+            parsed.data.format,
+            parsed.data.fileName,
+            parsed.data.mergeStrategy,
+            imported.chapters.length,
+            importedWordCount,
+            JSON.stringify(imported.warnings),
           ]
         );
-      }
 
-      await db.query(
-        `INSERT INTO book_import_jobs
-          (id, book_id, space_id, created_by, format, source_filename, merge_strategy, status, chapters_imported, word_count, warnings_json)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, 'completed', $8, $9, $10::jsonb)`,
-        [
-          crypto.randomUUID(),
-          book.id,
-          book.spaceId,
-          userId,
-          parsed.data.format,
-          parsed.data.fileName,
-          parsed.data.mergeStrategy,
-          imported.chapters.length,
-          importedWordCount,
-          JSON.stringify(imported.warnings),
-        ]
-      );
+        const totalRes = await client.query(
+          `SELECT COALESCE(SUM(word_count), 0)::int AS total FROM book_chapters WHERE book_id = $1`,
+          [book.id]
+        );
+        await client.query(
+          `UPDATE book_manuscripts SET total_word_count = $1, updated_at = NOW() WHERE book_id = $2`,
+          [Number(totalRes.rows[0]?.total ?? 0), book.id]
+        );
+      });
 
-      await recomputeWordCount(book.id);
       const updatedMs = await ensureManuscript(book);
       return reply.status(200).send(
         createSuccessResponse({

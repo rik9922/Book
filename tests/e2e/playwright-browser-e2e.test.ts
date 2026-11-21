@@ -877,4 +877,102 @@ describe("Interactive Chrome / Playwright DOM, WebGL, SW Offline & 401 Refresh E
     assert.equal(pageErrors.length, 0, `Unexpected page errors: ${pageErrors.join("; ")}`);
     await context.close();
   });
+
+  test("9. Memoria Author Studio (/author): 5 Environments, Tiptap Multi-Chapter Editing, File Import & Reload Resume in Chrome", async () => {
+    assert.ok(browser, "Browser must be initialized");
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    const pageErrors: string[] = [];
+    page.on("pageerror", (err) => pageErrors.push(err.message));
+
+    await page.addInitScript((apiUrl: string) => {
+      window.localStorage.setItem("memoria_api_url_override", apiUrl);
+    }, gatewayUrl);
+
+    // 1. Register user and create a Memory Space
+    const uniqueEmail = `author_e2e_${Date.now()}@memoria.internal`;
+    await page.goto(`${WEB_BASE}/auth?mode=register`, { waitUntil: "networkidle" });
+    await page.fill("#auth-fullname", "Clara Author E2E");
+    await page.fill("#auth-email", uniqueEmail);
+    await page.fill("#auth-password", "HeirloomPass123!");
+    await page.click('button[type="submit"]');
+    await page.waitForFunction(() => Boolean(window.localStorage.getItem("memoria_web_access_token")), {
+      timeout: 10000,
+    });
+
+    await page.goto(`${WEB_BASE}/spaces`, { waitUntil: "networkidle" });
+    await page.fill("#space-name-input", "Author Studio Vault");
+    await page.click('button:has-text("Create Memory Space")');
+    await page.waitForSelector('text="Author Studio Vault"', { timeout: 10000 });
+
+    // 2. Open /author and verify workspace loads for authenticated user (not guest)
+    await page.goto(`${WEB_BASE}/author`, { waitUntil: "networkidle" });
+    await page.locator('[data-testid="author-studio-workspace"]').waitFor({ state: "visible", timeout: 15000 });
+    await page.locator('[data-testid="author-tiptap-editor"]').waitFor({ state: "visible", timeout: 10000 });
+
+    // 3. Edit Chapter 1 in Tiptap
+    const editor = page.locator('[data-testid="author-tiptap-editor"]');
+    await editor.click();
+    await page.keyboard.press("Meta+A");
+    await page.keyboard.press("Control+A");
+    await page.keyboard.type("Chapter One Heirloom Prose.");
+    await page.waitForTimeout(1000);
+
+    // 4. Add Chapter 2 and type into Chapter 2 — verifies Tiptap does NOT overwrite Chapter 1 via stale closure
+    await page.click('button:has-text("Add")');
+    await page.waitForTimeout(500);
+    await editor.click();
+    await page.keyboard.type("Chapter Two Fresh Memory.");
+    await page.waitForTimeout(1000);
+
+    // Switch back to Chapter 1 and verify Chapter 1 prose is intact
+    await page.locator('aside button:has-text("1.")').first().click();
+    await page.waitForTimeout(300);
+    const ch1Text = await editor.innerText();
+    assert.ok(
+      ch1Text.includes("Chapter One Heirloom Prose"),
+      `Chapter 1 must retain its own prose after editing Chapter 2 (got: "${ch1Text}")`
+    );
+
+    // Switch to Chapter 2 and verify Chapter 2 prose is intact
+    await page.locator('aside button:has-text("2.")').first().click();
+    await page.waitForTimeout(300);
+    const ch2Text = await editor.innerText();
+    assert.ok(
+      ch2Text.includes("Chapter Two Fresh Memory"),
+      `Chapter 2 must retain its own prose (got: "${ch2Text}")`
+    );
+
+    // 5. Exercise Structure, Design, Preview (3D Book Theater), and Publish environments
+    await page.click('[data-testid="author-env-structure"]');
+    await page.getByText("Book Architecture & Chapter Outline").waitFor({ state: "visible", timeout: 10000 });
+
+    await page.click('[data-testid="author-env-design"]');
+    await page.getByText("Trim Size & Living Archive Typography").waitFor({ state: "visible", timeout: 10000 });
+
+    await page.click('[data-testid="author-env-preview"]');
+    await page.getByText("Live 3D Book Theater — Manuscript Preview").waitFor({ state: "visible", timeout: 10000 });
+    await page.click('button:has-text("Sync Spreads to Server")');
+    await page.getByText(/Synced \d+ live spreads/i).waitFor({ state: "visible", timeout: 10000 });
+
+    await page.click('[data-testid="author-env-publish"]');
+    await page.getByText("Import / Resume / Merge Manuscript").waitFor({ state: "visible", timeout: 10000 });
+
+    // Upload a Markdown file via browser file input
+    await page.setInputFiles('[data-testid="author-import-file-input"]', {
+      name: "epilogue.md",
+      mimeType: "text/markdown",
+      buffer: Buffer.from("# Imported Epilogue\n\nLetters sealed for future generations.\n", "utf-8"),
+    });
+    await page.getByText(/Imported 1 chapter\(s\)/i).waitFor({ state: "visible", timeout: 10000 });
+
+    // 6. Reload /author and verify exact resume environment (publish) + persisted chapter count (3 sections)
+    await page.reload({ waitUntil: "networkidle" });
+    await page.locator('[data-testid="author-studio-workspace"]').waitFor({ state: "visible", timeout: 15000 });
+    await page.getByText(/3 sections/i).waitFor({ state: "visible", timeout: 10000 });
+    await page.getByText("Import / Resume / Merge Manuscript").waitFor({ state: "visible", timeout: 10000 });
+
+    assert.equal(pageErrors.length, 0, `Unexpected page errors on /author: ${pageErrors.join("; ")}`);
+    await context.close();
+  });
 });

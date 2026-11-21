@@ -291,20 +291,47 @@ export function AuthorStudioWorkspace({ initialBookId }: { initialBookId?: strin
     setLoading(true);
     try {
       const { book, manuscript: ms, editorState } = await getBookManuscript(bookId);
-      setActiveBook(book);
-      setManuscript(ms);
+      let currentMs = ms;
 
       // Reconcile IndexedDB offline drafts if newer or pending sync
       const pendingDrafts = await listPendingOfflineDrafts(bookId);
       if (pendingDrafts.length > 0 && navigator.onLine) {
+        let syncedAny = false;
         for (const draft of pendingDrafts) {
-          await updateManuscriptChapter(bookId, draft.chapterId, {
+          const synced = await updateManuscriptChapter(bookId, draft.chapterId, {
             title: draft.title,
             contentHtml: draft.contentHtml,
             contentJson: draft.contentJson,
-          }).catch(() => undefined);
-          await markOfflineDraftSynced(bookId, draft.chapterId);
+          }).catch(() => null);
+          if (synced) {
+            syncedAny = true;
+            await markOfflineDraftSynced(bookId, draft.chapterId);
+          }
         }
+        if (syncedAny) {
+          const refreshed = await getBookManuscript(bookId).catch(() => null);
+          if (refreshed) {
+            currentMs = refreshed.manuscript;
+          }
+        }
+      }
+
+      setActiveBook(book);
+      setManuscript(currentMs);
+
+      const metaLeather = currentMs.metadata?.leatherId;
+      if (
+        typeof metaLeather === "string" &&
+        BOOK_LEATHER_SWATCHES.some((s) => s.id === metaLeather)
+      ) {
+        setSelectedLeatherId(metaLeather as BookLeatherSwatchId);
+      }
+      const metaFoil = currentMs.metadata?.foilId;
+      if (
+        typeof metaFoil === "string" &&
+        BOOK_FOIL_SWATCHES.some((f) => f.id === metaFoil)
+      ) {
+        setSelectedFoilId(metaFoil as BookFoilSwatchId);
       }
 
       const offlineResume = await getOfflineResumeCheckpoint(bookId);
@@ -312,7 +339,7 @@ export function AuthorStudioWorkspace({ initialBookId }: { initialBookId?: strin
       const resumeCh =
         editorState?.activeChapterId ||
         offlineResume?.activeChapterId ||
-        ms.chapters[0]?.id ||
+        currentMs.chapters[0]?.id ||
         null;
       setActiveEnv(resumeEnv);
       setActiveChapterId(resumeCh);
@@ -649,15 +676,21 @@ export function AuthorStudioWorkspace({ initialBookId }: { initialBookId?: strin
   };
 
   const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !activeBook) return;
+    const files = e.target.files ? Array.from(e.target.files) : [];
+    if (files.length === 0 || !activeBook) return;
     e.target.value = "";
-    const format = detectImportFormat(file.name);
-    const buffer = await file.arrayBuffer();
-    const contentBase64 = arrayBufferToBase64(buffer);
 
     if (isGuest) {
-      if (format === "markdown" || format === "txt" || format === "html") {
+      let currentChapters = manuscript ? [...manuscript.chapters] : [];
+      let importedCount = 0;
+      for (let i = 0; i < files.length; i += 1) {
+        const file = files[i];
+        const format = detectImportFormat(file.name);
+        if (format !== "markdown" && format !== "txt" && format !== "html") {
+          setStatusMessage("Sign in to import binary .memoria, .docx, .epub, and .pdf files via server validation.");
+          continue;
+        }
+        const buffer = await file.arrayBuffer();
         const text = new TextDecoder().decode(buffer);
         const now = new Date().toISOString();
         const ch: ManuscriptChapterDTO = {
@@ -666,7 +699,7 @@ export function AuthorStudioWorkspace({ initialBookId }: { initialBookId?: strin
           sectionType: "chapter",
           title: file.name.replace(/\.[^.]+$/, ""),
           slug: file.name.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
-          sortOrder: manuscript?.chapters.length ?? 0,
+          sortOrder: currentChapters.length,
           contentJson: { type: "doc", content: [{ type: "paragraph" }] },
           contentHtml: `<p>${text.replace(/\n+/g, "</p><p>")}</p>`,
           contentText: text,
@@ -675,34 +708,54 @@ export function AuthorStudioWorkspace({ initialBookId }: { initialBookId?: strin
           createdAt: now,
           updatedAt: now,
         };
-        if (manuscript) {
-          const next = mergeStrategy === "replace" ? [ch] : [...manuscript.chapters, ch];
-          setManuscript({
-            ...manuscript,
-            chapters: next,
-            totalWordCount: next.reduce((s, c) => s + c.wordCount, 0),
-          });
-          setActiveChapterId(ch.id);
-        }
-        setStatusMessage(`Imported "${file.name}" into guest draft.`);
-        return;
+        currentChapters = i === 0 && mergeStrategy === "replace" ? [ch] : [...currentChapters, ch];
+        importedCount += 1;
       }
-      setStatusMessage("Sign in to import binary .memoria, .docx, .epub, and .pdf files via server validation.");
+      if (manuscript && importedCount > 0) {
+        setManuscript({
+          ...manuscript,
+          chapters: currentChapters.map((c, idx) => ({ ...c, sortOrder: idx })),
+          totalWordCount: currentChapters.reduce((s, c) => s + c.wordCount, 0),
+        });
+        setActiveChapterId(currentChapters[currentChapters.length - 1]?.id ?? null);
+        setStatusMessage(`Imported ${importedCount} file(s) into guest draft.`);
+      }
       return;
     }
 
     try {
-      const res = await importManuscriptFile(activeBook.id, {
-        format,
-        fileName: file.name,
-        contentBase64,
-        mergeStrategy,
-      });
-      setManuscript(res.manuscript);
-      setActiveChapterId(res.manuscript.chapters[0]?.id ?? null);
-      setImportWarnings(res.warnings);
+      let latestManuscript: ManuscriptDocumentDTO | null = null;
+      let totalImportedChapters = 0;
+      let totalImportedWords = 0;
+      const collectedWarnings: string[] = [];
+
+      for (let i = 0; i < files.length; i += 1) {
+        const file = files[i];
+        const format = detectImportFormat(file.name);
+        const buffer = await file.arrayBuffer();
+        const contentBase64 = arrayBufferToBase64(buffer);
+        const effectiveStrategy: MergeStrategy =
+          i === 0 ? mergeStrategy : mergeStrategy === "replace" ? "append" : mergeStrategy;
+
+        const res = await importManuscriptFile(activeBook.id, {
+          format,
+          fileName: file.name,
+          contentBase64,
+          mergeStrategy: effectiveStrategy,
+        });
+        latestManuscript = res.manuscript;
+        totalImportedChapters += res.importedChapters;
+        totalImportedWords += res.importedWordCount;
+        collectedWarnings.push(...res.warnings);
+      }
+
+      if (latestManuscript) {
+        setManuscript(latestManuscript);
+        setActiveChapterId(latestManuscript.chapters[0]?.id ?? null);
+      }
+      setImportWarnings(collectedWarnings);
       setStatusMessage(
-        `Imported ${res.importedChapters} chapter(s) (${res.importedWordCount.toLocaleString()} words) from ${file.name}.`
+        `Imported ${totalImportedChapters} chapter(s) (${totalImportedWords.toLocaleString()} words) from ${files.length === 1 ? files[0].name : `${files.length} files`}.`
       );
       const revs = await listManuscriptRevisions(activeBook.id).catch(() => revisions);
       setRevisions(revs);
@@ -1217,10 +1270,10 @@ export function AuthorStudioWorkspace({ initialBookId }: { initialBookId?: strin
                       type="button"
                       onClick={() => {
                         setSelectedLeatherId(swatch.id);
+                        const nextMeta = { ...manuscript.metadata, coverColor: swatch.hex, leatherId: swatch.id };
+                        setManuscript({ ...manuscript, metadata: nextMeta });
                         if (!isGuest) {
-                          void updateBookManuscript(activeBook.id, {
-                            metadata: { ...manuscript.metadata, coverColor: swatch.hex, leatherId: swatch.id },
-                          });
+                          void updateBookManuscript(activeBook.id, { metadata: nextMeta });
                         }
                       }}
                       className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs ${
@@ -1248,7 +1301,14 @@ export function AuthorStudioWorkspace({ initialBookId }: { initialBookId?: strin
                     <button
                       key={foil.id}
                       type="button"
-                      onClick={() => setSelectedFoilId(foil.id)}
+                      onClick={() => {
+                        setSelectedFoilId(foil.id);
+                        const nextMeta = { ...manuscript.metadata, foilId: foil.id };
+                        setManuscript({ ...manuscript, metadata: nextMeta });
+                        if (!isGuest) {
+                          void updateBookManuscript(activeBook.id, { metadata: nextMeta });
+                        }
+                      }}
                       className={`px-3 py-1.5 rounded-lg border text-xs ${
                         selectedFoilId === foil.id
                           ? "border-[#76556F] bg-[#F7F4EE] font-semibold"
@@ -1355,6 +1415,8 @@ export function AuthorStudioWorkspace({ initialBookId }: { initialBookId?: strin
               </span>
               <input
                 type="file"
+                multiple
+                data-testid="author-import-file-input"
                 accept=".memoria,.docx,.epub,.md,.markdown,.txt,.html,.htm,.pdf"
                 onChange={(e) => void handleImportFile(e)}
                 className="hidden"

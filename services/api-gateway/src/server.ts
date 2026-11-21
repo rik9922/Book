@@ -47,6 +47,7 @@ export function buildGateway(options?: GatewayOptions): FastifyInstance {
   const app = Fastify({
     logger: false,
     trustProxy: true,
+    bodyLimit: 32 * 1024 * 1024, // Support up to 15 MB base64-encoded Author Studio imports
   });
   app.setErrorHandler(createFastifyErrorHandler(logger));
 
@@ -90,6 +91,7 @@ export function buildGateway(options?: GatewayOptions): FastifyInstance {
     origin: buildCorsOriginValidator(gwCfg.ALLOWED_ORIGINS, gwCfg.NODE_ENV),
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    exposedHeaders: ["Content-Disposition", "X-Memoria-Checksum-Sha256", "X-Correlation-Id"],
   });
 
   app.register(helmet, {

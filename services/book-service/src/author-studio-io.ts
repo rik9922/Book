@@ -3,6 +3,7 @@ import JSZip from "jszip";
 import mammoth from "mammoth";
 import {
   ValidationError,
+  ChapterSectionTypeSchema,
   MemoriaPackageManifestSchema,
   type ChapterSectionType,
   type ExportFormat,
@@ -150,45 +151,142 @@ export function sanitizeManuscriptHtml(rawHtml: string): string {
   return trimmed.length > 0 ? trimmed : "<p></p>";
 }
 
+function decodeHtmlEntities(input: string): string {
+  return input
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'");
+}
+
+function parseInlineNodes(inlineHtml: string): Array<Record<string, unknown>> {
+  const nodes: Array<Record<string, unknown>> = [];
+  const activeMarks: string[] = [];
+  const tokenRegex = /(<\/?(?:strong|b|em|i|code|u|s|br)\b[^>]*\/?>)/gi;
+  const parts = inlineHtml.split(tokenRegex);
+
+  const tagToMark = (tag: string): string | null => {
+    switch (tag) {
+      case "strong":
+      case "b":
+        return "bold";
+      case "em":
+      case "i":
+        return "italic";
+      case "code":
+        return "code";
+      case "u":
+        return "underline";
+      case "s":
+        return "strike";
+      default:
+        return null;
+    }
+  };
+
+  for (const part of parts) {
+    if (!part) continue;
+    const tagMatch = part.match(/^<(\/)?([a-z0-9]+)\b[^>]*\/?>$/i);
+    if (tagMatch) {
+      const isClose = Boolean(tagMatch[1]);
+      const tag = tagMatch[2].toLowerCase();
+      if (tag === "br") {
+        nodes.push({ type: "hardBreak" });
+        continue;
+      }
+      const mark = tagToMark(tag);
+      if (mark) {
+        if (isClose) {
+          const idx = activeMarks.lastIndexOf(mark);
+          if (idx !== -1) activeMarks.splice(idx, 1);
+        } else if (!activeMarks.includes(mark)) {
+          activeMarks.push(mark);
+        }
+      }
+      continue;
+    }
+
+    const text = decodeHtmlEntities(part.replace(/<[^>]+>/g, ""));
+    if (text.length > 0) {
+      const node: Record<string, unknown> = { type: "text", text };
+      if (activeMarks.length > 0) {
+        node.marks = activeMarks.map((type) => ({ type }));
+      }
+      nodes.push(node);
+    }
+  }
+
+  return nodes;
+}
+
 /**
- * Converts clean semantic HTML into a valid ProseMirror/Tiptap JSON document.
+ * Converts clean semantic HTML into a valid ProseMirror/Tiptap JSON document,
+ * preserving headings, paragraphs, blockquotes, lists, horizontal rules, and inline marks.
  */
 export function htmlToProseMirrorJson(html: string): Record<string, unknown> {
   const safeHtml = sanitizeManuscriptHtml(html);
   const content: Array<Record<string, unknown>> = [];
-  const blockRegex = /<(h[1-4]|p|blockquote|li|pre)>(.*?)<\/\1>/gis;
+  const blockRegex = /<(ul|ol)>([\s\S]*?)<\/\1>|<(h[1-4]|p|blockquote|pre)>([\s\S]*?)<\/\3>|<hr\s*\/?>/gi;
   let match: RegExpExecArray | null = blockRegex.exec(safeHtml);
 
   while (match !== null) {
-    const tag = match[1].toLowerCase();
-    const innerText = stripHtmlToText(match[2]);
-    if (tag.startsWith("h")) {
-      const level = Math.min(4, Math.max(1, Number(tag.slice(1)) || 2));
-      content.push({
-        type: "heading",
-        attrs: { level },
-        content: innerText ? [{ type: "text", text: innerText }] : [],
-      });
-    } else if (tag === "blockquote") {
-      content.push({
-        type: "blockquote",
-        content: [
-          {
-            type: "paragraph",
-            content: innerText ? [{ type: "text", text: innerText }] : [],
-          },
-        ],
-      });
-    } else if (tag === "pre") {
-      content.push({
-        type: "codeBlock",
-        content: innerText ? [{ type: "text", text: innerText }] : [],
-      });
-    } else {
-      content.push({
-        type: "paragraph",
-        content: innerText ? [{ type: "text", text: innerText }] : [],
-      });
+    if (match[0].toLowerCase().startsWith("<hr")) {
+      content.push({ type: "horizontalRule" });
+    } else if (match[1]) {
+      const listTag = match[1].toLowerCase();
+      const listBody = match[2];
+      const items: Array<Record<string, unknown>> = [];
+      const liRegex = /<li>([\s\S]*?)<\/li>/gi;
+      let liMatch: RegExpExecArray | null = liRegex.exec(listBody);
+      while (liMatch !== null) {
+        const inlineNodes = parseInlineNodes(liMatch[1]);
+        items.push({
+          type: "listItem",
+          content: [{ type: "paragraph", content: inlineNodes }],
+        });
+        liMatch = liRegex.exec(listBody);
+      }
+      if (items.length > 0) {
+        content.push({
+          type: listTag === "ol" ? "orderedList" : "bulletList",
+          content: items,
+        });
+      }
+    } else if (match[3]) {
+      const tag = match[3].toLowerCase();
+      const inner = match[4];
+      if (tag.startsWith("h")) {
+        const level = Math.min(4, Math.max(1, Number(tag.slice(1)) || 2));
+        const inlineNodes = parseInlineNodes(inner);
+        content.push({
+          type: "heading",
+          attrs: { level },
+          content: inlineNodes,
+        });
+      } else if (tag === "blockquote") {
+        const paraMatches = [...inner.matchAll(/<p>([\s\S]*?)<\/p>/gi)];
+        const bqParagraphs =
+          paraMatches.length > 0
+            ? paraMatches.map((pm) => ({ type: "paragraph", content: parseInlineNodes(pm[1]) }))
+            : [{ type: "paragraph", content: parseInlineNodes(inner) }];
+        content.push({
+          type: "blockquote",
+          content: bqParagraphs,
+        });
+      } else if (tag === "pre") {
+        const innerText = stripHtmlToText(inner);
+        content.push({
+          type: "codeBlock",
+          content: innerText ? [{ type: "text", text: innerText }] : [],
+        });
+      } else {
+        content.push({
+          type: "paragraph",
+          content: parseInlineNodes(inner),
+        });
+      }
     }
     match = blockRegex.exec(safeHtml);
   }
@@ -316,7 +414,12 @@ async function loadSafeZip(buffer: Buffer, formatLabel: string): Promise<JSZip> 
   if (buffer.length < 4 || buffer[0] !== 0x50 || buffer[1] !== 0x4b) {
     throw new ValidationError(`Invalid ${formatLabel} archive: missing ZIP magic signature (PK)`);
   }
-  const zip = await JSZip.loadAsync(buffer);
+  let zip: JSZip;
+  try {
+    zip = await JSZip.loadAsync(buffer);
+  } catch {
+    throw new ValidationError(`Invalid ${formatLabel} archive: corrupted or unreadable ZIP container`);
+  }
   const entryNames = Object.keys(zip.files);
   if (entryNames.length > MAX_ZIP_ENTRIES) {
     throw new ValidationError(
@@ -403,8 +506,17 @@ export async function parseImportedManuscript(
     if (!manifestEntry) {
       throw new ValidationError("Invalid .memoria package: missing manifest.json");
     }
-    const manifestRaw = JSON.parse(await manifestEntry.async("string"));
-    const manifest = MemoriaPackageManifestSchema.parse(manifestRaw);
+    let manifestRaw: unknown;
+    try {
+      manifestRaw = JSON.parse(await manifestEntry.async("string"));
+    } catch {
+      throw new ValidationError("Invalid .memoria package: malformed manifest.json");
+    }
+    const manifestParsed = MemoriaPackageManifestSchema.safeParse(manifestRaw);
+    if (!manifestParsed.success) {
+      throw new ValidationError("Invalid .memoria package: manifest schema validation failed");
+    }
+    const manifest = manifestParsed.data;
 
     const chapterEntries = Object.keys(zip.files)
       .filter((name) => name.startsWith("chapters/") && name.endsWith(".json"))
@@ -416,15 +528,23 @@ export async function parseImportedManuscript(
 
     const chapters: ParsedImportChapter[] = [];
     for (const entryName of chapterEntries) {
-      const chRaw = JSON.parse(await zip.files[entryName].async("string")) as Record<string, unknown>;
+      let chRaw: Record<string, unknown>;
+      try {
+        const parsedEntry = JSON.parse(await zip.files[entryName].async("string"));
+        if (!parsedEntry || typeof parsedEntry !== "object" || Array.isArray(parsedEntry)) {
+          throw new Error("Chapter entry must be a JSON object");
+        }
+        chRaw = parsedEntry as Record<string, unknown>;
+      } catch {
+        throw new ValidationError(`Invalid .memoria package: malformed chapter JSON (${entryName})`);
+      }
       const title = typeof chRaw.title === "string" ? chRaw.title : "Untitled Chapter";
       const subtitle = typeof chRaw.subtitle === "string" ? chRaw.subtitle : null;
-      const sectionType = (
-        typeof chRaw.sectionType === "string" ? chRaw.sectionType : "chapter"
-      ) as ChapterSectionType;
+      const sectionTypeParsed = ChapterSectionTypeSchema.safeParse(chRaw.sectionType ?? "chapter");
+      const sectionType: ChapterSectionType = sectionTypeParsed.success ? sectionTypeParsed.data : "chapter";
       const html = typeof chRaw.contentHtml === "string" ? chRaw.contentHtml : "<p></p>";
       const json =
-        chRaw.contentJson && typeof chRaw.contentJson === "object"
+        chRaw.contentJson && typeof chRaw.contentJson === "object" && !Array.isArray(chRaw.contentJson)
           ? (chRaw.contentJson as Record<string, unknown>)
           : undefined;
       chapters.push(buildParsedChapter(title, html, sectionType, subtitle, json));
@@ -441,7 +561,12 @@ export async function parseImportedManuscript(
 
   if (format === "docx") {
     await loadSafeZip(buffer, "DOCX");
-    const result = await mammoth.convertToHtml({ buffer });
+    let result: { value: string; messages: Array<{ type: string; message: string }> };
+    try {
+      result = await mammoth.convertToHtml({ buffer });
+    } catch {
+      throw new ValidationError("Invalid DOCX document: unable to parse Word OpenXML content");
+    }
     const warnings = result.messages.map((m) => `${m.type}: ${m.message}`);
     const chapters = splitHtmlIntoChapters(result.value || "<p></p>", baseTitle);
     return { format, chapters, warnings };
@@ -461,8 +586,13 @@ export async function parseImportedManuscript(
       const raw = await zip.files[xhtmlFiles[i]].async("string");
       const titleMatch = raw.match(/<title[^>]*>(.*?)<\/title>/i) || raw.match(/<h1[^>]*>(.*?)<\/h1>/i);
       const bodyMatch = raw.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
-      const bodyHtml = bodyMatch ? bodyMatch[1] : raw;
+      let bodyHtml = bodyMatch ? bodyMatch[1] : raw;
       const title = titleMatch ? stripHtmlToText(titleMatch[1]) : `Chapter ${i + 1}`;
+      // Strip leading <h1> if it duplicates the extracted chapter title (prevents round-trip duplication)
+      const leadingH1 = bodyHtml.match(/^\s*<h1[^>]*>([\s\S]*?)<\/h1>/i);
+      if (leadingH1 && stripHtmlToText(leadingH1[1]).trim().toLowerCase() === title.trim().toLowerCase()) {
+        bodyHtml = bodyHtml.slice(leadingH1[0].length).trim() || "<p></p>";
+      }
       chapters.push(buildParsedChapter(title || `Chapter ${i + 1}`, bodyHtml));
     }
     return { format, chapters, warnings };
@@ -534,7 +664,7 @@ export async function parseImportedManuscript(
   throw new ValidationError(`Unsupported import format: ${format}`);
 }
 
-function buildMinimalPdfBuffer(title: string, chapters: ManuscriptChapter[]): Buffer {
+function buildMultiPagePdfBuffer(title: string, chapters: ManuscriptChapter[]): Buffer {
   const safeAscii = (s: string) =>
     s
       .replace(/[^\x20-\x7E]/g, " ")
@@ -545,36 +675,79 @@ function buildMinimalPdfBuffer(title: string, chapters: ManuscriptChapter[]): Bu
   const lines: string[] = [title, ""];
   for (const ch of chapters) {
     lines.push(ch.title);
-    const words = (ch.contentText || stripHtmlToText(ch.contentHtml)).split(/\s+/).filter(Boolean);
-    let current = "";
-    for (const w of words) {
-      if ((current + " " + w).trim().length > 78) {
-        lines.push(current.trim());
-        current = w;
-      } else {
-        current = (current + " " + w).trim();
+    const paragraphs = (ch.contentText || stripHtmlToText(ch.contentHtml))
+      .split(/\n+/)
+      .map((p) => p.trim())
+      .filter(Boolean);
+    for (const para of paragraphs) {
+      const words = para.split(/\s+/).filter(Boolean);
+      let current = "";
+      for (const w of words) {
+        if ((current + " " + w).trim().length > 78) {
+          if (current.trim()) lines.push(current.trim());
+          current = w;
+        } else {
+          current = (current + " " + w).trim();
+        }
       }
+      if (current.trim()) lines.push(current.trim());
+      lines.push("");
     }
-    if (current.trim()) lines.push(current.trim());
     lines.push("");
   }
 
-  const pageLines = lines.slice(0, 48);
-  const textCommands = [
-    "BT",
-    "/F1 11 Tf",
-    "54 740 Td",
-    "15 TL",
-    ...pageLines.map((line, i) => (i === 0 ? `(${safeAscii(line)}) Tj` : `T* (${safeAscii(line)}) Tj`)),
-    "ET",
-  ].join("\n");
+  const LINES_PER_PAGE = 44;
+  const pages: string[][] = [];
+  for (let i = 0; i < lines.length; i += LINES_PER_PAGE) {
+    pages.push(lines.slice(i, i + LINES_PER_PAGE));
+  }
+  if (pages.length === 0) {
+    pages.push([title]);
+  }
 
+  // Object numbering:
+  // 1: Catalog
+  // 2: Pages
+  // 3: Font (Times-Roman)
+  // For page p (0-based): pageObj = 4 + p*2, contentObj = 5 + p*2
+  const pageObjNums: number[] = [];
+  const pageObjects: string[] = [];
+
+  for (let p = 0; p < pages.length; p += 1) {
+    const pageObjNum = 4 + p * 2;
+    const contentObjNum = 5 + p * 2;
+    pageObjNums.push(pageObjNum);
+
+    const pageLines = pages[p];
+    const footerLine = `Page ${p + 1} of ${pages.length}`;
+    const textCommands = [
+      "BT",
+      "/F1 11 Tf",
+      "54 740 Td",
+      "15 TL",
+      ...pageLines.map((line, i) => (i === 0 ? `(${safeAscii(line)}) Tj` : `T* (${safeAscii(line)}) Tj`)),
+      "ET",
+      "BT",
+      "/F1 9 Tf",
+      "280 32 Td",
+      `(${safeAscii(footerLine)}) Tj`,
+      "ET",
+    ].join("\n");
+
+    pageObjects.push(
+      `${pageObjNum} 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents ${contentObjNum} 0 R /Resources << /Font << /F1 3 0 R >> >> >>\nendobj\n`
+    );
+    pageObjects.push(
+      `${contentObjNum} 0 obj\n<< /Length ${Buffer.byteLength(textCommands, "utf-8")} >>\nstream\n${textCommands}\nendstream\nendobj\n`
+    );
+  }
+
+  const kidsList = pageObjNums.map((n) => `${n} 0 R`).join(" ");
   const objects = [
     "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n",
-    "2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n",
-    "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>\nendobj\n",
-    `4 0 obj\n<< /Length ${Buffer.byteLength(textCommands, "utf-8")} >>\nstream\n${textCommands}\nendstream\nendobj\n`,
-    "5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Times-Roman >>\nendobj\n",
+    `2 0 obj\n<< /Type /Pages /Kids [${kidsList}] /Count ${pages.length} >>\nendobj\n`,
+    "3 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Times-Roman >>\nendobj\n",
+    ...pageObjects,
   ];
 
   let pdf = "%PDF-1.4\n";
@@ -881,7 +1054,7 @@ export async function exportManuscriptArtifact(
   }
 
   if (format === "pdf") {
-    const buffer = buildMinimalPdfBuffer(book.title, chapters);
+    const buffer = buildMultiPagePdfBuffer(book.title, chapters);
     return {
       format,
       fileName: `${safeSlug}.pdf`,

@@ -468,6 +468,213 @@ describe("Memoria Author Studio — Manuscript, Resume, Revisions, 3D Sync & Imp
         },
       });
       assert.equal(emptyImport.statusCode, 400);
+
+      // Corrupted ZIP with valid PK magic header returns 400 (never 500)
+      const corruptZip = await app.inject({
+        method: "POST",
+        url: `/api/v1/books/${book.id}/manuscript/import`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: {
+          format: "docx",
+          fileName: "corrupt.docx",
+          contentBase64: Buffer.from("PK\x03\x04corrupted-garbage-bytes").toString("base64"),
+        },
+      });
+      assert.equal(corruptZip.statusCode, 400);
+
+      // Malformed manifest.json inside .memoria returns 400 (never 500)
+      const badJsonZip = new JSZip();
+      badJsonZip.file("manifest.json", "{not valid json");
+      const badJsonBuf = await badJsonZip.generateAsync({ type: "nodebuffer" });
+      const badManifestRes = await app.inject({
+        method: "POST",
+        url: `/api/v1/books/${book.id}/manuscript/import`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: {
+          format: "memoria",
+          fileName: "bad-manifest.memoria",
+          contentBase64: badJsonBuf.toString("base64"),
+        },
+      });
+      assert.equal(badManifestRes.statusCode, 400);
+
+      // None of the rejected imports should have polluted book_revisions with pre-import checkpoints
+      const revsAfterRejected = await app.inject({
+        method: "GET",
+        url: `/api/v1/books/${book.id}/manuscript/revisions`,
+        headers: { authorization: `Bearer ${token}` },
+      });
+      assert.equal(revsAfterRejected.statusCode, 200);
+      assert.equal(
+        JSON.parse(revsAfterRejected.body).data.length,
+        0,
+        "Rejected imports must not create pre-import revision checkpoints"
+      );
+    } finally {
+      await app.close();
+    }
+  });
+
+  test("4. Regression: Multi-Page PDF Export, EPUB No-Duplicate Heading, Inline Marks/Lists, Metadata Restore & 404 Delete", async () => {
+    const app = await buildBookService();
+    try {
+      const ownerId = crypto.randomUUID();
+      const spaceId = crypto.randomUUID();
+      const token = signToken(ownerId, "regression@memoria.internal");
+      await seedSpace(spaceId, ownerId);
+
+      const bookRes = await app.inject({
+        method: "POST",
+        url: "/api/v1/books",
+        headers: { authorization: `Bearer ${token}` },
+        payload: {
+          spaceId,
+          title: "Longform Archival Volume",
+          coverTitle: "Longform Archival Volume",
+        },
+      });
+      const book = JSON.parse(bookRes.body).data;
+
+      // Initialize manuscript and update metadata
+      const initMs = JSON.parse(
+        (
+          await app.inject({
+            method: "GET",
+            url: `/api/v1/books/${book.id}/manuscript`,
+            headers: { authorization: `Bearer ${token}` },
+          })
+        ).body
+      ).data.manuscript;
+      const ch1Id = initMs.chapters[0].id;
+
+      await app.inject({
+        method: "PATCH",
+        url: `/api/v1/books/${book.id}/manuscript`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: {
+          trimSize: "8x10_heirloom",
+          authorName: "Original Author",
+          dedication: "Original Dedication",
+        },
+      });
+
+      // Verify inline marks & bullet lists are preserved in ProseMirror JSON
+      const richHtml =
+        "<p>A <strong>bold</strong> and <em>italic</em> <code>snippet</code>.</p><ul><li>First heirloom item</li><li>Second heirloom item</li></ul><hr />";
+      const patchRich = await app.inject({
+        method: "PATCH",
+        url: `/api/v1/books/${book.id}/manuscript/chapters/${ch1Id}`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: { title: "Opening Chronicle", contentHtml: richHtml },
+      });
+      assert.equal(patchRich.statusCode, 200);
+      const richChapter = JSON.parse(patchRich.body).data;
+      const docContent = richChapter.contentJson.content as Array<Record<string, any>>;
+      assert.ok(
+        docContent[0].content.some(
+          (n: any) => n.text === "bold" && Array.isArray(n.marks) && n.marks.some((m: any) => m.type === "bold")
+        ),
+        "ProseMirror JSON must preserve bold mark"
+      );
+      assert.ok(
+        docContent.some((n) => n.type === "bulletList"),
+        "ProseMirror JSON must preserve bulletList node"
+      );
+      assert.ok(
+        docContent.some((n) => n.type === "horizontalRule"),
+        "ProseMirror JSON must preserve horizontalRule node"
+      );
+
+      // Save revision checkpoint with original metadata, then mutate metadata and restore
+      const revRes = await app.inject({
+        method: "POST",
+        url: `/api/v1/books/${book.id}/manuscript/revisions`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: { label: "Metadata Checkpoint" },
+      });
+      assert.equal(revRes.statusCode, 201);
+      const revId = JSON.parse(revRes.body).data.id;
+
+      await app.inject({
+        method: "PATCH",
+        url: `/api/v1/books/${book.id}/manuscript`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: { trimSize: "5x8_pocket", authorName: "Mutated Author" },
+      });
+
+      const restoreRes = await app.inject({
+        method: "POST",
+        url: `/api/v1/books/${book.id}/manuscript/revisions/${revId}/restore`,
+        headers: { authorization: `Bearer ${token}` },
+      });
+      assert.equal(restoreRes.statusCode, 200);
+      const restoredMs = JSON.parse(restoreRes.body).data;
+      assert.equal(restoredMs.trimSize, "8x10_heirloom", "Revision restore must restore trimSize");
+      assert.equal(restoredMs.authorName, "Original Author", "Revision restore must restore authorName");
+
+      // Add a long second chapter (> 60 lines) to verify multi-page PDF export (no 48-line truncation)
+      const longParagraphs = Array.from(
+        { length: 40 },
+        (_, i) =>
+          `<p>Paragraph ${i + 1}: Archival family record documenting the autumn harvest along Cedar Ridge and the letters preserved in the cedar chest.</p>`
+      ).join("\n");
+      const sentinel = "FINAL_SENTINEL_PAGE_TWO_MARKER";
+      const ch2Res = await app.inject({
+        method: "POST",
+        url: `/api/v1/books/${book.id}/manuscript/chapters`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: {
+          title: "Chapter 2: Longform Archive",
+          contentHtml: `${longParagraphs}\n<p>${sentinel}</p>`,
+        },
+      });
+      assert.equal(ch2Res.statusCode, 201);
+
+      // Deleting a nonexistent chapter must return 404 (not 200)
+      const delMissing = await app.inject({
+        method: "DELETE",
+        url: `/api/v1/books/${book.id}/manuscript/chapters/${crypto.randomUUID()}`,
+        headers: { authorization: `Bearer ${token}` },
+      });
+      assert.equal(delMissing.statusCode, 404);
+
+      // Export PDF and verify multi-page output + sentinel presence
+      const pdfExport = await app.inject({
+        method: "GET",
+        url: `/api/v1/books/${book.id}/manuscript/export?format=pdf`,
+        headers: { authorization: `Bearer ${token}` },
+      });
+      assert.equal(pdfExport.statusCode, 200);
+      const pdfText = pdfExport.rawPayload.toString("latin1");
+      assert.ok(pdfText.startsWith("%PDF-1.4"));
+      const countMatch = pdfText.match(/\/Count\s+(\d+)/);
+      assert.ok(countMatch && Number(countMatch[1]) >= 2, `Expected >= 2 PDF pages, got ${countMatch?.[0]}`);
+      assert.ok(pdfText.includes(sentinel), "Multi-page PDF must not truncate trailing manuscript content");
+
+      // Export EPUB and re-import to verify chapter title is NOT duplicated as <h1> inside body
+      const epubExport = await app.inject({
+        method: "GET",
+        url: `/api/v1/books/${book.id}/manuscript/export?format=epub`,
+        headers: { authorization: `Bearer ${token}` },
+      });
+      assert.equal(epubExport.statusCode, 200);
+      const epubReimport = await app.inject({
+        method: "POST",
+        url: `/api/v1/books/${book.id}/manuscript/import`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: {
+          format: "epub",
+          fileName: "roundtrip.epub",
+          contentBase64: epubExport.rawPayload.toString("base64"),
+          mergeStrategy: "replace",
+        },
+      });
+      assert.equal(epubReimport.statusCode, 200);
+      const reimportedCh1 = JSON.parse(epubReimport.body).data.manuscript.chapters[0];
+      assert.ok(
+        !reimportedCh1.contentHtml.includes(`<h1>${reimportedCh1.title}</h1>`),
+        "EPUB round-trip must not duplicate chapter title as <h1> inside chapter body"
+      );
     } finally {
       await app.close();
     }
