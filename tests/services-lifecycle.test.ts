@@ -90,52 +90,68 @@ describe("Microservices Lifecycle & Domain Services Suite", () => {
 
   test("2. Collab Service: Space Membership, RBAC & Invitation Acceptance", async () => {
     const app = await buildCollabService();
-    const ownerId = crypto.randomUUID();
-    const inviteeId = crypto.randomUUID();
-    const spaceId = crypto.randomUUID();
-    const ownerToken = signToken(ownerId, "owner@memoria.internal");
-    const inviteeToken = signToken(inviteeId, "invitee@memoria.internal");
+    try {
+      const ownerId = crypto.randomUUID();
+      const inviteeId = crypto.randomUUID();
+      const spaceId = crypto.randomUUID();
+      const ownerToken = signToken(ownerId, "owner@memoria.internal");
+      const inviteeToken = signToken(inviteeId, "invitee@memoria.internal");
+      const memoryDbUrl = process.env.MEMORY_DATABASE_URL || process.env.DATABASE_URL;
+      if (memoryDbUrl) {
+        const memDb = createDatabaseClient(memoryDbUrl);
+        const spaceRepo = new PostgresSpaceRepository(memDb);
+        await spaceRepo.createSpace({
+          id: spaceId,
+          ownerId,
+          name: "Collab Lifecycle Space",
+          type: "family",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
+        await memDb.close();
+      }
 
-    // Add owner
-    const addOwnerRes = await app.inject({
-      method: "POST",
-      url: `/api/v1/collab/spaces/${spaceId}/members`,
-      headers: { authorization: `Bearer ${ownerToken}` },
-      payload: { userId: ownerId, role: "owner" },
-    });
-    assert.equal(addOwnerRes.statusCode, 201);
+      // Add owner
+      const addOwnerRes = await app.inject({
+        method: "POST",
+        url: `/api/v1/collab/spaces/${spaceId}/members`,
+        headers: { authorization: `Bearer ${ownerToken}` },
+        payload: { userId: ownerId, role: "owner" },
+      });
+      assert.equal(addOwnerRes.statusCode, 201);
 
-    // Create invitation
-    const inviteRes = await app.inject({
-      method: "POST",
-      url: `/api/v1/collab/spaces/${spaceId}/invitations`,
-      headers: { authorization: `Bearer ${ownerToken}` },
-      payload: { inviteeEmail: "invitee@memoria.internal", role: "contributor" },
-    });
-    assert.equal(inviteRes.statusCode, 201);
-    const inviteToken = JSON.parse(inviteRes.body).data.inviteToken;
-    assert.ok(inviteToken);
+      // Create invitation
+      const inviteRes = await app.inject({
+        method: "POST",
+        url: `/api/v1/collab/spaces/${spaceId}/invitations`,
+        headers: { authorization: `Bearer ${ownerToken}` },
+        payload: { inviteeEmail: "invitee@memoria.internal", role: "contributor" },
+      });
+      assert.equal(inviteRes.statusCode, 201);
+      const inviteToken = JSON.parse(inviteRes.body).data.inviteToken;
+      assert.ok(inviteToken);
 
-    // Accept invitation
-    const acceptRes = await app.inject({
-      method: "POST",
-      url: "/api/v1/collab/invitations/accept",
-      headers: { authorization: `Bearer ${inviteeToken}` },
-      payload: { token: inviteToken },
-    });
-    assert.equal(acceptRes.statusCode, 200);
-    assert.equal(JSON.parse(acceptRes.body).data.member.role, "contributor");
+      // Accept invitation
+      const acceptRes = await app.inject({
+        method: "POST",
+        url: "/api/v1/collab/invitations/accept",
+        headers: { authorization: `Bearer ${inviteeToken}` },
+        payload: { token: inviteToken },
+      });
+      assert.equal(acceptRes.statusCode, 200);
+      assert.equal(JSON.parse(acceptRes.body).data.member.role, "contributor");
 
-    // List members
-    const listRes = await app.inject({
-      method: "GET",
-      url: `/api/v1/collab/spaces/${spaceId}/members`,
-      headers: { authorization: `Bearer ${inviteeToken}` },
-    });
-    assert.equal(listRes.statusCode, 200);
-    assert.equal(JSON.parse(listRes.body).data.length, 2);
-
-    await app.close();
+      // List members
+      const listRes = await app.inject({
+        method: "GET",
+        url: `/api/v1/collab/spaces/${spaceId}/members`,
+        headers: { authorization: `Bearer ${inviteeToken}` },
+      });
+      assert.equal(listRes.statusCode, 200);
+      assert.equal(JSON.parse(listRes.body).data.length, 2);
+    } finally {
+      await app.close();
+    }
   });
 
   test("3. Commerce Service: Print Order Creation & Fulfillment Progression", async () => {

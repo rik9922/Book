@@ -305,13 +305,13 @@ describe("Stage 1 — Engineering Foundation Verification Suite", () => {
     const completedAsset = JSON.parse(completeRes.body).data;
     assert.equal(completedAsset.status, "processing");
 
-    // HTTP 206 Partial Content Range support
+    // HTTP 206 Partial Content Range support (bytes 4-10 follow the 4-byte JPEG SOI/APP0 header)
     const rangeRes = await app.inject({
       method: "GET",
       url: `/api/v1/media/files/${session.storageKey}`,
       headers: {
         authorization: `Bearer ${token}`,
-        range: "bytes=0-6",
+        range: "bytes=4-10",
       },
     });
     assert.equal(rangeRes.statusCode, 206);
