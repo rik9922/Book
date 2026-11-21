@@ -4,18 +4,28 @@ import React, { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
 import { AuthorStudioWorkspace } from "@/components/author/AuthorStudioWorkspace";
+import { mapLegacyStudioTabToEnvironment } from "@/lib/author-spread-utils";
 
 function AuthorStudioContent() {
   const searchParams = useSearchParams();
   const bookId = searchParams.get("bookId") || undefined;
-  return <AuthorStudioWorkspace initialBookId={bookId} />;
+  const spaceId = searchParams.get("spaceId") || undefined;
+  const initialEnv =
+    mapLegacyStudioTabToEnvironment(searchParams.get("env") || searchParams.get("tab")) || undefined;
+  return (
+    <AuthorStudioWorkspace
+      initialBookId={bookId}
+      initialSpaceId={spaceId}
+      initialEnvironment={initialEnv}
+    />
+  );
 }
 
 export default function AuthorStudioPage() {
   return (
     <AppShell
       title="Author Studio"
-      subtitle="Write, structure, format, preview in 3D, and publish heirloom manuscripts."
+      subtitle="Write manuscripts, curate Memory Archive photo books, design heirloom covers, preview in 3D Book Theater, and publish."
     >
       <Suspense
         fallback={

@@ -826,32 +826,91 @@ export async function buildBookService(): Promise<FastifyInstance> {
     return reply.status(200).send(createSuccessResponse(updated || book));
   });
 
-  // 4. Automated Print Preflight Validator (PWA-69 / IOS-51 / ADMIN-15)
+  // 4. Automated Print Preflight Validator (Real Geometry, Content & Asset Checks)
   async function evaluateBookPreflight(book: BookDocument) {
+    const coverTitleTrimmed = (book.coverTitle || book.title || "").trim();
+    const spineTrimmed = (book.spineText || book.title || "").trim();
+
+    let totalElements = 0;
+    let totalImages = 0;
+    const marginViolations: string[] = [];
+    const imageIssues: string[] = [];
+
+    for (const spread of book.spreads) {
+      const pages = [
+        { side: "left", page: spread.leftPage },
+        { side: "right", page: spread.rightPage },
+      ];
+      for (const { side, page } of pages) {
+        if (!page) continue;
+        for (const el of page.elements || []) {
+          totalElements += 1;
+          const outOfBounds =
+            el.x < 0 ||
+            el.y < 0 ||
+            el.width <= 0 ||
+            el.height <= 0 ||
+            el.x + el.width > 100 ||
+            el.y + el.height > 100;
+          if (outOfBounds) {
+            marginViolations.push(`Spread ${spread.spreadIndex + 1} (${side} p.${page.pageNumber})`);
+          }
+          if (el.type === "image") {
+            totalImages += 1;
+            if (!el.content || !el.content.trim()) {
+              imageIssues.push(`Spread ${spread.spreadIndex + 1} (${side}) missing image asset reference`);
+            }
+            const rawDpi = el.style && typeof el.style === "object" ? Number((el.style as Record<string, unknown>).dpi) : NaN;
+            if (!Number.isNaN(rawDpi) && rawDpi < 300) {
+              imageIssues.push(`Spread ${spread.spreadIndex + 1} (${side}) image below 300 DPI (${rawDpi} DPI)`);
+            }
+          }
+        }
+      }
+    }
+
     const checks = [
       {
         id: "cover_title",
         label: "Cover Title & Foil Stamping",
-        passed: book.coverTitle.trim().length >= 2,
-        detail: book.coverTitle.trim().length >= 2 ? `Title "${book.coverTitle}" fits safe foil die bounds` : "Cover title is empty",
+        passed: coverTitleTrimmed.length >= 2 && coverTitleTrimmed.length <= 80,
+        detail:
+          coverTitleTrimmed.length < 2
+            ? "Cover title must be at least 2 characters"
+            : coverTitleTrimmed.length > 80
+              ? `Cover title (${coverTitleTrimmed.length} chars) exceeds 80-character foil die limit`
+              : `Title "${coverTitleTrimmed}" fits safe foil die bounds (${spineTrimmed.length} spine chars)`,
       },
       {
         id: "spread_count",
         label: "Minimum Archival Spreads",
-        passed: book.spreads.length >= 1,
-        detail: `${book.spreads.length} spread(s) (${book.spreads.length * 2} pages) staged with 3mm trim bleed`,
+        passed: book.spreads.length >= 1 && totalElements >= 1,
+        detail:
+          book.spreads.length < 1
+            ? "Book has no spreads staged for print"
+            : totalElements < 1
+              ? `${book.spreads.length} spread(s) present but all pages are empty`
+              : `${book.spreads.length} spread(s) (${book.spreads.length * 2} pages, ${totalElements} elements) staged with 3mm trim bleed`,
       },
       {
         id: "safe_margins",
         label: "3mm Trim & Gutter Margin Verification",
-        passed: true,
-        detail: "All typography boxes inside 12mm gutter & trim safe zone",
+        passed: marginViolations.length === 0,
+        detail:
+          marginViolations.length === 0
+            ? `All ${totalElements} layout element(s) verified within printable page bounds`
+            : `Out-of-bounds element(s) detected on: ${marginViolations.slice(0, 3).join(", ")}`,
       },
       {
         id: "dpi_resolution",
-        label: "300 DPI Archival Print Profile",
-        passed: true,
-        detail: "Lossless archival PDF/X-4 vector & raster bounds verified",
+        label: "300 DPI Archival Image & Vector Check",
+        passed: imageIssues.length === 0,
+        detail:
+          imageIssues.length > 0
+            ? imageIssues.slice(0, 3).join("; ")
+            : totalImages === 0
+              ? "Text & vector layout only (0 raster images placed; vector typography scales cleanly)"
+              : `${totalImages} placed image asset(s) verified with valid references and print resolution`,
       },
     ];
     const passed = checks.every((c) => c.passed);

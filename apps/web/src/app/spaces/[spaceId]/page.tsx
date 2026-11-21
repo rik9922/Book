@@ -213,8 +213,8 @@ export default function SpaceDetailPage() {
                       <span>Open Living Archive</span>
                       <span>→</span>
                     </Link>
-                    <Link href="/studio" className="min-h-[44px] flex items-center justify-between px-4 py-2.5 rounded-xl bg-[#20242C] text-white">
-                      <span>Author Heirloom Book</span>
+                    <Link href={`/author?spaceId=${spaceId}`} className="min-h-[44px] flex items-center justify-between px-4 py-2.5 rounded-xl bg-[#20242C] text-white">
+                      <span>Open Author Studio</span>
                       <span>→</span>
                     </Link>
                     <Link href="/circles" className="min-h-[44px] flex items-center justify-between px-4 py-2.5 rounded-xl bg-[#F0ECE1] text-[#20242C]">

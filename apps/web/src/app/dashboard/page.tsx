@@ -394,8 +394,8 @@ export default function DashboardPage() {
                   <h2 className="font-serif text-lg font-bold text-[#20242C]">
                     Recent Editions
                   </h2>
-                  <Link href="/studio" className="text-xs font-medium text-[#76556F] hover:underline">
-                    Open Studio
+                  <Link href="/author" className="text-xs font-medium text-[#76556F] hover:underline">
+                    Open Author Studio
                   </Link>
                 </div>
                 {books.length === 0 ? (
@@ -405,21 +405,23 @@ export default function DashboardPage() {
                 ) : (
                   <ul className="space-y-2.5">
                     {books.slice(0, 4).map((b) => (
-                      <li
-                        key={b.id}
-                        className="p-3 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] flex items-center justify-between gap-3"
-                      >
-                        <div className="min-w-0">
-                          <p className="text-xs font-semibold text-[#20242C] truncate">{b.title}</p>
-                          <p className="text-[11px] text-[#5C5955]">
-                            {b.isFrozenForPrint ? "Edition Frozen for Print" : "Editable Draft"}
-                          </p>
-                        </div>
-                        <span
-                          className="w-5 h-5 rounded-full border border-[#E7E2DA] shrink-0"
-                          style={{ backgroundColor: b.coverColor }}
-                          aria-hidden="true"
-                        />
+                      <li key={b.id}>
+                        <Link
+                          href={`/author?bookId=${b.id}`}
+                          className="p-3 rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] hover:border-[#76556F] transition-colors flex items-center justify-between gap-3"
+                        >
+                          <div className="min-w-0">
+                            <p className="text-xs font-semibold text-[#20242C] truncate">{b.title}</p>
+                            <p className="text-[11px] text-[#5C5955]">
+                              {b.isFrozenForPrint ? "Edition Frozen for Print" : "Editable Draft"}
+                            </p>
+                          </div>
+                          <span
+                            className="w-5 h-5 rounded-full border border-[#E7E2DA] shrink-0"
+                            style={{ backgroundColor: b.coverColor }}
+                            aria-hidden="true"
+                          />
+                        </Link>
                       </li>
                     ))}
                   </ul>

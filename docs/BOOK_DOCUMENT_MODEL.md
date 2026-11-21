@@ -1,8 +1,8 @@
-# Canonical Book Document Model
+# Canonical Book & Manuscript Document Model
 
 ## 1. Universal Document Schema
 
-The 2D editor, the 3D WebGL renderer, the native iOS RealityKit viewport, and the print preflight engine share the exact same canonical JSON document schema.
+Memoria Author Studio (`/author`), the 3D WebGL Book Theater, the non-lossy spread composer, and the real print preflight engine share the same canonical `BookDocument` schema alongside the additive `ManuscriptDocument` schema (`018_author_studio_manuscript_schema.sql`). Legacy Photo Memory Books open seamlessly in Author Studio via an idempotent compatibility adapter that preserves all existing `book_spreads` rows, elements, captions, images, covers, and IDs without destructive schema changes.
 
 ```typescript
 export interface BookDocument {

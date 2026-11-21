@@ -24,33 +24,55 @@ import {
   Printer,
   WifiOff,
   CloudCheck,
+  ShieldCheck,
+  Lock,
+  Copy,
+  Eye,
+  Compass,
+  Layers,
+  ChevronLeft,
+  ChevronRight,
+  Package,
 } from "lucide-react";
 import {
   AUTHOR_STUDIO_TRIM_SIZES,
   AUTHOR_STUDIO_TYPOGRAPHY_PRESETS,
 } from "@memory-capsule/contracts/author-studio";
 import {
+  BOOK_CAMERA_PRESETS,
   BOOK_FOIL_SWATCHES,
   BOOK_LEATHER_SWATCHES,
+  resolveFoilSwatch,
+  resolveLeatherSwatch,
+  type BookCameraPresetId,
   type BookFoilSwatchId,
   type BookLeatherSwatchId,
   type BookSpreadPreview,
 } from "@memory-capsule/contracts/book-3d";
 import {
+  apiRequest,
+  cloneNextBookEdition,
   createBook,
   createManuscriptChapter,
   createManuscriptRevision,
+  createSpace,
+  curateBookMemories,
   deleteManuscriptChapter,
   downloadManuscriptExport,
   fetchBooks,
   fetchSpaces,
+  getBookEditions,
   getBookManuscript,
+  getBookProof,
   getStoredSession,
   importManuscriptFile,
   listManuscriptRevisions,
+  openAuthModal,
+  reorderBookSpreads,
   reorderManuscriptChapters,
   restoreManuscriptRevision,
   saveManuscriptResumeState,
+  subscribeAuthChange,
   syncManuscriptSpreads,
   updateBookManuscript,
   updateManuscriptChapter,
@@ -63,10 +85,18 @@ import {
   type ImportFormat,
   type ManuscriptChapterDTO,
   type ManuscriptDocumentDTO,
+  type MemoryDTO,
+  type MemorySpaceDTO,
   type MergeStrategy,
+  type PreflightReportDTO,
   type TrimSize,
   type TypographyPreset,
 } from "@/lib/api";
+import {
+  mapBookSpreadsToTheaterPreview,
+  mergeSpreadPageElementsNonLossy,
+  type RawSpreadElement,
+} from "@/lib/author-spread-utils";
 import {
   getOfflineChapterDraft,
   getOfflineResumeCheckpoint,
@@ -259,148 +289,278 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
   return btoa(binary);
 }
 
-export function AuthorStudioWorkspace({ initialBookId }: { initialBookId?: string }) {
+export const BOOK_CATEGORIES = [
+  { id: "heirloom_manuscript", label: "Heirloom Manuscript", note: "Long-form memoir, biography, or family history" },
+  { id: "photo_memory_book", label: "Photo-Led Memory Book", note: "Visual spreads curated from your Memory Archive" },
+  { id: "family_chronicle", label: "Family Chronicle", note: "Chronological essays, milestones & photographs" },
+  { id: "letters_poetry", label: "Letters, Recipes & Poetry", note: "Anthology of correspondence and heirloom notes" },
+] as const;
+
+export function AuthorStudioWorkspace({
+  initialBookId,
+  initialSpaceId,
+  initialEnvironment,
+}: {
+  initialBookId?: string;
+  initialSpaceId?: string;
+  initialEnvironment?: AuthorEnvironment;
+}) {
   const [isGuest, setIsGuest] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [spaces, setSpaces] = useState<MemorySpaceDTO[]>([]);
+  const [activeSpaceId, setActiveSpaceId] = useState<string>("");
   const [books, setBooks] = useState<BookDTO[]>([]);
   const [activeBook, setActiveBook] = useState<BookDTO | null>(null);
   const [manuscript, setManuscript] = useState<ManuscriptDocumentDTO | null>(null);
   const [revisions, setRevisions] = useState<BookRevisionDTO[]>([]);
-  const [activeEnv, setActiveEnv] = useState<AuthorEnvironment>("write");
+  const [activeEnv, setActiveEnv] = useState<AuthorEnvironment>(initialEnvironment || "write");
   const [activeChapterId, setActiveChapterId] = useState<string | null>(null);
   const [resumeCursorOffset, setResumeCursorOffset] = useState<number>(0);
 
   // Save & sync status
   const [saveState, setSaveState] = useState<"saved" | "saving" | "offline_saved" | "error">("saved");
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [importWarnings, setImportWarnings] = useState<string[]>([]);
   const [mergeStrategy, setMergeStrategy] = useState<MergeStrategy>("append");
   const [newChapterTitle, setNewChapterTitle] = useState("");
   const [newChapterType, setNewChapterType] = useState<ChapterSectionType>("chapter");
   const [checkpointLabel, setCheckpointLabel] = useState("");
 
-  // 3D Book Theater state
+  // New Book creation drawer state
+  const [showNewBookForm, setShowNewBookForm] = useState(false);
+  const [newBookTitle, setNewBookTitle] = useState("");
+  const [newBookSubtitle, setNewBookSubtitle] = useState("");
+  const [newBookCategory, setNewBookCategory] = useState<string>("heirloom_manuscript");
+  const [newBookFormat, setNewBookFormat] = useState<BookDTO["format"]>("hardcover_standard_8x10");
+
+  // Cover designer state (persisted to PATCH /books/:id)
+  const [coverTitleInput, setCoverTitleInput] = useState("");
+  const [coverSubtitleInput, setCoverSubtitleInput] = useState("");
+  const [spineTextInput, setSpineTextInput] = useState("");
+  const [bookFormatInput, setBookFormatInput] = useState<BookDTO["format"]>("hardcover_standard_8x10");
+
+  // 3D Book Theater & Spread Composer state
   const [isBookOpen, setIsBookOpen] = useState(true);
+  const [is2DMode, setIs2DMode] = useState(false);
+  const [cameraPreset, setCameraPreset] = useState<BookCameraPresetId>("hero");
   const [spreadIndex, setSpreadIndex] = useState(0);
   const [selectedLeatherId, setSelectedLeatherId] = useState<BookLeatherSwatchId>("plum");
   const [selectedFoilId, setSelectedFoilId] = useState<BookFoilSwatchId>("gold");
+  const [studioSyncNonce, setStudioSyncNonce] = useState(0);
+  const [spreadHeadingInput, setSpreadHeadingInput] = useState("");
+  const [spreadCaptionInput, setSpreadCaptionInput] = useState("");
+  const [templateLayout, setTemplateLayout] = useState<
+    "editorial_classic" | "photo_journal" | "fine_art_spread"
+  >("editorial_classic");
+  const [focalPreset, setFocalPreset] = useState<"50% 50%" | "50% 20%" | "50% 80%">("50% 50%");
+
+  // Memory Archive curation state (in Structure environment)
+  const [spaceMemories, setSpaceMemories] = useState<MemoryDTO[]>([]);
+  const [spaceProfiles, setSpaceProfiles] = useState<Array<{ id: string; name: string }>>([]);
+  const [sourceProfileId, setSourceProfileId] = useState<string>("");
+  const [selectedMemoryIds, setSelectedMemoryIds] = useState<string[]>([]);
+
+  // Print Preflight, 2D Proof & Editions state (in Publish environment)
+  const [preflight, setPreflight] = useState<PreflightReportDTO | null>(null);
+  const [proofView, setProofView] = useState<{
+    pageCount: number;
+    bleedMm: number;
+    safeMarginMm: number;
+  } | null>(null);
+  const [editions, setEditions] = useState<
+    Array<{
+      editionNumber: number;
+      status: string;
+      editionHash: string | null;
+      spreadCount: number;
+      updatedAt: string;
+    }>
+  >([]);
 
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const loadBookManuscript = useCallback(async (bookId: string) => {
-    setLoading(true);
-    try {
-      const { book, manuscript: ms, editorState } = await getBookManuscript(bookId);
-      let currentMs = ms;
+  const syncCoverFieldsFromBook = useCallback((book: BookDTO) => {
+    const resolvedTitle = book.coverTitle || book.title || "My Heirloom Book";
+    setCoverTitleInput(resolvedTitle);
+    setCoverSubtitleInput(book.subtitle || "");
+    setSpineTextInput(book.spineText || resolvedTitle);
+    setBookFormatInput(book.format || "hardcover_standard_8x10");
+    setSelectedLeatherId(resolveLeatherSwatch(book.coverColor).id);
+    setSelectedFoilId(resolveFoilSwatch(book.foilStamping).id);
+  }, []);
 
-      // Reconcile IndexedDB offline drafts if newer or pending sync
-      const pendingDrafts = await listPendingOfflineDrafts(bookId);
-      if (pendingDrafts.length > 0 && navigator.onLine) {
-        let syncedAny = false;
-        for (const draft of pendingDrafts) {
-          const synced = await updateManuscriptChapter(bookId, draft.chapterId, {
-            title: draft.title,
-            contentHtml: draft.contentHtml,
-            contentJson: draft.contentJson,
-          }).catch(() => null);
-          if (synced) {
-            syncedAny = true;
-            await markOfflineDraftSynced(bookId, draft.chapterId);
-          }
-        }
-        if (syncedAny) {
-          const refreshed = await getBookManuscript(bookId).catch(() => null);
-          if (refreshed) {
-            currentMs = refreshed.manuscript;
-          }
-        }
-      }
-
-      setActiveBook(book);
-      setManuscript(currentMs);
-
-      const metaLeather = currentMs.metadata?.leatherId;
-      if (
-        typeof metaLeather === "string" &&
-        BOOK_LEATHER_SWATCHES.some((s) => s.id === metaLeather)
-      ) {
-        setSelectedLeatherId(metaLeather as BookLeatherSwatchId);
-      }
-      const metaFoil = currentMs.metadata?.foilId;
-      if (
-        typeof metaFoil === "string" &&
-        BOOK_FOIL_SWATCHES.some((f) => f.id === metaFoil)
-      ) {
-        setSelectedFoilId(metaFoil as BookFoilSwatchId);
-      }
-
-      const offlineResume = await getOfflineResumeCheckpoint(bookId);
-      const resumeEnv = editorState?.activeEnvironment || offlineResume?.activeEnvironment || "write";
-      const resumeCh =
-        editorState?.activeChapterId ||
-        offlineResume?.activeChapterId ||
-        currentMs.chapters[0]?.id ||
-        null;
-      setActiveEnv(resumeEnv);
-      setActiveChapterId(resumeCh);
-      setResumeCursorOffset(editorState?.cursorOffset ?? offlineResume?.cursorOffset ?? 0);
-
-      const revs = await listManuscriptRevisions(bookId).catch(() => []);
-      setRevisions(revs);
-    } finally {
-      setLoading(false);
+  const loadSpaceArchiveAssets = useCallback(async (targetSpaceId: string) => {
+    if (!targetSpaceId) return;
+    const [memRes, profRes] = await Promise.allSettled([
+      apiRequest<{ items?: MemoryDTO[] } | MemoryDTO[]>(`/spaces/${targetSpaceId}/memories?limit=50`),
+      apiRequest<
+        { profiles?: Array<{ id: string; name: string }>; items?: Array<{ id: string; name: string }> } | Array<{ id: string; name: string }>
+      >(`/spaces/${targetSpaceId}/profiles`),
+    ]);
+    if (memRes.status === "fulfilled") {
+      const val = memRes.value;
+      setSpaceMemories(Array.isArray(val) ? val : val.items || []);
+    }
+    if (profRes.status === "fulfilled") {
+      const val = profRes.value;
+      setSpaceProfiles(Array.isArray(val) ? val : val.profiles || val.items || []);
     }
   }, []);
 
+  const loadBookManuscript = useCallback(
+    async (bookId: string, overrideEnv?: AuthorEnvironment) => {
+      setLoading(true);
+      setErrorMessage(null);
+      try {
+        const { book, manuscript: ms, editorState } = await getBookManuscript(bookId);
+        let currentMs = ms;
+
+        // Reconcile IndexedDB offline drafts if newer or pending sync
+        const pendingDrafts = await listPendingOfflineDrafts(bookId);
+        if (pendingDrafts.length > 0 && navigator.onLine) {
+          let syncedAny = false;
+          for (const draft of pendingDrafts) {
+            const synced = await updateManuscriptChapter(bookId, draft.chapterId, {
+              title: draft.title,
+              contentHtml: draft.contentHtml,
+              contentJson: draft.contentJson,
+            }).catch(() => null);
+            if (synced) {
+              syncedAny = true;
+              await markOfflineDraftSynced(bookId, draft.chapterId);
+            }
+          }
+          if (syncedAny) {
+            const refreshed = await getBookManuscript(bookId).catch(() => null);
+            if (refreshed) {
+              currentMs = refreshed.manuscript;
+            }
+          }
+        }
+
+        setActiveBook(book);
+        setManuscript(currentMs);
+        syncCoverFieldsFromBook(book);
+
+        const metaLeather = currentMs.metadata?.leatherId;
+        if (
+          typeof metaLeather === "string" &&
+          BOOK_LEATHER_SWATCHES.some((s) => s.id === metaLeather)
+        ) {
+          setSelectedLeatherId(metaLeather as BookLeatherSwatchId);
+        }
+        const metaFoil = currentMs.metadata?.foilId;
+        if (
+          typeof metaFoil === "string" &&
+          BOOK_FOIL_SWATCHES.some((f) => f.id === metaFoil)
+        ) {
+          setSelectedFoilId(metaFoil as BookFoilSwatchId);
+        }
+
+        const offlineResume = await getOfflineResumeCheckpoint(bookId);
+        const resumeEnv =
+          overrideEnv || editorState?.activeEnvironment || offlineResume?.activeEnvironment || "write";
+        const resumeCh =
+          editorState?.activeChapterId ||
+          offlineResume?.activeChapterId ||
+          currentMs.chapters[0]?.id ||
+          null;
+        setActiveEnv(resumeEnv);
+        setActiveChapterId(resumeCh);
+        setResumeCursorOffset(editorState?.cursorOffset ?? offlineResume?.cursorOffset ?? 0);
+        setSpreadIndex(0);
+        setPreflight(null);
+        setProofView(null);
+
+        const [revs, eds] = await Promise.all([
+          listManuscriptRevisions(bookId).catch(() => []),
+          getBookEditions(bookId).catch(() => []),
+        ]);
+        setRevisions(revs);
+        setEditions(eds);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [syncCoverFieldsFromBook]
+  );
+
+  const loadSpaceBooks = useCallback(
+    async (targetSpaceId: string, preferredBookId?: string, overrideEnv?: AuthorEnvironment) => {
+      setActiveSpaceId(targetSpaceId);
+      void loadSpaceArchiveAssets(targetSpaceId);
+      let loadedBooks = await fetchBooks(targetSpaceId);
+      if (loadedBooks.length === 0) {
+        const created = await createBook(targetSpaceId, {
+          title: "My Heirloom Manuscript",
+          subtitle: "Created in Memoria Author Studio",
+          coverTitle: "My Heirloom Manuscript",
+          spineText: "MEMORIA",
+        });
+        loadedBooks = [created];
+      }
+      setBooks(loadedBooks);
+      const targetId =
+        (preferredBookId && loadedBooks.some((b) => b.id === preferredBookId) && preferredBookId) ||
+        loadedBooks[0]?.id;
+      if (targetId) {
+        await loadBookManuscript(targetId, overrideEnv);
+      }
+    },
+    [loadBookManuscript, loadSpaceArchiveAssets]
+  );
+
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+    const initWorkspace = async () => {
       const session = getStoredSession();
       if (!session.user) {
         if (!cancelled) {
           const guest = createGuestManuscript();
           setIsGuest(true);
+          setSpaces([]);
+          setActiveSpaceId(guest.book.spaceId);
           setBooks([guest.book]);
           setActiveBook(guest.book);
           setManuscript(guest.manuscript);
+          syncCoverFieldsFromBook(guest.book);
           setActiveChapterId(guest.manuscript.chapters[0]?.id ?? null);
+          if (initialEnvironment) setActiveEnv(initialEnvironment);
           setLoading(false);
         }
         return;
       }
 
       try {
-        const spaces = await fetchSpaces();
-        const primarySpace = spaces[0];
-        let loadedBooks: BookDTO[] = [];
-        if (primarySpace) {
-          loadedBooks = await fetchBooks(primarySpace.id);
-          if (loadedBooks.length === 0) {
-            const created = await createBook(primarySpace.id, {
-              title: "My Heirloom Manuscript",
-              subtitle: "Created in Memoria Author Studio",
-              coverTitle: "My Heirloom Manuscript",
-              spineText: "MEMORIA",
-            });
-            loadedBooks = [created];
+        let userSpaces = await fetchSpaces();
+        if (userSpaces.length === 0) {
+          const createdSpace = await createSpace({
+            name: "Family Living Archive",
+            type: "family",
+            description: "Heirloom memory preservation space",
+          }).catch(() => null);
+          if (createdSpace?.id) {
+            userSpaces = [createdSpace];
           }
         }
-        if (!cancelled) {
+        if (cancelled) return;
+        setSpaces(userSpaces);
+
+        const primarySpace =
+          (initialSpaceId && userSpaces.find((s) => s.id === initialSpaceId)) || userSpaces[0];
+        if (primarySpace) {
           setIsGuest(false);
-          setBooks(loadedBooks);
-          const targetId =
-            (initialBookId && loadedBooks.some((b) => b.id === initialBookId) && initialBookId) ||
-            loadedBooks[0]?.id;
-          if (targetId) {
-            await loadBookManuscript(targetId);
-          } else {
-            const guest = createGuestManuscript();
-            setIsGuest(true);
-            setActiveBook(guest.book);
-            setManuscript(guest.manuscript);
-            setActiveChapterId(guest.manuscript.chapters[0]?.id ?? null);
-            setLoading(false);
-          }
+          await loadSpaceBooks(primarySpace.id, initialBookId, initialEnvironment);
+        } else {
+          const guest = createGuestManuscript();
+          setIsGuest(true);
+          setBooks([guest.book]);
+          setActiveBook(guest.book);
+          setManuscript(guest.manuscript);
+          syncCoverFieldsFromBook(guest.book);
+          setActiveChapterId(guest.manuscript.chapters[0]?.id ?? null);
+          setLoading(false);
         }
       } catch {
         if (!cancelled) {
@@ -409,15 +569,22 @@ export function AuthorStudioWorkspace({ initialBookId }: { initialBookId?: strin
           setBooks([guest.book]);
           setActiveBook(guest.book);
           setManuscript(guest.manuscript);
+          syncCoverFieldsFromBook(guest.book);
           setActiveChapterId(guest.manuscript.chapters[0]?.id ?? null);
           setLoading(false);
         }
       }
-    })();
+    };
+
+    void initWorkspace();
+    const unsubscribe = subscribeAuthChange(() => {
+      void initWorkspace();
+    });
     return () => {
       cancelled = true;
+      unsubscribe();
     };
-  }, [initialBookId, loadBookManuscript]);
+  }, [initialBookId, initialSpaceId, initialEnvironment, loadSpaceBooks, syncCoverFieldsFromBook]);
 
   const activeChapter = useMemo(() => {
     if (!manuscript) return null;
@@ -434,8 +601,45 @@ export function AuthorStudioWorkspace({ initialBookId }: { initialBookId?: strin
 
   const theaterSpreads = useMemo(() => {
     if (!activeBook || !manuscript) return [];
+    const hasCustomBookSpreads =
+      Array.isArray(activeBook.spreads) &&
+      activeBook.spreads.length > 0 &&
+      (activeBook.spreads.length > 1 ||
+        activeBook.spreads.some((sp) =>
+          [...(sp.leftPage?.elements || []), ...(sp.rightPage?.elements || [])].some(
+            (el) => el.type === "image" || el.type === "caption"
+          )
+        ));
+    if (hasCustomBookSpreads) {
+      return mapBookSpreadsToTheaterPreview(activeBook.spreads, coverTitleInput || activeBook.title);
+    }
     return build3DSpreadsFromManuscript(activeBook, manuscript);
-  }, [activeBook, manuscript]);
+  }, [activeBook, manuscript, coverTitleInput]);
+
+  // Synchronize spread composer inputs when active book or spread index changes
+  useEffect(() => {
+    const currentSpread = activeBook?.spreads?.[spreadIndex];
+    if (currentSpread) {
+      const heading = currentSpread.rightPage?.elements?.find(
+        (el: { type?: string; content?: string }) => el.type === "heading"
+      )?.content;
+      const caption = currentSpread.rightPage?.elements?.find(
+        (el: { type?: string; content?: string }) => el.type === "caption" || el.type === "text"
+      )?.content;
+      setSpreadHeadingInput(heading || activeBook?.title || `Spread ${spreadIndex + 1}`);
+      setSpreadCaptionInput(caption || "Preserved from your Memoria Living Archive.");
+      if (
+        currentSpread.rightPage?.layoutType === "editorial_classic" ||
+        currentSpread.rightPage?.layoutType === "photo_journal" ||
+        currentSpread.rightPage?.layoutType === "fine_art_spread"
+      ) {
+        setTemplateLayout(currentSpread.rightPage.layoutType);
+      }
+    } else if (theaterSpreads[spreadIndex]) {
+      setSpreadHeadingInput(theaterSpreads[spreadIndex].rightHeading);
+      setSpreadCaptionInput(theaterSpreads[spreadIndex].rightBody);
+    }
+  }, [activeBook, spreadIndex, theaterSpreads]);
 
   // Persist exact resume checkpoint on environment/chapter change
   const persistResumeCheckpoint = useCallback(
@@ -797,6 +1001,337 @@ export function AuthorStudioWorkspace({ initialBookId }: { initialBookId?: strin
     }
   };
 
+  // --- Consolidated Book Creation, Cover Design, Memory Curation, Non-Lossy Spreads & Print Handlers ---
+
+  const handleCreateNewBook = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (isGuest) {
+      openAuthModal("login");
+      setStatusMessage("Sign in or create an account to bind and persist custom hardcover editions.");
+      return;
+    }
+    if (!activeSpaceId || !newBookTitle.trim()) return;
+    setErrorMessage(null);
+    setStatusMessage(null);
+    try {
+      const swatchHex = resolveLeatherSwatch(selectedLeatherId).hex;
+      const created = await createBook(activeSpaceId, {
+        title: newBookTitle.trim(),
+        subtitle: newBookSubtitle.trim() || undefined,
+        format: newBookFormat,
+        coverColor: swatchHex,
+        foilStamping: selectedFoilId,
+        coverTitle: newBookTitle.trim(),
+        spineText: newBookTitle.trim(),
+      });
+      await updateBookManuscript(created.id, {
+        metadata: {
+          coverColor: swatchHex,
+          leatherId: selectedLeatherId,
+          foilId: selectedFoilId,
+          bookCategory: newBookCategory,
+        },
+      }).catch(() => undefined);
+
+      setBooks((prev) => [created, ...prev]);
+      setNewBookTitle("");
+      setNewBookSubtitle("");
+      setShowNewBookForm(false);
+      await loadBookManuscript(created.id, activeEnv);
+      setStudioSyncNonce((n) => n + 1);
+      setStatusMessage(`Created edition "${created.title}".`);
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : "Failed to create book edition.");
+    }
+  };
+
+  const handleBindFirstEdition = async () => {
+    if (isGuest) {
+      openAuthModal("login");
+      setStatusMessage("Sign in or create an account to bind your first heirloom edition.");
+      return;
+    }
+    if (!activeSpaceId) return;
+    setErrorMessage(null);
+    try {
+      const swatchHex = resolveLeatherSwatch(selectedLeatherId).hex;
+      const created = await createBook(activeSpaceId, {
+        title: coverTitleInput.trim() || "The Bennett Heritage",
+        subtitle: coverSubtitleInput.trim() || "Volume I • Heirloom Edition",
+        format: bookFormatInput,
+        coverColor: swatchHex,
+        foilStamping: selectedFoilId,
+        coverTitle: coverTitleInput.trim() || "The Bennett Heritage",
+        spineText: spineTextInput.trim() || coverTitleInput.trim() || "MEMORIA",
+      });
+      setBooks([created]);
+      await loadBookManuscript(created.id, activeEnv);
+      setStudioSyncNonce((n) => n + 1);
+      setStatusMessage(`Bound first edition "${created.title}" in this vault.`);
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : "Failed to bind first edition.");
+    }
+  };
+
+  const handleSaveCoverBinding = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!activeBook || !manuscript) return;
+    const swatch = resolveLeatherSwatch(selectedLeatherId);
+    const nextMeta = {
+      ...manuscript.metadata,
+      coverColor: swatch.hex,
+      leatherId: selectedLeatherId,
+      foilId: selectedFoilId,
+    };
+    setManuscript({ ...manuscript, metadata: nextMeta });
+
+    if (isGuest) {
+      setActiveBook({
+        ...activeBook,
+        title: coverTitleInput.trim() || activeBook.title,
+        coverTitle: coverTitleInput.trim() || activeBook.coverTitle,
+        subtitle: coverSubtitleInput.trim() || undefined,
+        spineText: spineTextInput.trim() || coverTitleInput.trim(),
+        coverColor: swatch.hex,
+        foilStamping: selectedFoilId,
+        format: bookFormatInput,
+      });
+      setStudioSyncNonce((n) => n + 1);
+      setStatusMessage("Updated local cover & binding preview.");
+      return;
+    }
+
+    setErrorMessage(null);
+    try {
+      const updated = await apiRequest<{ book?: BookDTO } | BookDTO>(`/books/${activeBook.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          coverTitle: coverTitleInput.trim() || activeBook.title,
+          subtitle: coverSubtitleInput.trim() || undefined,
+          spineText: spineTextInput.trim() || coverTitleInput.trim() || activeBook.title,
+          coverColor: swatch.hex,
+          foilStamping: selectedFoilId,
+          format: bookFormatInput,
+        }),
+      });
+      const book = "book" in updated && updated.book ? updated.book : (updated as BookDTO);
+      await updateBookManuscript(book.id, { metadata: nextMeta }).catch(() => undefined);
+      setActiveBook(book);
+      setBooks((prev) => prev.map((b) => (b.id === book.id ? book : b)));
+      setStudioSyncNonce((n) => n + 1);
+      setStatusMessage("Saved heirloom cover & binding customization.");
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : "Failed to save cover changes.");
+    }
+  };
+
+  const handleCurateMemoriesIntoBook = async () => {
+    if (!activeBook || selectedMemoryIds.length === 0) return;
+    if (isGuest) {
+      openAuthModal("login");
+      setStatusMessage("Sign in to curate Memory Archive entries into book spreads.");
+      return;
+    }
+    setErrorMessage(null);
+    setStatusMessage(null);
+    try {
+      const chosen = spaceMemories.filter((m) => selectedMemoryIds.includes(m.id));
+      const updated = await curateBookMemories(
+        activeBook.id,
+        chosen.map((m) => ({
+          id: m.id,
+          title: m.title,
+          content: m.content,
+          capturedAt: m.capturedAt,
+        })),
+        templateLayout
+      );
+      setActiveBook(updated);
+      setBooks((prev) => prev.map((b) => (b.id === updated.id ? updated : b)));
+      setSelectedMemoryIds([]);
+      setStudioSyncNonce((n) => n + 1);
+      setStatusMessage(`Compiled ${chosen.length} curated memories into chronological book spreads.`);
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : "Failed to curate memories.");
+    }
+  };
+
+  const handleSaveSpreadNonLossy = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeBook) return;
+    if (isGuest) {
+      openAuthModal("login");
+      setStatusMessage("Sign in to save interior spread layouts.");
+      return;
+    }
+    setErrorMessage(null);
+    setStatusMessage(null);
+
+    const existingSpread = activeBook.spreads?.[spreadIndex] || activeBook.spreads?.[0];
+    const spreadId = existingSpread?.id || crypto.randomUUID();
+    const rightPageId = existingSpread?.rightPage?.id || crypto.randomUUID();
+
+    // Non-lossy merge: preserves all existing images, shapes, extra text elements, and crops!
+    const mergedElements = mergeSpreadPageElementsNonLossy(
+      existingSpread?.rightPage?.elements as RawSpreadElement[] | undefined,
+      {
+        heading: spreadHeadingInput,
+        caption: spreadCaptionInput,
+        focalPoint: focalPreset,
+      }
+    );
+
+    const resolvedPageLayout =
+      templateLayout === "fine_art_spread"
+        ? "full_bleed_single"
+        : templateLayout === "photo_journal"
+          ? "photo_with_story"
+          : "editorial_chapter_title";
+
+    try {
+      const updatedSpread = await apiRequest<BookDTO["spreads"][number]>(
+        `/books/${activeBook.id}/spreads/${spreadId}`,
+        {
+          method: "PUT",
+          body: JSON.stringify({
+            spreadIndex: existingSpread?.spreadIndex ?? spreadIndex,
+            leftPage: existingSpread?.leftPage ?? null,
+            rightPage: {
+              id: rightPageId,
+              pageNumber: existingSpread?.rightPage?.pageNumber ?? spreadIndex * 2 + 2,
+              layoutType: resolvedPageLayout,
+              backgroundColor: existingSpread?.rightPage?.backgroundColor || "#F7F4EE",
+              elements: mergedElements,
+            },
+          }),
+        }
+      );
+
+      const spreadsCopy = [...(activeBook.spreads || [])];
+      const existingIdx = spreadsCopy.findIndex((s) => s.id === spreadId);
+      if (existingIdx >= 0) {
+        spreadsCopy[existingIdx] = updatedSpread;
+      } else {
+        spreadsCopy[spreadIndex] = updatedSpread;
+      }
+      const nextBook: BookDTO = { ...activeBook, spreads: spreadsCopy };
+      setActiveBook(nextBook);
+      setBooks((prev) => prev.map((b) => (b.id === nextBook.id ? nextBook : b)));
+      setStudioSyncNonce((n) => n + 1);
+      setStatusMessage("Updated interior spread layout.");
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : "Failed to update spread.");
+    }
+  };
+
+  const handleMoveSpread = async (idx: number, dir: -1 | 1) => {
+    if (!activeBook || isGuest) return;
+    const spreads = [...(activeBook.spreads || [])];
+    const target = idx + dir;
+    if (target < 0 || target >= spreads.length) return;
+    const [item] = spreads.splice(idx, 1);
+    spreads.splice(target, 0, item);
+    try {
+      const updated = await reorderBookSpreads(
+        activeBook.id,
+        spreads.map((s) => s.id)
+      );
+      setActiveBook(updated);
+      setBooks((prev) => prev.map((b) => (b.id === updated.id ? updated : b)));
+      setSpreadIndex(target);
+      setStudioSyncNonce((n) => n + 1);
+      setStatusMessage("Reordered book spreads.");
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : "Failed to reorder spreads.");
+    }
+  };
+
+  const handleRunPreflight = async () => {
+    if (!activeBook || isGuest) {
+      openAuthModal("login");
+      return;
+    }
+    setErrorMessage(null);
+    try {
+      const report = await apiRequest<PreflightReportDTO>(`/books/${activeBook.id}/preflight`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      setPreflight(report);
+      setStatusMessage(
+        report.passed
+          ? "Print preflight passed all cover, margin, spread, and image checks."
+          : "Preflight flagged items to review before freezing."
+      );
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : "Failed to run preflight check.");
+    }
+  };
+
+  const handleLoadProof = async () => {
+    if (!activeBook || isGuest) {
+      openAuthModal("login");
+      return;
+    }
+    setErrorMessage(null);
+    try {
+      const p = await getBookProof(activeBook.id);
+      setProofView({ pageCount: p.pageCount, bleedMm: p.bleedMm, safeMarginMm: p.safeMarginMm });
+      setPreflight(p.preflight);
+      setStatusMessage(`2D Full Book Proof ready (${p.pageCount} pages, ${p.bleedMm}mm bleed).`);
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : "Unable to load 2D proof.");
+    }
+  };
+
+  const handleFreezeEdition = async () => {
+    if (!activeBook || isGuest) {
+      openAuthModal("login");
+      return;
+    }
+    setErrorMessage(null);
+    try {
+      const frozen = await apiRequest<{ book?: BookDTO } | BookDTO>(
+        `/books/${activeBook.id}/freeze`,
+        { method: "POST", body: JSON.stringify({}) }
+      );
+      const book = "book" in frozen && frozen.book ? frozen.book : (frozen as BookDTO);
+      setActiveBook(book);
+      setBooks((prev) => prev.map((b) => (b.id === book.id ? book : b)));
+      const eds = await getBookEditions(book.id).catch(() => editions);
+      setEditions(eds);
+      setStatusMessage("Edition frozen cleanly for heirloom press production.");
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : "Failed to freeze edition.");
+    }
+  };
+
+  const handleCloneEdition = async () => {
+    if (!activeBook || isGuest) {
+      openAuthModal("login");
+      return;
+    }
+    setErrorMessage(null);
+    try {
+      const cloned = await cloneNextBookEdition(activeBook.id);
+      setBooks((prev) => [cloned, ...prev]);
+      await loadBookManuscript(cloned.id, activeEnv);
+      setStudioSyncNonce((n) => n + 1);
+      setStatusMessage(`Created "${cloned.title}" as editable next edition.`);
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : "Unable to clone edition.");
+    }
+  };
+
+  const filteredArchiveMemories = useMemo(() => {
+    if (!sourceProfileId) return spaceMemories;
+    return spaceMemories.filter(
+      (m) =>
+        (m as unknown as { profileId?: string }).profileId === sourceProfileId ||
+        m.tags?.includes(sourceProfileId)
+    );
+  }, [spaceMemories, sourceProfileId]);
+
   if (loading || !activeBook || !manuscript) {
     return (
       <div className="rounded-2xl border border-[#DDD6C8] bg-[#FFFFFF] p-12 text-center">
@@ -808,21 +1343,68 @@ export function AuthorStudioWorkspace({ initialBookId }: { initialBookId?: strin
 
   return (
     <div className="space-y-5" data-testid="author-studio-workspace">
+      {/* Guest Sandbox Mode Notification Bar */}
+      {isGuest && (
+        <div className="bg-[#FAF7F2] rounded-2xl border border-[#E7E2DA] p-4 flex flex-wrap items-center justify-between gap-3 shadow-xs">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-full bg-[#F4EEF3] flex items-center justify-center text-[#76556F] shrink-0">
+              <Sparkles className="w-4 h-4" />
+            </div>
+            <div>
+              <p className="text-xs font-semibold text-[#20242C]">Guest Author Sandbox Mode</p>
+              <p className="text-[11px] text-[#5C5955]">
+                Explore writing, binding customization, and 3D Book Theater freely — or sign in to save manuscripts, curate Memory Archive books, and order archival prints.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => openAuthModal("login")}
+              className="min-h-[38px] px-4 py-1.5 rounded-xl bg-[#76556F] hover:bg-[#63445C] text-white text-xs font-semibold cursor-pointer shadow-xs transition-colors"
+            >
+              Sign In / Register
+            </button>
+            <Link
+              href="/sample-book"
+              className="min-h-[38px] inline-flex items-center px-3.5 py-1.5 rounded-xl bg-white hover:bg-[#F0ECE1] border border-[#E7E2DA] text-[#20242C] text-xs font-medium transition-colors"
+            >
+              3D Sample Reader
+            </Link>
+          </div>
+        </div>
+      )}
+
       {/* Top Author Studio Control Bar */}
       <div className="rounded-2xl border border-[#DDD6C8] bg-[#FFFFFF] px-5 py-3.5 shadow-sm flex flex-wrap items-center justify-between gap-4">
         <div className="flex flex-wrap items-center gap-3">
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <span className="text-[11px] uppercase tracking-[0.18em] font-semibold text-[#76556F]">
                 Memoria Author Studio
               </span>
-              {isGuest && (
-                <span className="text-[11px] px-2 py-0.5 rounded-full bg-[#F7F4EE] border border-[#DDD6C8] text-[#5A606D]">
-                  Guest Draft Sandbox
+              {spaces.length > 1 && (
+                <select
+                  aria-label="Select archive space"
+                  value={activeSpaceId}
+                  onChange={(e) => void loadSpaceBooks(e.target.value)}
+                  className="text-[11px] px-2 py-0.5 rounded-md bg-[#F7F4EE] border border-[#DDD6C8] text-[#20242C]"
+                >
+                  {spaces.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
+              )}
+              {activeBook.isFrozenForPrint && (
+                <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-[#EEF2ED] border border-[#B6DBC7] text-[#22593E] font-medium">
+                  <Lock className="w-3 h-3" />
+                  Frozen for Print
                 </span>
               )}
             </div>
-            <div className="flex items-center gap-2 mt-0.5">
+            <div className="flex flex-wrap items-center gap-2 mt-0.5">
               {books.length > 1 ? (
                 <select
                   aria-label="Select book manuscript"
@@ -840,7 +1422,8 @@ export function AuthorStudioWorkspace({ initialBookId }: { initialBookId?: strin
                 <h2 className="text-lg font-serif font-semibold text-[#20242C]">{activeBook.title}</h2>
               )}
               <span className="text-xs text-[#6B7280]">
-                • {manuscript.chapters.length} sections • {manuscript.totalWordCount.toLocaleString()} words
+                • {manuscript.chapters.length} sections • {manuscript.totalWordCount.toLocaleString()} words •{" "}
+                {activeBook.spreads?.length || theaterSpreads.length} spreads
               </span>
             </div>
           </div>
@@ -873,8 +1456,8 @@ export function AuthorStudioWorkspace({ initialBookId }: { initialBookId?: strin
           })}
         </nav>
 
-        {/* Persistence & Quick Links */}
-        <div className="flex items-center gap-3">
+        {/* Persistence & New Book CTA */}
+        <div className="flex items-center gap-2.5">
           <div className="flex items-center gap-1.5 text-xs text-[#5A606D]">
             {saveState === "saving" && <RefreshCw className="w-3.5 h-3.5 animate-spin text-[#76556F]" />}
             {saveState === "saved" && <CloudCheck className="w-3.5 h-3.5 text-[#5F735E]" />}
@@ -887,14 +1470,123 @@ export function AuthorStudioWorkspace({ initialBookId }: { initialBookId?: strin
                   : "All changes saved"}
             </span>
           </div>
-          <Link
-            href="/studio"
-            className="text-xs font-medium px-3 py-1.5 rounded-lg border border-[#DDD6C8] bg-[#F7F4EE] text-[#20242C] hover:bg-[#EFEAE0]"
+          <button
+            type="button"
+            data-testid="author-new-book-toggle"
+            onClick={() => setShowNewBookForm((v) => !v)}
+            className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-[#76556F] text-[#FFFFFF] hover:bg-[#64465E]"
           >
-            3D Workstation
-          </Link>
+            <Plus className="w-3.5 h-3.5" />
+            New Book
+          </button>
         </div>
       </div>
+
+      {/* Inline New Book Creation Drawer (Supports Manuscripts & Photo-Led Memory Books) */}
+      {showNewBookForm && (
+        <form
+          onSubmit={(e) => void handleCreateNewBook(e)}
+          className="rounded-2xl border border-[#76556F]/30 bg-[#FFFFFF] p-5 shadow-sm grid grid-cols-1 md:grid-cols-12 gap-3 items-end"
+        >
+          <div className="md:col-span-4">
+            <label htmlFor="new-book-title" className="block text-xs font-semibold text-[#20242C] mb-1">
+              New Book Title
+            </label>
+            <input
+              id="new-book-title"
+              type="text"
+              required
+              placeholder="e.g., Vance Family Almanac"
+              value={newBookTitle}
+              onChange={(e) => setNewBookTitle(e.target.value)}
+              className="w-full text-xs px-3 py-2 rounded-lg border border-[#DDD6C8] bg-[#FBF9F5] text-[#20242C]"
+            />
+          </div>
+          <div className="md:col-span-3">
+            <label htmlFor="new-book-category" className="block text-xs font-semibold text-[#20242C] mb-1">
+              Book Category
+            </label>
+            <select
+              id="new-book-category"
+              value={newBookCategory}
+              onChange={(e) => setNewBookCategory(e.target.value)}
+              className="w-full text-xs px-3 py-2 rounded-lg border border-[#DDD6C8] bg-[#FBF9F5] text-[#20242C]"
+            >
+              {BOOK_CATEGORIES.map((cat) => (
+                <option key={cat.id} value={cat.id}>
+                  {cat.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="md:col-span-2">
+            <label htmlFor="new-book-format" className="block text-xs font-semibold text-[#20242C] mb-1">
+              Hardcover Format
+            </label>
+            <select
+              id="new-book-format"
+              value={newBookFormat}
+              onChange={(e) => setNewBookFormat(e.target.value as BookDTO["format"])}
+              className="w-full text-xs px-3 py-2 rounded-lg border border-[#DDD6C8] bg-[#FBF9F5] text-[#20242C]"
+            >
+              <option value="hardcover_standard_8x10">8×10&quot; Archive</option>
+              <option value="hardcover_square_8x8">8×8&quot; Square</option>
+              <option value="hardcover_grand_12x12">12×12&quot; Grand</option>
+            </select>
+          </div>
+          <div className="md:col-span-3 flex items-center gap-2">
+            <button
+              type="submit"
+              className="flex-1 text-xs font-semibold px-3.5 py-2 rounded-lg bg-[#76556F] text-white hover:bg-[#64465E]"
+            >
+              Create Hardcover Edition
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowNewBookForm(false)}
+              className="text-xs px-3 py-2 rounded-lg border border-[#DDD6C8] bg-[#F7F4EE] text-[#20242C]"
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      )}
+
+      {books.length === 0 && !isGuest && (
+        <div className="rounded-2xl border border-[#DDD6C8] bg-[#FFFFFF] p-6 flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h3 className="font-serif text-base font-semibold text-[#20242C]">
+              Ready to bind your first heirloom edition?
+            </h3>
+            <p className="text-xs text-[#6B7280]">
+              Start a manuscript or photo-led memory book in this vault space with one click.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void handleBindFirstEdition()}
+            className="px-4 py-2 rounded-xl bg-[#76556F] text-white text-xs font-semibold hover:bg-[#64465E]"
+          >
+            Bind First Edition from Vault
+          </button>
+        </div>
+      )}
+
+      {errorMessage && (
+        <div
+          role="alert"
+          className="rounded-xl border border-[#F5C6C6] bg-[#FDF2F2] px-4 py-2.5 text-xs text-[#9A3412] flex items-center justify-between"
+        >
+          <span>{errorMessage}</span>
+          <button
+            type="button"
+            onClick={() => setErrorMessage(null)}
+            className="text-[#9A3412] font-semibold"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {statusMessage && (
         <div className="rounded-xl border border-[#849483]/40 bg-[#F4F7F3] px-4 py-2.5 text-xs text-[#20242C] flex items-center justify-between">
@@ -1144,6 +1836,101 @@ export function AuthorStudioWorkspace({ initialBookId }: { initialBookId?: strin
               </div>
             ))}
           </div>
+
+          {/* Memory Archive Curation — Add from Memory Archive */}
+          <section className="pt-5 border-t border-[#E7E2DA] space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h4 className="text-base font-serif font-semibold text-[#20242C] flex items-center gap-2">
+                  <Layers className="w-4 h-4 text-[#76556F]" />
+                  Memory Curation — Add from Memory Archive
+                </h4>
+                <p className="text-xs text-[#6B7280]">
+                  Select photographs and stories from your Memory Archive to compile chronological visual spreads inside this book.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <select
+                  id="curate-profile"
+                  aria-label="Filter memories by profile"
+                  value={sourceProfileId}
+                  onChange={(e) => setSourceProfileId(e.target.value)}
+                  className="text-xs px-3 py-1.5 rounded-lg border border-[#DDD6C8] bg-[#F7F4EE] text-[#20242C]"
+                >
+                  <option value="">All Archive Profiles</option>
+                  {spaceProfiles.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  id="curate-template"
+                  aria-label="Spread layout template"
+                  value={templateLayout}
+                  onChange={(e) => setTemplateLayout(e.target.value as typeof templateLayout)}
+                  className="text-xs px-3 py-1.5 rounded-lg border border-[#DDD6C8] bg-[#F7F4EE] text-[#20242C]"
+                >
+                  <option value="editorial_classic">Editorial Classic</option>
+                  <option value="photo_journal">Photo Journal</option>
+                  <option value="fine_art_spread">Fine Art Spread</option>
+                </select>
+                <button
+                  type="button"
+                  disabled={selectedMemoryIds.length === 0 || activeBook.isFrozenForPrint}
+                  onClick={() => void handleCurateMemoriesIntoBook()}
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold px-3.5 py-1.5 rounded-lg bg-[#20242C] text-white hover:bg-[#343A46] disabled:opacity-40"
+                >
+                  Auto-Compile Selected ({selectedMemoryIds.length})
+                </button>
+              </div>
+            </div>
+
+            {filteredArchiveMemories.length === 0 ? (
+              <p className="text-xs text-[#6B7280] italic">
+                No memories found in this archive space yet. Preserve memories in{" "}
+                <Link href="/archive" className="text-[#76556F] underline">
+                  Living Archive
+                </Link>{" "}
+                to curate photo-led spreads here.
+              </p>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 max-h-64 overflow-y-auto pr-1">
+                {filteredArchiveMemories.map((mem) => {
+                  const checked = selectedMemoryIds.includes(mem.id);
+                  return (
+                    <label
+                      key={mem.id}
+                      className={`flex items-start gap-2.5 p-3 rounded-xl border cursor-pointer transition-colors ${
+                        checked
+                          ? "border-[#76556F] bg-[#F4EEF3]"
+                          : "border-[#E7E2DA] bg-[#FBF9F5] hover:bg-[#F7F4EE]"
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedMemoryIds((prev) => [...prev, mem.id]);
+                          } else {
+                            setSelectedMemoryIds((prev) => prev.filter((id) => id !== mem.id));
+                          }
+                        }}
+                        className="mt-0.5 accent-[#76556F]"
+                      />
+                      <div className="min-w-0">
+                        <p className="text-xs font-semibold text-[#20242C] truncate">{mem.title}</p>
+                        <p className="text-[11px] text-[#6B7280] line-clamp-2 mt-0.5">
+                          {mem.content || "Archival memory entry"}
+                        </p>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+          </section>
         </div>
       )}
 
@@ -1153,11 +1940,44 @@ export function AuthorStudioWorkspace({ initialBookId }: { initialBookId?: strin
           <div className="rounded-2xl border border-[#DDD6C8] bg-[#FFFFFF] p-6 shadow-sm space-y-5">
             <div>
               <h3 className="text-lg font-serif font-semibold text-[#20242C]">
-                Trim Size & Living Archive Typography
+                Trim Size &amp; Living Archive Typography
               </h3>
               <p className="text-xs text-[#6B7280]">
-                Choose archival book proportions and serif/editorial typography presets.
+                Choose your book category (including Photo-Led Memory Books), archival trim proportions, and editorial typography.
               </p>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-xs font-semibold uppercase tracking-wider text-[#76556F]">
+                Book Category / Genre
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                {BOOK_CATEGORIES.map((cat) => {
+                  const activeCat = (manuscript.metadata?.bookCategory as string) || "heirloom_manuscript";
+                  return (
+                    <button
+                      key={cat.id}
+                      type="button"
+                      onClick={() => {
+                        const nextMeta = { ...manuscript.metadata, bookCategory: cat.id };
+                        setManuscript({ ...manuscript, metadata: nextMeta });
+                        if (!isGuest) {
+                          void updateBookManuscript(activeBook.id, { metadata: nextMeta });
+                        }
+                        setStatusMessage(`Book category set to "${cat.label}".`);
+                      }}
+                      className={`text-left p-3 rounded-xl border transition-colors ${
+                        activeCat === cat.id
+                          ? "border-[#76556F] bg-[#F7F4EE]"
+                          : "border-[#E7E2DA] bg-[#FFFFFF] hover:bg-[#FBF9F5]"
+                      }`}
+                    >
+                      <div className="text-xs font-semibold text-[#20242C]">{cat.label}</div>
+                      <p className="text-[11px] text-[#6B7280] mt-0.5">{cat.note}</p>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
             <div className="space-y-2">
@@ -1215,17 +2035,74 @@ export function AuthorStudioWorkspace({ initialBookId }: { initialBookId?: strin
             </div>
           </div>
 
-          <div className="rounded-2xl border border-[#DDD6C8] bg-[#FFFFFF] p-6 shadow-sm space-y-5">
+          <form
+            onSubmit={(e) => void handleSaveCoverBinding(e)}
+            className="rounded-2xl border border-[#DDD6C8] bg-[#FFFFFF] p-6 shadow-sm space-y-5"
+          >
             <div>
               <h3 className="text-lg font-serif font-semibold text-[#20242C]">
-                Front Matter & Heirloom Binding
+                Cover Designer, Spine &amp; Heirloom Binding
               </h3>
               <p className="text-xs text-[#6B7280]">
-                Author metadata and physical binding swatches shared with the 3D Book Theater.
+                Customize cover title, spine inscription, hardcover format, cloth/leather swatch, foil stamping, and front matter.
               </p>
             </div>
 
-            <div className="space-y-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label htmlFor="cover-title-input" className="block text-xs font-medium text-[#20242C] mb-1">
+                  Cover Title
+                </label>
+                <input
+                  id="cover-title-input"
+                  type="text"
+                  value={coverTitleInput}
+                  onChange={(e) => setCoverTitleInput(e.target.value)}
+                  className="w-full text-sm px-3 py-2 rounded-lg border border-[#DDD6C8] bg-[#FBF9F5] text-[#20242C]"
+                />
+              </div>
+              <div>
+                <label htmlFor="cover-spine-input" className="block text-xs font-medium text-[#20242C] mb-1">
+                  Spine Inscription
+                </label>
+                <input
+                  id="cover-spine-input"
+                  type="text"
+                  value={spineTextInput}
+                  onChange={(e) => setSpineTextInput(e.target.value)}
+                  className="w-full text-sm px-3 py-2 rounded-lg border border-[#DDD6C8] bg-[#FBF9F5] text-[#20242C]"
+                />
+              </div>
+              <div>
+                <label htmlFor="cover-subtitle-input" className="block text-xs font-medium text-[#20242C] mb-1">
+                  Cover Subtitle
+                </label>
+                <input
+                  id="cover-subtitle-input"
+                  type="text"
+                  value={coverSubtitleInput}
+                  onChange={(e) => setCoverSubtitleInput(e.target.value)}
+                  className="w-full text-sm px-3 py-2 rounded-lg border border-[#DDD6C8] bg-[#FBF9F5] text-[#20242C]"
+                />
+              </div>
+              <div>
+                <label htmlFor="cover-format-select" className="block text-xs font-medium text-[#20242C] mb-1">
+                  Hardcover Print Format
+                </label>
+                <select
+                  id="cover-format-select"
+                  value={bookFormatInput}
+                  onChange={(e) => setBookFormatInput(e.target.value as BookDTO["format"])}
+                  className="w-full text-sm px-3 py-2 rounded-lg border border-[#DDD6C8] bg-[#FBF9F5] text-[#20242C]"
+                >
+                  <option value="hardcover_square_8x8">Square Heirloom 8×8&quot;</option>
+                  <option value="hardcover_standard_8x10">Standard Archive 8×10&quot;</option>
+                  <option value="hardcover_grand_12x12">Grand Estate 12×12&quot;</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="space-y-3 pt-2 border-t border-[#E7E2DA]">
               <div>
                 <label className="block text-xs font-medium text-[#20242C] mb-1">Author Name</label>
                 <input
@@ -1320,12 +2197,21 @@ export function AuthorStudioWorkspace({ initialBookId }: { initialBookId?: strin
                   ))}
                 </div>
               </div>
+
+              <button
+                type="submit"
+                disabled={activeBook.isFrozenForPrint}
+                className="w-full mt-2 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-[#76556F] hover:bg-[#64465E] text-white text-xs font-semibold disabled:opacity-50"
+              >
+                <Save className="w-3.5 h-3.5" />
+                Save Cover &amp; Binding
+              </button>
             </div>
-          </div>
+          </form>
         </div>
       )}
 
-      {/* ENVIRONMENT 4: PREVIEW / BOOK THEATER */}
+      {/* ENVIRONMENT 4: PREVIEW / BOOK THEATER & SPREAD COMPOSER */}
       {activeEnv === "preview" && (
         <div className="space-y-4">
           <div className="rounded-2xl border border-[#DDD6C8] bg-[#FFFFFF] px-5 py-3.5 shadow-sm flex flex-wrap items-center justify-between gap-3">
@@ -1335,10 +2221,35 @@ export function AuthorStudioWorkspace({ initialBookId }: { initialBookId?: strin
                 Live 3D Book Theater — Manuscript Preview
               </h3>
               <p className="text-xs text-[#6B7280]">
-                Rendering {theaterSpreads.length} live spread(s) directly from your {manuscript.chapters.length} manuscript chapters.
+                Rendering {theaterSpreads.length} live spread(s) from your book with interactive page turns and non-lossy spread editing.
               </p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-1 bg-[#F7F4EE] p-1 rounded-lg border border-[#E7E2DA]">
+                <Compass className="w-3.5 h-3.5 text-[#76556F] ml-1" />
+                {BOOK_CAMERA_PRESETS.map((preset) => (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    onClick={() => setCameraPreset(preset.id)}
+                    className={`px-2 py-1 rounded text-[11px] font-medium transition-colors ${
+                      cameraPreset === preset.id
+                        ? "bg-[#20242C] text-white"
+                        : "text-[#5C5955] hover:bg-[#EFEAE0]"
+                    }`}
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+              <button
+                type="button"
+                onClick={() => setIs2DMode((v) => !v)}
+                className="inline-flex items-center gap-1 text-xs font-medium px-3 py-1.5 rounded-lg border border-[#DDD6C8] bg-[#F7F4EE] text-[#20242C]"
+              >
+                <Eye className="w-3.5 h-3.5" />
+                {is2DMode ? "3D Theater" : "2D Proof"}
+              </button>
               <button
                 type="button"
                 onClick={() => setIsBookOpen((o) => !o)}
@@ -1357,28 +2268,300 @@ export function AuthorStudioWorkspace({ initialBookId }: { initialBookId?: strin
             </div>
           </div>
 
-          <div className="rounded-2xl border border-[#DDD6C8] bg-[#FFFFFF] overflow-hidden shadow-sm">
-            <ClientStudioMount
-              bookId={activeBook.id}
-              title={activeBook.title}
-              subtitle={activeBook.subtitle || manuscript.authorName}
-              spineText={activeBook.spineText || activeBook.title}
-              selectedLeatherId={selectedLeatherId}
-              selectedFoilId={selectedFoilId}
-              isOpen={isBookOpen}
-              onToggleOpen={() => setIsBookOpen((o) => !o)}
-              spreads={theaterSpreads}
-              currentSpreadIndex={spreadIndex}
-              onSpreadIndexChange={setSpreadIndex}
-              hideSidebar={true}
-            />
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+            {/* Expansive 7-Column 3D Book Theater Canvas */}
+            <div className="lg:col-span-7 rounded-2xl border border-[#DDD6C8] bg-[#FFFFFF] overflow-hidden shadow-sm">
+              <ClientStudioMount
+                bookId={activeBook.id}
+                refreshKey={studioSyncNonce}
+                title={coverTitleInput || activeBook.title}
+                subtitle={coverSubtitleInput || activeBook.subtitle || manuscript.authorName}
+                spineText={spineTextInput || activeBook.spineText || activeBook.title}
+                selectedLeatherId={selectedLeatherId}
+                selectedFoilId={selectedFoilId}
+                isOpen={isBookOpen}
+                onToggleOpen={() => setIsBookOpen((o) => !o)}
+                is2DMode={is2DMode}
+                onToggle2DMode={setIs2DMode}
+                cameraPreset={cameraPreset}
+                onCameraPresetChange={setCameraPreset}
+                spreads={theaterSpreads}
+                currentSpreadIndex={spreadIndex}
+                onSpreadIndexChange={setSpreadIndex}
+                hideSidebar={true}
+                hideHud={true}
+              />
+              <div className="px-4 py-3 border-t border-[#E7E2DA] bg-[#FAF8F4] flex items-center justify-between text-xs">
+                <button
+                  type="button"
+                  disabled={spreadIndex <= 0}
+                  onClick={() => setSpreadIndex((i) => Math.max(0, i - 1))}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-[#DDD6C8] bg-white text-[#20242C] disabled:opacity-40"
+                >
+                  <ChevronLeft className="w-3.5 h-3.5" />
+                  Prev Spread
+                </button>
+                <span className="font-medium text-[#20242C]">
+                  Spread {spreadIndex + 1} of {Math.max(1, theaterSpreads.length)}
+                </span>
+                <button
+                  type="button"
+                  disabled={spreadIndex >= theaterSpreads.length - 1}
+                  onClick={() => setSpreadIndex((i) => Math.min(theaterSpreads.length - 1, i + 1))}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-[#DDD6C8] bg-white text-[#20242C] disabled:opacity-40"
+                >
+                  Next Spread
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+
+            {/* 5-Column Non-Lossy Spread Composition & Focal-Point Inspector */}
+            <aside className="lg:col-span-5 rounded-2xl border border-[#DDD6C8] bg-[#FFFFFF] p-5 shadow-sm space-y-4">
+              <div>
+                <h4 className="text-base font-serif font-semibold text-[#20242C]">
+                  Spread Composition &amp; Focal Point
+                </h4>
+                <p className="text-xs text-[#6B7280]">
+                  Edit the active spread heading, caption, template, and focal point while preserving all placed photographs and elements.
+                </p>
+              </div>
+
+              <form onSubmit={(e) => void handleSaveSpreadNonLossy(e)} className="space-y-3">
+                <div>
+                  <label htmlFor="spread-heading" className="block text-xs font-medium text-[#20242C] mb-1">
+                    Spread Heading
+                  </label>
+                  <input
+                    id="spread-heading"
+                    type="text"
+                    value={spreadHeadingInput}
+                    onChange={(e) => setSpreadHeadingInput(e.target.value)}
+                    className="w-full text-xs px-3 py-2 rounded-lg border border-[#DDD6C8] bg-[#FBF9F5] text-[#20242C]"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="spread-caption" className="block text-xs font-medium text-[#20242C] mb-1">
+                    Spread Story / Caption
+                  </label>
+                  <textarea
+                    id="spread-caption"
+                    rows={3}
+                    value={spreadCaptionInput}
+                    onChange={(e) => setSpreadCaptionInput(e.target.value)}
+                    className="w-full text-xs px-3 py-2 rounded-lg border border-[#DDD6C8] bg-[#FBF9F5] text-[#20242C]"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div>
+                    <label htmlFor="spread-layout" className="block text-xs font-medium text-[#20242C] mb-1">
+                      Layout Template
+                    </label>
+                    <select
+                      id="spread-layout"
+                      value={templateLayout}
+                      onChange={(e) => setTemplateLayout(e.target.value as typeof templateLayout)}
+                      className="w-full text-xs px-2.5 py-2 rounded-lg border border-[#DDD6C8] bg-[#FBF9F5] text-[#20242C]"
+                    >
+                      <option value="editorial_classic">Editorial Classic</option>
+                      <option value="photo_journal">Photo Journal</option>
+                      <option value="fine_art_spread">Fine Art Spread</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label htmlFor="spread-focal" className="block text-xs font-medium text-[#20242C] mb-1">
+                      Image Focal Point
+                    </label>
+                    <select
+                      id="spread-focal"
+                      value={focalPreset}
+                      onChange={(e) => setFocalPreset(e.target.value as typeof focalPreset)}
+                      className="w-full text-xs px-2.5 py-2 rounded-lg border border-[#DDD6C8] bg-[#FBF9F5] text-[#20242C]"
+                    >
+                      <option value="50% 50%">Center (50% 50%)</option>
+                      <option value="50% 20%">Upper Portrait (50% 20%)</option>
+                      <option value="50% 80%">Lower Horizon (50% 80%)</option>
+                    </select>
+                  </div>
+                </div>
+                <button
+                  type="submit"
+                  disabled={activeBook.isFrozenForPrint}
+                  className="w-full inline-flex items-center justify-center gap-1.5 text-xs font-semibold px-4 py-2.5 rounded-xl bg-[#76556F] text-white hover:bg-[#64465E] disabled:opacity-50"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  Update Spread
+                </button>
+              </form>
+
+              {activeBook.spreads && activeBook.spreads.length > 1 && (
+                <div className="pt-3 border-t border-[#E7E2DA] space-y-2">
+                  <span className="block text-[11px] font-semibold uppercase tracking-wider text-[#76556F]">
+                    Reorder Persisted Spreads
+                  </span>
+                  <div className="space-y-1.5 max-h-40 overflow-y-auto">
+                    {activeBook.spreads.map((sp, idx) => (
+                      <div
+                        key={sp.id}
+                        className={`flex items-center justify-between px-3 py-1.5 rounded-lg border text-xs ${
+                          idx === spreadIndex
+                            ? "border-[#76556F] bg-[#F4EEF3]"
+                            : "border-[#E7E2DA] bg-[#FBF9F5]"
+                        }`}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => setSpreadIndex(idx)}
+                          className="text-left font-medium text-[#20242C] truncate"
+                        >
+                          Spread {idx + 1}
+                        </button>
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            disabled={idx === 0 || activeBook.isFrozenForPrint}
+                            onClick={() => void handleMoveSpread(idx, -1)}
+                            className="p-1 rounded border border-[#DDD6C8] bg-white disabled:opacity-40"
+                            title="Move spread up"
+                          >
+                            <ArrowUp className="w-3 h-3" />
+                          </button>
+                          <button
+                            type="button"
+                            disabled={idx === activeBook.spreads.length - 1 || activeBook.isFrozenForPrint}
+                            onClick={() => void handleMoveSpread(idx, 1)}
+                            className="p-1 rounded border border-[#DDD6C8] bg-white disabled:opacity-40"
+                            title="Move spread down"
+                          >
+                            <ArrowDown className="w-3 h-3" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </aside>
           </div>
         </div>
       )}
 
-      {/* ENVIRONMENT 5: PUBLISH (Import / Export / Revisions) */}
+      {/* ENVIRONMENT 5: PUBLISH (Preflight / Freeze / Import / Export / Revisions) */}
       {activeEnv === "publish" && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+          {/* Print Preflight, Freeze & Archival Print Production Card */}
+          <div className="lg:col-span-12 rounded-2xl border border-[#DDD6C8] bg-[#FFFFFF] p-6 shadow-sm space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="text-lg font-serif font-semibold text-[#20242C] flex items-center gap-2">
+                  <ShieldCheck className="w-4 h-4 text-[#5F735E]" />
+                  Print Preflight, Edition Freeze &amp; Archival Press
+                </h3>
+                <p className="text-xs text-[#6B7280]">
+                  Validate real spread geometry, cover die bounds, and image assets before freezing an immutable print edition.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => void handleRunPreflight()}
+                  className="inline-flex items-center gap-1.5 text-xs font-medium px-3.5 py-2 rounded-lg border border-[#DDD6C8] bg-[#F7F4EE] text-[#20242C] hover:bg-[#EFEAE0]"
+                >
+                  <ShieldCheck className="w-3.5 h-3.5 text-[#5F735E]" />
+                  Run Preflight
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleLoadProof()}
+                  className="inline-flex items-center gap-1.5 text-xs font-medium px-3.5 py-2 rounded-lg border border-[#DDD6C8] bg-[#F7F4EE] text-[#20242C] hover:bg-[#EFEAE0]"
+                >
+                  <Eye className="w-3.5 h-3.5 text-[#76556F]" />
+                  2D Proof Summary
+                </button>
+                {!activeBook.isFrozenForPrint ? (
+                  <button
+                    type="button"
+                    onClick={() => void handleFreezeEdition()}
+                    className="inline-flex items-center gap-1.5 text-xs font-semibold px-4 py-2 rounded-lg bg-[#20242C] text-white hover:bg-[#343A46]"
+                  >
+                    <Lock className="w-3.5 h-3.5" />
+                    Freeze for Print
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => void handleCloneEdition()}
+                    className="inline-flex items-center gap-1.5 text-xs font-semibold px-4 py-2 rounded-lg bg-[#76556F] text-white hover:bg-[#64465E]"
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                    Clone Next Edition
+                  </button>
+                )}
+                <Link
+                  href="/billing"
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold px-3.5 py-2 rounded-lg bg-[#EEF2ED] border border-[#B6DBC7] text-[#22593E] hover:bg-[#E1EAE0]"
+                >
+                  <Package className="w-3.5 h-3.5" />
+                  Order Printed Copy
+                </Link>
+              </div>
+            </div>
+
+            {proofView && (
+              <div className="rounded-xl bg-[#F7F4EE] border border-[#E7E2DA] px-4 py-2.5 text-xs text-[#20242C] flex flex-wrap gap-4">
+                <span>
+                  <strong>Pages:</strong> {proofView.pageCount}
+                </span>
+                <span>
+                  <strong>Trim Bleed:</strong> {proofView.bleedMm}mm
+                </span>
+                <span>
+                  <strong>Safe Margin:</strong> {proofView.safeMarginMm}mm
+                </span>
+              </div>
+            )}
+
+            {preflight && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                {preflight.checks.map((chk) => (
+                  <div
+                    key={chk.id}
+                    className={`p-3 rounded-xl border text-xs ${
+                      chk.passed
+                        ? "border-[#B6DBC7] bg-[#F4F9F5] text-[#20242C]"
+                        : "border-[#F5C6C6] bg-[#FDF2F2] text-[#9A3412]"
+                    }`}
+                  >
+                    <div className="font-semibold flex items-center gap-1.5">
+                      {chk.passed ? (
+                        <CheckCircle2 className="w-3.5 h-3.5 text-[#22593E]" />
+                      ) : (
+                        <AlertTriangle className="w-3.5 h-3.5 text-[#9A3412]" />
+                      )}
+                      {chk.label}
+                    </div>
+                    <p className="text-[11px] opacity-85 mt-0.5">{chk.detail}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {editions.length > 0 && (
+              <div className="pt-2 border-t border-[#E7E2DA] flex flex-wrap items-center gap-2 text-[11px] text-[#5C5955]">
+                <span className="font-semibold text-[#20242C]">Editions:</span>
+                {editions.map((ed) => (
+                  <span
+                    key={ed.editionNumber}
+                    className="px-2.5 py-1 rounded-full bg-[#F7F4EE] border border-[#E7E2DA]"
+                  >
+                    Ed. {ed.editionNumber} • {ed.status} • {ed.spreadCount} spreads
+                    {ed.editionHash ? ` • ${ed.editionHash.slice(0, 8)}` : ""}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+
           {/* Import & Merge Card */}
           <div className="lg:col-span-6 rounded-2xl border border-[#DDD6C8] bg-[#FFFFFF] p-6 shadow-sm space-y-4">
             <div>

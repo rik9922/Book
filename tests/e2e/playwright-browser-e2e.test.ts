@@ -507,12 +507,18 @@ describe("Interactive Chrome / Playwright DOM, WebGL, SW Offline & 401 Refresh E
     await page.click('button:has-text("Restore")');
     await page.getByText("Restored").first().waitFor({ state: "visible", timeout: 10000 });
 
-    // 6. /studio -> profile filter (PWA-59), template layout (PWA-62), focal-point (PWA-66) -> /billing -> /orders
+    // 6. Legacy /studio compatibility redirect -> Author Studio (/author): create edition, curate from Memory Archive, focal-point spread update, preflight & freeze -> /billing -> /orders
     await page.goto(`${WEB_BASE}/studio`, { waitUntil: "networkidle" });
+    await page.waitForURL((url) => url.pathname === "/author", { timeout: 15000 });
+    await page.locator('[data-testid="author-studio-workspace"]').waitFor({ state: "visible", timeout: 15000 });
+
+    await page.click('[data-testid="author-new-book-toggle"]');
     await page.fill("#new-book-title", "Vance Family Almanac");
     await page.click('button:has-text("Create Hardcover Edition")');
     await page.getByText("Created edition").waitFor({ state: "visible", timeout: 10000 });
 
+    // Curate from Memory Archive inside Structure environment
+    await page.click('[data-testid="author-env-structure"]');
     await page.selectOption("#curate-profile", "");
     await page.selectOption("#curate-template", "photo_journal");
     const firstMemCheckbox = page.locator('section:has-text("Memory Curation") input[type="checkbox"]').first();
@@ -521,9 +527,17 @@ describe("Interactive Chrome / Playwright DOM, WebGL, SW Offline & 401 Refresh E
       await page.click('button:has-text("Auto-Compile Selected")');
       await page.getByText(/Compiled .* curated memories/i).waitFor({ state: "visible", timeout: 10000 });
     }
+
+    // Non-lossy spread composition & focal-point update in Book Theater environment
+    await page.click('[data-testid="author-env-preview"]');
     await page.selectOption("#spread-focal", "50% 20%");
     await page.click('button:has-text("Update Spread")');
     await page.getByText("Updated interior spread layout.").waitFor({ state: "visible", timeout: 10000 });
+
+    // Real preflight & Freeze for Print in Publish environment
+    await page.click('[data-testid="author-env-publish"]');
+    await page.click('button:has-text("Run Preflight")');
+    await page.getByText(/Print preflight passed/i).waitFor({ state: "visible", timeout: 10000 });
     await page.click('button:has-text("Freeze for Print")');
     await page.getByText(/Edition frozen cleanly/i).waitFor({ state: "visible", timeout: 10000 });
 

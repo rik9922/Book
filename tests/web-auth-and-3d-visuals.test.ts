@@ -97,7 +97,7 @@ describe("Memoria 3D Realism & Web App Connectivity Verification Suite", () => {
   test("5. Multi-View Reactive Auth Subscription & Frictionless Navigation", () => {
     const pagesToCheck = [
       "apps/web/src/app/spaces/page.tsx",
-      "apps/web/src/app/studio/page.tsx",
+      "apps/web/src/components/author/AuthorStudioWorkspace.tsx",
       "apps/web/src/components/ArchiveWorkspace.tsx",
       "apps/web/src/app/orders/page.tsx",
       "apps/web/src/app/dashboard/page.tsx",

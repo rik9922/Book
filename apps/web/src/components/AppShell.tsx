@@ -8,7 +8,6 @@ import {
   LayoutGrid,
   Images,
   Users,
-  BookOpen,
   PenTool,
   Settings,
   ShieldCheck,
@@ -39,7 +38,6 @@ const NAV_ITEMS = [
   { href: "/archive", label: "Archive", icon: Images },
   { href: "/circles", label: "Family Circles", icon: Users },
   { href: "/author", label: "Author Studio", icon: PenTool },
-  { href: "/studio", label: "Book Studio", icon: BookOpen },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 

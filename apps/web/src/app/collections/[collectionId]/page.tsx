@@ -91,7 +91,7 @@ export default function CollectionDetailPage() {
           }))
         );
       }
-      router.push("/studio");
+      router.push(`/author?bookId=${book.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create book from collection.");
     } finally {

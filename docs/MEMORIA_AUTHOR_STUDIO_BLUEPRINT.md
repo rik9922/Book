@@ -14,7 +14,7 @@
 
 ## 1. Platform & Product Direction
 
-- **Memoria Author Studio** is a first-class area inside the existing **Memoria Web PWA** (`apps/web`), accessible at `/studio` (and linked from `/dashboard` and `/spaces`).
+- **Memoria Author Studio (`/author`)** is the single unified book-creation and book-design studio inside the **Memoria Web PWA** (`apps/web`), linked from `/`, `/dashboard`, `/spaces`, `/collections`, and `/sample-book`. The legacy standalone Photo Memory Books editor at `/studio` is retired and replaced by a compatibility redirect to `/author` preserving `bookId`, `spaceId`, and `tab`/`env` query parameters. Photo-Led Memory Books remain supported as a first-class book category inside Author Studio with Memory Archive curation and non-lossy spread composition.
 - **Admin Panel Preservation**: The existing Admin Panel (`/admin`) and all 11 admin sections remain strictly preserved and untouched in scope.
 - **Web-PWA-Only Client Architecture**: Native iOS (`apps/ios`), iOS-only package scripts, and the macOS Xcode/Swift CI job (`ios-swift-tests`) are retired and removed after dependency verification. Web 3D GLB assets (`apps/web/public/models/`), shared `@memory-capsule/*` contracts, and all Fastify microservices are preserved.
 

@@ -19,14 +19,14 @@ export default function SampleBookPage() {
               Ready to bind your own family edition?
             </h2>
             <p className="text-xs text-[#5C5955] mt-0.5">
-              Sign in and open the full Book Studio to persist cover customizations, edit spreads, run preflight, and order hardcover prints.
+              Sign in and open Memoria Author Studio to write manuscripts, curate Memory Archive photo books, customize covers, run preflight, and order hardcover prints.
             </p>
           </div>
           <Link
-            href="/studio"
+            href="/author"
             className="min-h-[44px] inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#76556F] hover:bg-[#63445C] text-white text-xs font-semibold"
           >
-            Open Full Book Studio
+            Open Author Studio
             <ArrowRight className="w-4 h-4" aria-hidden="true" />
           </Link>
         </div>

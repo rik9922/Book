@@ -13,6 +13,8 @@ import {
   TypographyPresetSchema,
   createErrorResponse,
   createSuccessResponse,
+  resolveFoilSwatch,
+  resolveLeatherSwatch,
   type BookDocument,
   type BookEditorState,
   type BookRevision,
@@ -298,47 +300,143 @@ export function registerAuthorStudioRoutes(deps: AuthorStudioRouteDeps): void {
   const memRevisions = new Map<string, Array<BookRevision & { snapshot: Record<string, unknown> }>>();
   const memEditorStates = new Map<string, BookEditorState>();
 
+  function escapeHtmlText(text: string): string {
+    return text
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  function buildInitialMetadataFromBook(book: BookDocument): Record<string, unknown> {
+    const leather = resolveLeatherSwatch(book.coverColor);
+    const foil = resolveFoilSwatch(book.foilStamping);
+    const hasCuratedSpreads = book.spreads.some((sp) => {
+      const elements = [
+        ...(sp.leftPage?.elements || []),
+        ...(sp.rightPage?.elements || []),
+      ];
+      return (
+        elements.some((el) => el.type === "image" || el.type === "caption") ||
+        book.spreads.length > 1
+      );
+    });
+    return {
+      coverColor: book.coverColor || leather.hex,
+      leatherId: leather.id,
+      foilId: foil.id,
+      bookCategory: hasCuratedSpreads ? "photo_memory_book" : "heirloom_manuscript",
+      migratedFromLegacySpreads: hasCuratedSpreads,
+    };
+  }
+
+  function extractInitialChaptersFromBook(book: BookDocument): Array<{
+    title: string;
+    subtitle: string | null;
+    contentHtml: string;
+    contentText: string;
+  }> {
+    const extracted: Array<{
+      title: string;
+      subtitle: string | null;
+      contentHtml: string;
+      contentText: string;
+    }> = [];
+
+    for (const sp of book.spreads) {
+      const allEls = [
+        ...(sp.leftPage?.elements || []),
+        ...(sp.rightPage?.elements || []),
+      ];
+      const headingEl = allEls.find((el) => el.type === "heading" && el.content?.trim());
+      const textEls = allEls.filter(
+        (el) => (el.type === "caption" || el.type === "text") && el.content?.trim()
+      );
+      const imageCount = allEls.filter((el) => el.type === "image").length;
+
+      // Skip default single-spread empty boilerplate that only repeats the book title with no prose/images
+      if (
+        book.spreads.length === 1 &&
+        textEls.length === 0 &&
+        imageCount === 0 &&
+        headingEl?.content?.trim() === book.title.trim()
+      ) {
+        continue;
+      }
+
+      if (headingEl || textEls.length > 0 || imageCount > 0) {
+        const title = headingEl?.content?.trim() || `Spread ${sp.spreadIndex + 1}`;
+        const paragraphs = textEls.map((el) => (el.content || "").trim()).filter(Boolean);
+        if (paragraphs.length === 0 && imageCount > 0) {
+          paragraphs.push(`Preserved visual spread (${imageCount} archival photograph${imageCount > 1 ? "s" : ""}).`);
+        }
+        const contentText = paragraphs.join("\n\n");
+        const contentHtml =
+          paragraphs.length > 0
+            ? paragraphs.map((p) => `<p>${escapeHtmlText(p)}</p>`).join("")
+            : "<p></p>";
+        extracted.push({
+          title: title.slice(0, 255),
+          subtitle: imageCount > 0 ? `Spread ${sp.spreadIndex + 1} • ${imageCount} photo${imageCount > 1 ? "s" : ""}` : `Spread ${sp.spreadIndex + 1}`,
+          contentHtml,
+          contentText,
+        });
+      }
+    }
+
+    if (extracted.length > 0) {
+      return extracted;
+    }
+
+    const defaultHtml = "<p>Begin writing your heirloom story here.</p>";
+    return [
+      {
+        title: "Chapter 1",
+        subtitle: null,
+        contentHtml: defaultHtml,
+        contentText: stripHtmlToText(defaultHtml),
+      },
+    ];
+  }
+
   async function ensureManuscript(book: BookDocument): Promise<ManuscriptDocument> {
     if (!dbUrl) {
       let existing = memManuscripts.get(book.id);
       if (!existing) {
         const now = new Date().toISOString();
-        const chId = crypto.randomUUID();
-        const defaultHtml = "<p>Begin writing your heirloom story here.</p>";
-        const defaultText = stripHtmlToText(defaultHtml);
+        const initialMetadata = buildInitialMetadataFromBook(book);
+        const seedChapters = extractInitialChaptersFromBook(book).map((seed, idx) => ({
+          id: crypto.randomUUID(),
+          bookId: book.id,
+          parentId: null,
+          sectionType: "chapter" as const,
+          title: seed.title,
+          subtitle: seed.subtitle,
+          slug: slugifyTitle(seed.title || `chapter-${idx + 1}`),
+          sortOrder: idx,
+          contentJson: htmlToProseMirrorJson(seed.contentHtml),
+          contentHtml: seed.contentHtml,
+          contentText: seed.contentText,
+          wordCount: countWords(seed.contentText),
+          status: "draft" as const,
+          createdAt: now,
+          updatedAt: now,
+        }));
         existing = {
           id: crypto.randomUUID(),
           bookId: book.id,
           spaceId: book.spaceId,
           schemaVersion: "1.0.0",
-          trimSize: "6x9_trade",
+          trimSize: book.format === "hardcover_standard_8x10" ? "8x10_heirloom" : "6x9_trade",
           typographyPreset: "living_archive_serif",
           themePreset: "living_archive_ivory",
           languageCode: "en",
           authorName: "",
           dedication: "",
           epigraph: "",
-          metadata: {},
-          totalWordCount: countWords(defaultText),
-          chapters: [
-            {
-              id: chId,
-              bookId: book.id,
-              parentId: null,
-              sectionType: "chapter",
-              title: "Chapter 1",
-              subtitle: null,
-              slug: "chapter-1",
-              sortOrder: 0,
-              contentJson: htmlToProseMirrorJson(defaultHtml),
-              contentHtml: defaultHtml,
-              contentText: defaultText,
-              wordCount: countWords(defaultText),
-              status: "draft",
-              createdAt: now,
-              updatedAt: now,
-            },
-          ],
+          metadata: initialMetadata,
+          totalWordCount: seedChapters.reduce((sum, c) => sum + c.wordCount, 0),
+          chapters: seedChapters,
           createdAt: now,
           updatedAt: now,
         };
@@ -351,12 +449,14 @@ export function registerAuthorStudioRoutes(deps: AuthorStudioRouteDeps): void {
     let msRow = msRes.rows[0];
     if (!msRow) {
       const msId = crypto.randomUUID();
+      const initialMetadata = buildInitialMetadataFromBook(book);
+      const defaultTrim = book.format === "hardcover_standard_8x10" ? "8x10_heirloom" : "6x9_trade";
       const inserted = await db.query(
-        `INSERT INTO book_manuscripts (id, book_id, space_id)
-         VALUES ($1, $2, $3)
+        `INSERT INTO book_manuscripts (id, book_id, space_id, trim_size, metadata_json)
+         VALUES ($1, $2, $3, $4, $5::jsonb)
          ON CONFLICT (book_id) DO UPDATE SET updated_at = NOW()
          RETURNING *`,
-        [msId, book.id, book.spaceId]
+        [msId, book.id, book.spaceId, defaultTrim, JSON.stringify(initialMetadata)]
       );
       msRow = inserted.rows[0];
     }
@@ -367,19 +467,34 @@ export function registerAuthorStudioRoutes(deps: AuthorStudioRouteDeps): void {
     );
 
     if (chRes.rows.length === 0) {
-      const defaultHtml = "<p>Begin writing your heirloom story here.</p>";
-      const defaultText = stripHtmlToText(defaultHtml);
-      const defaultJson = htmlToProseMirrorJson(defaultHtml);
-      const wc = countWords(defaultText);
-      await db.query(
-        `INSERT INTO book_chapters
-          (id, book_id, section_type, title, slug, sort_order, content_json, content_html, content_text, word_count, status)
-         VALUES ($1, $2, 'chapter', 'Chapter 1', 'chapter-1', 0, $3::jsonb, $4, $5, $6, 'draft')`,
-        [crypto.randomUUID(), book.id, JSON.stringify(defaultJson), defaultHtml, defaultText, wc]
-      );
+      const seeds = extractInitialChaptersFromBook(book);
+      let totalWc = 0;
+      for (let idx = 0; idx < seeds.length; idx += 1) {
+        const seed = seeds[idx];
+        const seedJson = htmlToProseMirrorJson(seed.contentHtml);
+        const wc = countWords(seed.contentText);
+        totalWc += wc;
+        await db.query(
+          `INSERT INTO book_chapters
+            (id, book_id, section_type, title, subtitle, slug, sort_order, content_json, content_html, content_text, word_count, status)
+           VALUES ($1, $2, 'chapter', $3, $4, $5, $6, $7::jsonb, $8, $9, $10, 'draft')`,
+          [
+            crypto.randomUUID(),
+            book.id,
+            seed.title,
+            seed.subtitle,
+            slugifyTitle(seed.title || `chapter-${idx + 1}`),
+            idx,
+            JSON.stringify(seedJson),
+            seed.contentHtml,
+            seed.contentText,
+            wc,
+          ]
+        );
+      }
       await db.query(
         `UPDATE book_manuscripts SET total_word_count = $1, updated_at = NOW() WHERE book_id = $2`,
-        [wc, book.id]
+        [totalWc, book.id]
       );
       chRes = await db.query(
         `SELECT * FROM book_chapters WHERE book_id = $1 ORDER BY sort_order ASC, created_at ASC`,

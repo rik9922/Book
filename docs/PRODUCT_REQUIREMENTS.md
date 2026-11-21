@@ -5,9 +5,9 @@
 Memory Capsule is a premier, privacy-first cross-platform ecosystem designed for the lifelong preservation of meaningful family and personal memories. The platform transcends basic photo-sharing and generic photobooks by integrating:
 1. **Multi-Format Memory Archive**: Preserving photographs, multi-angle albums, 4K video clips, high-fidelity audio/voice recordings, oral history transcriptions, handwritten stories, and historical documents.
 2. **Multi-Generational Collaboration**: Private-by-default memory spaces with fine-grained RBAC (Owner, Editor, Contributor, Viewer) for extended families, close friends, and milestone celebrations.
-3. **Professional Creative Book Studio**: Editorial 2D spread layout studio equipped with typography hierarchies, flexible grid templates, dynamic asset cropping, and version history.
-4. **Photorealistic Interactive 3D Book Experience**: Fully articulated 3D book model simulating authentic materials (cloth, linen, leather, textured paper stock, gold/silver foil stamping) and true physical page-curl mechanics on Web (Three.js/R3F) and native iOS (RealityKit).
-5. **Physical Print Publishing Engine**: Automated print preflight verification (bleed, trim, safe area, gutter compensation, spine calculation, 300+ DPI enforcement) and immutable edition freeze for production fulfillment.
+3. **Memoria Author Studio (`/author`)**: The single unified book-creation and book-design studio supporting manuscripts, Photo-Led Memory Books (via Memory Archive curation), non-lossy spread composition, cover/foil/leather binding design, Tiptap rich-text editing, lossless import/export, and immutable revision history. Legacy `/studio` links redirect seamlessly to `/author`.
+4. **Photorealistic Interactive 3D Book Theater (Web PWA)**: Articulated Three.js / React Three Fiber 3D book model simulating authentic materials (cloth, linen, leather, textured paper stock, gold/silver/rose foil stamping) and physical page-curl mechanics. Native iOS apps are retired.
+5. **Physical Print Publishing Engine**: Real automated print preflight verification (cover die bounds, spread/element count, printable page margin bounds, 300+ DPI image checks) and immutable edition freeze for production fulfillment.
 
 ---
 

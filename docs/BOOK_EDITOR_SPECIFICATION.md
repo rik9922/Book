@@ -1,28 +1,12 @@
-# 2D Book Studio & Spread Editor Specification
+# Memoria Author Studio & Non-Lossy Spread Editor Specification
 
-## 1. 5-Panel Creative Layout Anatomy
+## 1. Consolidated 5-Environment Studio Anatomy (`/author`)
 
-The Book Studio (PWA-64) operates as a high-performance publishing application rather than a form dashboard:
+All book authoring and spread design in Memoria is consolidated into **Memoria Author Studio** (`/author`; legacy `/studio` redirects to `/author` preserving book IDs and query parameters):
 
-```
-+-------------------------------------------------------------------------+
-| Top Bar: Title, Save Status, Undo/Redo, 2D/3D Toggle, Preflight, Share  |
-+------------+---------------------------------------------+--------------+
-|            |                                             |              |
-| Left Panel |             Center Canvas Area              | Right Panel  |
-|            |                                             |              |
-| - Memories |        +---------------------------+        | - Element    |
-| - Layouts  |        |  Left Page  | Right Page  |        |   Inspector  |
-| - Captions |        |  [Spread N] |  [Spread N] |        | - Typography |
-| - Textures |        +---------------------------+        | - Color/Foil |
-|            |                                             | - Alignment  |
-|            |                                             |              |
-+------------+---------------------------------------------+--------------+
-| Bottom Strip: Spread Filmstrip, Page Reordering, Add Spread Button      |
-+-------------------------------------------------------------------------+
-```
-
-## 2. Real-Time Bidirectional Synchronization
-- Edits made on the 2D canvas (resizing an image, cropping a milestone photo, editing a story) update the active Zustand book state.
-- When the user toggles to the **3D Interactive Reader (PWA-68)**, the dynamic WebGL page-curl shader renders the exact modified canvas spread texture without delay.
+1. **Write** — Distraction-free Tiptap/ProseMirror multi-chapter manuscript editor with binder navigation and IndexedDB offline autosave.
+2. **Structure** — Chapter/section architecture plus **Memory Curation ("Add from Memory Archive")** to compile photographs and stories into chronological spreads.
+3. **Design & Format** — Book category selector (including Photo-Led Memory Books), trim size, Living Archive typography presets, cover title, spine inscription, leather/cloth swatches, and foil stamping.
+4. **Book Theater** — Expansive 7/5 workstation pairing the live WebGL **3D Book Theater** (`ExperienceCanvas` / `AccessibleSpreadReader`) with a **Non-Lossy Spread Composer** that updates headings, captions, templates, and image focal points while preserving all existing placed images and elements.
+5. **Publish** — Real automated print preflight validation, 2D proof summary, edition freeze & clone, multi-format import/export (`.memoria`, DOCX, EPUB 3.3, PDF, HTML, MD, TXT), immutable revisions, and print order checkout.
 

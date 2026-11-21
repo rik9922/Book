@@ -679,4 +679,138 @@ describe("Memoria Author Studio — Manuscript, Resume, Revisions, 3D Sync & Imp
       await app.close();
     }
   });
+
+  test("7. Legacy Photo Memory Book Compatibility & Real Print Preflight Validation", async () => {
+    const app = await buildBookService();
+    try {
+      const ownerId = crypto.randomUUID();
+      const spaceId = crypto.randomUUID();
+      const token = signToken(ownerId, "legacy@memoria.internal");
+      await seedSpace(spaceId, ownerId);
+
+      // 1. Create a legacy Photo Memory Book and curate photo-led spreads with images & captions
+      const createRes = await app.inject({
+        method: "POST",
+        url: "/api/v1/books",
+        headers: { authorization: `Bearer ${token}` },
+        payload: {
+          spaceId,
+          title: "Grandma's Garden 1978",
+          subtitle: "Heirloom Photo Album",
+          format: "hardcover_standard_8x10",
+          coverColor: "#304C43",
+          foilStamping: "gold",
+          coverTitle: "Grandma's Garden 1978",
+          spineText: "GARDEN 1978",
+        },
+      });
+      assert.equal(createRes.statusCode, 201);
+      const legacyBook = JSON.parse(createRes.body).data;
+
+      const curateRes = await app.inject({
+        method: "POST",
+        url: `/api/v1/books/${legacyBook.id}/curate`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: {
+          template: "photo_journal",
+          memories: [
+            {
+              id: crypto.randomUUID(),
+              title: "Roses by the Stone Wall",
+              content: "Captured on Kodachrome 64 in June 1978.",
+              capturedAt: "1978-06-14T10:00:00.000Z",
+              mediaIds: ["media-kodachrome-001"],
+            },
+          ],
+        },
+      });
+      assert.equal(curateRes.statusCode, 200);
+      const curatedBook = JSON.parse(curateRes.body).data;
+      assert.ok(curatedBook.spreads.length >= 2, "Curated legacy book must have spreads");
+
+      // 2. Open legacy Photo Memory Book in Author Studio — must preserve spreads AND extract chapters
+      const msRes = await app.inject({
+        method: "GET",
+        url: `/api/v1/books/${legacyBook.id}/manuscript`,
+        headers: { authorization: `Bearer ${token}` },
+      });
+      assert.equal(msRes.statusCode, 200);
+      const msPayload = JSON.parse(msRes.body).data;
+      assert.equal(msPayload.book.spreads.length, curatedBook.spreads.length, "All legacy spreads must remain intact");
+      assert.equal(msPayload.manuscript.metadata.bookCategory, "photo_memory_book");
+      assert.equal(msPayload.manuscript.metadata.migratedFromLegacySpreads, true);
+      assert.ok(
+        msPayload.manuscript.chapters.some((c: any) => c.title.includes("Roses by the Stone Wall")),
+        "Author Studio must extract legacy spread headings/captions into readable chapters"
+      );
+
+      // 3. Real Preflight: valid curated book passes with truthful image count
+      const validPreRes = await app.inject({
+        method: "POST",
+        url: `/api/v1/books/${legacyBook.id}/preflight`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: {},
+      });
+      assert.equal(validPreRes.statusCode, 200);
+      const validPre = JSON.parse(validPreRes.body).data;
+      assert.equal(validPre.passed, true);
+      const imgCheck = validPre.checks.find((c: any) => c.id === "dpi_resolution");
+      assert.ok(imgCheck.detail.includes("1 placed image"), `Expected truthful image count, got: ${imgCheck.detail}`);
+
+      // 4. Real Preflight MUST FAIL when a spread has out-of-bounds element OR low-DPI image
+      const badSpreadId = curatedBook.spreads[1].id;
+      const badPut = await app.inject({
+        method: "PUT",
+        url: `/api/v1/books/${legacyBook.id}/spreads/${badSpreadId}`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: {
+          spreadIndex: 1,
+          leftPage: {
+            id: crypto.randomUUID(),
+            pageNumber: 3,
+            layoutType: "photo_with_story",
+            backgroundColor: "#F7F4EE",
+            elements: [
+              {
+                id: crypto.randomUUID(),
+                type: "image",
+                x: 80,
+                y: 20,
+                width: 40, // x + width = 120 > 100 (margin violation!)
+                height: 40,
+                rotation: 0,
+                zIndex: 1,
+                content: "media-lowres-002",
+                style: { dpi: 150 }, // < 300 DPI violation!
+              },
+            ],
+          },
+          rightPage: null,
+        },
+      });
+      assert.equal(badPut.statusCode, 200);
+
+      const failPreRes = await app.inject({
+        method: "POST",
+        url: `/api/v1/books/${legacyBook.id}/preflight`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: {},
+      });
+      assert.equal(failPreRes.statusCode, 200);
+      const failPre = JSON.parse(failPreRes.body).data;
+      assert.equal(failPre.passed, false, "Preflight must fail on out-of-bounds margins and low-DPI images");
+      assert.equal(
+        failPre.checks.find((c: any) => c.id === "safe_margins")?.passed,
+        false,
+        "safe_margins must fail when element exceeds printable page bounds"
+      );
+      assert.equal(
+        failPre.checks.find((c: any) => c.id === "dpi_resolution")?.passed,
+        false,
+        "dpi_resolution must fail when image is below 300 DPI"
+      );
+    } finally {
+      await app.close();
+    }
+  });
 });

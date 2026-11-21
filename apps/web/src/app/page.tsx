@@ -94,8 +94,8 @@ export default function Home() {
               <Link href="/archive" className="hover:text-[#20242C] transition-colors">
                 Timeline Archive
               </Link>
-              <Link href="/studio" className="hover:text-[#20242C] transition-colors">
-                3D Book Studio
+              <Link href="/author" className="hover:text-[#20242C] transition-colors">
+                Author Studio
               </Link>
               <Link href="/circles" className="hover:text-[#20242C] transition-colors">
                 Family Circles
@@ -154,11 +154,11 @@ export default function Home() {
                 <ArrowRight className="w-4 h-4" />
               </Link>
               <Link
-                href="/studio"
+                href="/author"
                 className="px-6 py-3 rounded-xl bg-white hover:bg-[#F0ECE1] border border-[#E7E2DA] text-[#20242C] font-semibold text-sm transition-all shadow-xs flex items-center gap-2"
               >
                 <BookOpen className="w-4 h-4 text-[#76556F]" />
-                Open 3D Book Studio
+                Open Author Studio
               </Link>
             </div>
 
@@ -230,15 +230,15 @@ export default function Home() {
             </Link>
 
             <Link
-              href="/studio"
+              href="/author"
               className="p-8 rounded-2xl border border-[#E7E2DA] bg-white shadow-xs hover:border-[#8D857A] transition-colors block"
             >
               <div className="w-12 h-12 rounded-xl bg-[#F0ECE1] border border-[#E7E2DA] flex items-center justify-center text-[#20242C] mb-5">
                 <Printer className="w-6 h-6" />
               </div>
-              <h3 className="text-xl font-serif font-bold text-[#20242C] mb-2">Physical Book Publishing</h3>
+              <h3 className="text-xl font-serif font-bold text-[#20242C] mb-2">Author Studio &amp; Book Publishing</h3>
               <p className="text-xs text-[#5C5955] leading-relaxed">
-                With a single click, compile digital capsules into heirloom hardcover editions bound in vegetable-tanned cloth with foil-debossed covers and acid-free pages.
+                Write manuscripts or curate Memory Archive photo books, design foil-debossed hardcover bindings, preview in 3D Book Theater, and export or print heirloom editions.
               </p>
             </Link>
           </section>
